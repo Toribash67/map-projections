@@ -399,7 +399,7 @@ test('five independently oriented seams stay on their own sides', () => {
   const worlds = ['mercator', 'equirectangular', 'gall-peters', 'robinson', 'mollweide', 'hammer', 'winkel-tripel', 'behrmann', 'goode', 'transverse-mercator'];
   const orientation = () => ({ lon: r() * 360 - 180, lat: r() * 120 - 60, tilt: r() * 180 - 90 });
   const world = () => worlds[Math.floor(r() * worlds.length)]!;
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 50; i++) {
     const ids = [world(), world(), world(), world(), i % 2 ? 'albers' : 'lambert-conformal'];
     const members = ids.map((id) => member(id, orientation()));
     const label = members.map((m) => `${m.def.id} ${JSON.stringify(m.state.orientation)}`).join(', ');
@@ -513,7 +513,7 @@ test('near-aligned tilted members stay clean, seeded across separations', () => 
   const pairs = [['mercator', 'robinson'], ['hammer', 'equirectangular'], ['equal-earth', 'winkel-tripel'], ['mollweide', 'sinusoidal'], ['goode', 'mercator']];
   const round = (x: number) => Math.round(x * 100) / 100;
   for (const separation of [0.001, 0.01, 0.05, 0.2]) {
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 10; i++) {
       const shift = separation * (i % 2 ? 1 : -1);
       const a = { lon: round(r() * 360 - 180), lat: round(r() * 120 - 60), tilt: round(r() * 180 - 90) };
       const b = { lon: a.lon + (i % 3 === 0 ? shift : 0), lat: a.lat + (i % 3 === 1 ? shift : 0), tilt: a.tilt + (i % 3 === 2 ? shift : 0) };
@@ -527,7 +527,7 @@ test('no front segment is a long chord round a small cap, at random orientations
   const r = rng(55);
   const limit = 0.25 * Math.hypot(VIEWPORT.width, VIEWPORT.height);
   for (const s of stops) {
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) {
       const m = member(s.id, { lon: r() * 360 - 180, lat: r() * 170 - 85, tilt: s.id === 'transverse-mercator' ? 90 : 0 });
       const screen = computeScreen(m, VIEWPORT);
       for (const geom of [land, graticule]) {

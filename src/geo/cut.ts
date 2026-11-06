@@ -1,15 +1,12 @@
-import { geoArea, geoClipAntimeridian, geoClipCircle, geoDistance, geoInterpolate, geoRotation, geoStream } from 'd3-geo';
+import { geoArea, geoClipAntimeridian, geoClipCircle, geoRotation, geoStream } from 'd3-geo';
 import type { GeoPermissibleObjects, GeoStream } from 'd3-geo';
 import { geoClipPolygon } from 'd3-geo-polygon';
 import type { CompiledProjection, ExcludedCap, Lobe, LonLat } from '../projections/types';
+import { densify, toVector, type Vector } from './densify';
 
 const rad = Math.PI / 180;
 const TAU = 2 * Math.PI;
 
-const MAX_SEGMENT = 2; // degrees
-const MIN_SEGMENT = 0.01; // degrees
-// A step near a singular point spans at most this many radians as seen from it.
-const SINGULAR_STEP = 0.1;
 const SEAM_PULL = 1e-6; // radians
 const SEAM_STEP = Math.PI / 6; // radians
 // Each further lobed seam pulls in half as far, so that its edges stay clear of an earlier seam's
@@ -28,14 +25,19 @@ const LOBE_EDGE_STEP = 30; // degrees
 // meridian, and a round spin puts graticule lines there at ordinary centre longitudes.
 // The first attempt suits nearly everything; the others are for a cut that comes out wrong.
 // Seam order counts too: which seam crosses the others' narrow gaps decides what can go wrong.
+// So does the pull: seams crossing at a very shallow angle run within d3's tolerance of each
+// other for a long way, which only a wider gap gets clear of.
 const ATTEMPTS = [
-  { spin: 37.30681, reverseSeams: false },
-  { spin: 61.71337, reverseSeams: true },
-  { spin: 13.93271, reverseSeams: false },
-  { spin: 83.12459, reverseSeams: true },
+  { spin: 37.30681, reverseSeams: false, pullScale: 1 },
+  { spin: 61.71337, reverseSeams: true, pullScale: 1 },
+  { spin: 13.93271, reverseSeams: false, pullScale: 1 },
+  { spin: 83.12459, reverseSeams: true, pullScale: 1 },
+  { spin: 37.30681, reverseSeams: false, pullScale: 8 },
+  { spin: 61.71337, reverseSeams: true, pullScale: 8 },
 ];
-// How far a cut's total area may drift from the input's. Correct cuts lose at most 2.3e-4, with
-// five seams, to the narrow gaps along them; wrong ones are off by a fair part of the sphere.
+// How far a cut's total area may drift from the input's, at the normal pull. Correct cuts lose
+// at most 2.3e-4, with five seams, to the narrow gaps along them; wrong ones are off by a fair
+// part of the sphere.
 const AREA_TOLERANCE = 5e-4; // steradians
 // A ring reading this close to 4π is a zero-width sliver turned inside out. No real ring can
 // read so: the smallest cap leaves at least 9.6e-6 sr of the sphere uncovered.
@@ -43,9 +45,11 @@ const SLIVER_AREA = 1e-9; // steradians
 // Above this latitude in a frame, longitude says nothing about which side of the seam a point is on.
 const SEAM_CHECK_LAT = 89.9; // degrees
 // Keeps a cap's edge off anything lying exactly on it: the meridian ±180, where Antarctica's
-// ring has an edge, or another member's frame pole. There it has to clear the turn a seam
-// makes round the pole, of radius up to 31 x `SEAM_PULL` with five seams, or the ring crosses itself.
+// ring has an edge, or another member's frame pole. There it also has to clear the turn a seam
+// makes round the pole, or the ring crosses itself, as do a lobe's ends.
 const CAP_PULL = 2.4e-3; // degrees
+// How far past that turn, as a share of its radius, a cap's edge or a lobe's end has to stay.
+const TURN_CLEARANCE = 1.2;
 
 export type Piece = {
   /** A polygon's rings, or a single line. A ring repeats its first point at the end. */
@@ -168,9 +172,9 @@ function aroundCentre(m: CompiledProjection, centre: LonLat, spin: number): Clip
 }
 
 /** Splits a part into the side outside the cap and the side inside it. */
-function splitAtCap(part: Part, m: CompiledProjection, cap: ExcludedCap, key: string, spin: number): Part[] {
+function splitAtCap(part: Part, m: CompiledProjection, cap: ExcludedCap, key: string, spin: number, pull: number): Part[] {
   const [lon, lat] = cap.frameCenter;
-  const radius = cap.radius + CAP_PULL;
+  const radius = cap.radius + pull;
   const child = (inCap: boolean) => (path: Path): Part => ({
     ...part,
     geom: pathGeometry(path),
@@ -244,7 +248,10 @@ function lobePolygon(lobe: Lobe, { lobePull, polePull }: Pulls): GeoJSON.Polygon
     northEdge.push([west + ((east - west) * i) / steps, north]);
     southEdge.push([east - ((east - west) * i) / steps, south]);
   }
-  return { type: 'Polygon', coordinates: [closeRing([...northEdge, ...southEdge])] };
+  // A clip reads what is inside from the ring's first point. A corner will not do: at the frame's
+  // antipode four lobes' corners meet, and any seam sharing that antipode passes right by them.
+  const start: LonLat = [west, (south + north) / 2];
+  return { type: 'Polygon', coordinates: [closeRing([start, ...northEdge, ...southEdge])] };
 }
 
 /**
@@ -290,64 +297,16 @@ function cutSeam(part: Part, m: CompiledProjection, key: string, pulls: Pulls): 
 
 /** Where a member's frame lands, as two probe points; that pins down a rotation. */
 const frameKey = (m: CompiledProjection) => [m.toFrame([0, 0]), m.toFrame([90, 0])];
-/** Two caps with the same key are the same circle on the sphere, whichever members and modes they belong to. */
+/**
+ * Two caps with the same key are one circle on the sphere, whichever members and modes they
+ * belong to. Rounded to 1e-5 radians, or about 60 m: circles closer than that cross at too shallow
+ * an angle for the clips, and a flag that far off a cap's edge makes no difference on a map.
+ */
 function capKey(m: CompiledProjection, cap: ExcludedCap): string {
   const centre = toVector(m.fromFrame(cap.frameCenter));
-  return JSON.stringify([centre.map((v) => +v.toFixed(9)), +cap.radius.toFixed(9)]);
+  return JSON.stringify([centre.map((v) => +v.toFixed(5)), +cap.radius.toFixed(3)]);
 }
 const seamKey = (m: CompiledProjection) => JSON.stringify([frameKey(m), m.def.seam]);
-
-type Vector = [number, number, number];
-
-function toVector([lon, lat]: LonLat): Vector {
-  const cosLat = Math.cos(lat * rad);
-  return [cosLat * Math.cos(lon * rad), cosLat * Math.sin(lon * rad), Math.sin(lat * rad)];
-}
-
-/** Angle in degrees from a point to the nearest of `singular`, or Infinity if there are none. */
-function distanceToNearest(point: LonLat, singular: Vector[]): number {
-  if (singular.length === 0) return Infinity;
-  const v = toVector(point);
-  let closest = -1;
-  for (const s of singular) closest = Math.max(closest, v[0] * s[0] + v[1] * s[1] + v[2] * s[2]);
-  return Math.acos(Math.min(1, closest)) / rad;
-}
-
-/** The longest step (degrees) to take from a point this far from the nearest singular point. */
-const stepAt = (distance: number) =>
-  Math.min(MAX_SEGMENT, Math.max(MIN_SEGMENT, distance * SINGULAR_STEP));
-
-/**
- * Adds great-circle points so that no segment is longer than `MAX_SEGMENT`, and
- * shorter near a singular point. Any map tears or fans out round a cap's centre:
- * a segment passing close by subtends a wide angle there, so its ends land far
- * apart on the map, however short it is on the sphere.
- */
-function densify(path: LonLat[], singular: Vector[]): LonLat[] {
-  const out: LonLat[] = [];
-  path.forEach((point, i) => {
-    if (i > 0) {
-      const previous = path[i - 1]!;
-      const length = geoDistance(previous, point) / rad;
-      const near = distanceToNearest(previous, singular);
-      if (length > stepAt(near)) {
-        const along = geoInterpolate(previous, point);
-        if (stepAt(near - length) >= MAX_SEGMENT) {
-          const steps = Math.ceil(length / MAX_SEGMENT);
-          for (let s = 1; s < steps; s++) out.push(along(s / steps));
-        } else {
-          for (let walked = stepAt(near); walked < length; ) {
-            const next = along(walked / length);
-            out.push(next);
-            walked += stepAt(distanceToNearest(next, singular));
-          }
-        }
-      }
-    }
-    out.push(point);
-  });
-  return out;
-}
 
 function toPieces(part: Part, members: CompiledProjection[], singular: Vector[]): Piece[] {
   const inCapOfMode = (m: CompiledProjection, mode: ExcludedCap['mode']) =>
@@ -373,7 +332,7 @@ function toPieces(part: Part, members: CompiledProjection[], singular: Vector[])
 function cutParts(
   geom: GeoJSON.GeoJsonObject,
   members: CompiledProjection[],
-  { spin, reverseSeams }: (typeof ATTEMPTS)[number],
+  { spin, reverseSeams, pullScale }: (typeof ATTEMPTS)[number],
 ): Part[] {
   let parts: Part[] = [{ geom: geom as GeoPermissibleObjects, inCap: new Map(), lobe: new Map() }];
   const done = new Set<string>();
@@ -383,27 +342,30 @@ function cutParts(
     parts = parts.flatMap(cut);
     return true;
   };
+  let seamsLeft = new Set(members.filter((m) => m.def.seam.kind === 'antimeridian').map(seamKey)).size;
+  // 1, 3, 7, 15, 31 x the base pull, ending at 1. Each exceeds all that later seams can move a
+  // point: their pulls, plus the `SEAM_PULL` that d3 itself shifts a point crossing a seam.
+  const seamPullFor = (left: number) => SEAM_PULL * pullScale * (2 ** Math.max(1, left) - 1);
+  const turnClearance = (TURN_CLEARANCE * seamPullFor(seamsLeft)) / rad;
   // Circles first: a clip around a circle stumbles over narrow gaps left by a seam.
+  const capPull = Math.max(CAP_PULL, turnClearance);
   for (const m of members) {
     for (const cap of m.caps) {
       const key = capKey(m, cap);
-      cutOnce(key, (part) => splitAtCap(part, m, cap, key, spin));
+      cutOnce(key, (part) => splitAtCap(part, m, cap, key, spin, capPull));
     }
   }
   // Lobes last: `geoClipAntimeridian` reads what is inside from the frame's south pole,
   // which can lie in a gap between lobes.
   const isLobed = (m: CompiledProjection) => (m.def.seam.kind === 'lobes' ? 1 : 0);
   const ordered = reverseSeams ? [...members].reverse() : members;
-  let seamsLeft = new Set(members.filter((m) => m.def.seam.kind === 'antimeridian').map(seamKey)).size;
   let lobedCuts = 0;
   for (const m of [...ordered].sort((a, b) => isLobed(a) - isLobed(b))) {
     const key = seamKey(m);
     const pulls: Pulls = {
-      // 1, 3, 7, 15, 31 x `SEAM_PULL`, ending at 1. Each exceeds all that later seams can move a
-      // point: their pulls, plus the `SEAM_PULL` that d3 itself shifts a point crossing a seam.
-      seamPull: SEAM_PULL * (2 ** Math.max(1, seamsLeft) - 1),
+      seamPull: seamPullFor(seamsLeft),
       lobePull: LOBE_PULL / 2 ** lobedCuts,
-      polePull: LOBE_POLE_PULL * 2 ** lobedCuts,
+      polePull: Math.max(LOBE_POLE_PULL, turnClearance) * 2 ** lobedCuts,
     };
     if (!cutOnce(key, (part) => cutSeam(part, m, key, pulls))) continue;
     if (m.def.seam.kind === 'antimeridian') seamsLeft--;
@@ -460,17 +422,19 @@ export function cutGeometry(geom: GeoJSON.GeoJsonObject, members: CompiledProjec
   const seams = new Set(members.filter((m) => m.def.seam.kind !== 'none').map(seamKey));
   const seamed = seams.size > 1 ? members.filter((m) => m.def.seam.kind !== 'none') : [];
   let best: Part[] = [];
-  let bestError = Infinity;
+  let bestScore = Infinity;
   for (const attempt of ATTEMPTS) {
     const parts = withoutSlivers(cutParts(geom, members, attempt));
-    let error = Math.abs(parts.reduce((sum, part) => sum + geoArea(part.geom), 0) - expected);
+    // Wider gaps lose more area, so a wider pull is allowed to. A score up to 1 is a good cut.
+    const tolerance = AREA_TOLERANCE * attempt.pullScale;
+    let score = Math.abs(parts.reduce((sum, part) => sum + geoArea(part.geom), 0) - expected) / tolerance;
     // A step across a seam ranks below any cut free of one, and above a cut with the wrong area.
-    if (error <= AREA_TOLERANCE && seamed.some((m) => crossesSeam(parts, m))) error += AREA_TOLERANCE * 2;
-    if (error < bestError) {
+    if (score <= 1 && seamed.some((m) => crossesSeam(parts, m))) score += 2;
+    if (score < bestScore) {
       best = parts;
-      bestError = error;
+      bestScore = score;
     }
-    if (bestError <= AREA_TOLERANCE) break;
+    if (bestScore <= 1) break;
   }
   // Every singular point of a map in this catalog is the centre of one of its caps.
   const singular = members.flatMap((m) => m.caps.map((cap) => toVector(m.fromFrame(cap.frameCenter))));
