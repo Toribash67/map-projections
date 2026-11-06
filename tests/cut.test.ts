@@ -5,6 +5,7 @@ import landTopology from 'world-atlas/land-110m.json';
 import { cutGeometry, type Piece } from '../src/geo/cut';
 import { stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
+import { computeScreen, projectPoint } from '../src/screen/screen';
 import type { CompiledProjection, LonLat, Orientation } from '../src/projections/types';
 
 const LAND_AREA = 3.62789;
@@ -96,6 +97,8 @@ test('area survives members whose cuts line up', () => {
     ['globes sharing poles', [member('globe'), member('globe', at(10))]],
     // A circle along the meridian where Antarctica's ring has an edge.
     ['globes, one on the data seam', [member('globe', at(80)), member('globe', at(90))]],
+    // The globe's circle through the pole of the first of several seams, which pulls furthest.
+    ['globe through a far-pulled seam', [member('globe'), member('transverse-mercator'), member('mercator', at(5)), member('mollweide', at(20)), member('goode')]],
     // A pole of the seam's frame inside a gap between lobes.
     ['goode gap on the mercator pole', [member('goode', at(-40, 0, 90)), member('mercator')]],
     ['mercator pole on the goode equator', [member('goode'), member('mercator', at(0, 90))]],
@@ -133,9 +136,19 @@ test('the whole sphere survives a redirect through two Goodes centred apart', ()
   expectLandArea(cutGeometry(land, members), 'dragged redirect');
 });
 
-test('a cut whose area comes out wrong is redone at another spin', () => {
-  // At the first clip spin these leave one land ring inside out, 4π too large; no mock is
-  // involved. Reachable by clicks: each of these stops at its default centre.
+test('a cut that comes out wrong is redone another way', () => {
+  // No mock: at the first attempt the sphere here gains about 11 sr, and the graticule steps across
+  // a seam, when lobes of two Goodes meet at exactly placed centres. The second attempt is right.
+  const at = (lon: number, lat = 0, tilt = 0) => ({ lon, lat, tilt });
+  expectWholeSphere(cutGeometry(sphere, [member('goode'), member('goode', at(0, 45, 45))]), 'goodes, sphere');
+  expectWholeSphere(cutGeometry(sphere, [member('goode', at(-40, 0, 90)), member('goode')]), 'goodes, sphere');
+  const members = [member('goode', at(0, 45, 45)), member('goode', at(90))];
+  expect(seamJumps(cutGeometry(graticule, members), members)).toEqual([]);
+});
+
+test('invariant: no land ring reads as the whole sphere on these sets', () => {
+  // Plain invariant, not a test of the retry. These used to leave a ring inside out at the first
+  // attempt; the retry in `cutGeometry` no longer fires on them.
   const sets = [
     ['goode', 'globe', 'robinson'],
     ['mercator', 'goode', 'transverse-mercator'],
@@ -285,3 +298,256 @@ test('graticule lines lying on Goode lobe edges survive the cut', () => {
   expect(equator.flat().length).toBeGreaterThan(100);
   expect(meridian.flat().length).toBeGreaterThan(30);
 });
+
+/** Deterministic pseudo-random numbers in [0, 1). */
+function rng(seed: number) {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const VIEWPORT = { width: 1000, height: 600 };
+const isFront = (piece: Piece, i: number) => piece.inside[i] && !piece.behind[i];
+
+/** The members a click from `from` to each stop in turn compiles to, carrying state as the app does. */
+function clicks(from: Orientation, ids: string[]): CompiledProjection[] {
+  let state = { ...stateForStop(stops.find((s) => s.id === ids[0])!), orientation: from };
+  const states = [state];
+  for (const id of ids.slice(1)) {
+    state = stateForStop(stops.find((s) => s.id === id)!, state);
+    states.push(state);
+  }
+  return states.map(compile);
+}
+
+/** Total signed area in pixels of what member `i` fills. */
+function planarArea(pieces: Piece[], members: CompiledProjection[], i: number): number {
+  const m = members[i]!;
+  const screen = computeScreen(m, VIEWPORT);
+  let total = 0;
+  for (const piece of pieces) {
+    if (!piece.closed || !isFront(piece, i)) continue;
+    for (const ring of piece.coords) {
+      const points = ring.map((p) => projectPoint(m, screen, p, piece.lobes[i]));
+      for (let k = 1; k < points.length; k++) {
+        total += (points[k - 1]![0] * points[k]![1] - points[k]![0] * points[k - 1]![1]) / 2;
+      }
+    }
+  }
+  return total;
+}
+
+/** Consecutive points on opposite sides of a frame's antimeridian, which every seam includes, away from the poles where longitude means nothing. */
+function seamJumps(pieces: Piece[], members: CompiledProjection[]): string[] {
+  const jumps: string[] = [];
+  members.forEach((m, i) => {
+    if (m.def.seam.kind === 'none') return;
+    for (const path of pieces.flatMap((p) => p.coords)) {
+      const frame = path.map((p) => m.toFrame(p));
+      for (let k = 1; k < frame.length; k++) {
+        const [a, b] = [frame[k - 1]!, frame[k]!];
+        if (Math.abs(a[1]) > 89.9 || Math.abs(b[1]) > 89.9) continue;
+        if (Math.abs(a[0] - b[0]) > 180) jumps.push(`member ${i} ${a} to ${b}`);
+      }
+    }
+  });
+  return jumps;
+}
+
+test('a tilted world map keeps its ocean on the way to a conic', () => {
+  const r = rng(31);
+  const worlds = ['mercator', 'equirectangular', 'gall-peters', 'robinson', 'mollweide', 'hammer', 'sinusoidal', 'equal-earth'];
+  const cases: [string, Orientation, string][] = [
+    ['hammer', { lon: -59.7, lat: -14.7, tilt: 35 }, 'albers'],
+    ['equirectangular', { lon: 75.3, lat: -14.7, tilt: 30 }, 'albers'],
+  ];
+  for (let i = 0; i < 40; i++) {
+    const orientation = { lon: r() * 360 - 180, lat: r() * 120 - 60, tilt: r() * 180 - 90 };
+    cases.push([worlds[i % worlds.length]!, orientation, i % 2 ? 'albers' : 'lambert-conformal']);
+  }
+  for (const [world, orientation, conic] of cases) {
+    const label = `${world} ${JSON.stringify(orientation)} to ${conic}`;
+    const members = clicks(orientation, [world, conic]);
+    const pieces = cutGeometry(sphere, members);
+    expect(seamJumps(pieces, members), label).toEqual([]);
+    const alone = planarArea(cutGeometry(sphere, members.slice(0, 1)), members, 0);
+    expect(Math.abs(planarArea(pieces, members, 0) / alone - 1), label).toBeLessThan(0.01);
+  }
+}, 30_000);
+
+test('seams close together or crossing shallowly stay on their own sides', () => {
+  const at = (lon: number, lat = 0, tilt = 0) => ({ lon, lat, tilt });
+  const sets: [string, CompiledProjection[]][] = [];
+  for (const eps of [5e-5, 1e-4, 1.5e-4, -1e-4]) {
+    sets.push([`mercator ${eps} from a conic's seam`, [member('mercator', at(10 + eps)), member('albers')]]);
+    sets.push([`robinson ${eps} from a conic's seam`, [member('robinson', at(10 + eps)), member('lambert-conformal')]]);
+    sets.push([`mercators ${eps} apart`, [member('mercator', at(10)), member('mercator', at(10 + eps))]]);
+  }
+  for (const [label, members] of sets) {
+    for (const geom of [sphere, land, graticule]) expect(seamJumps(cutGeometry(geom, members), members), label).toEqual([]);
+  }
+});
+
+test('five independently oriented seams stay on their own sides', () => {
+  // Crossing at a shallow angle, a later seam's pull could carry a point over an earlier seam.
+  const r = rng(8675309);
+  const worlds = ['mercator', 'equirectangular', 'gall-peters', 'robinson', 'mollweide', 'hammer', 'winkel-tripel', 'behrmann', 'goode', 'transverse-mercator'];
+  const orientation = () => ({ lon: r() * 360 - 180, lat: r() * 120 - 60, tilt: r() * 180 - 90 });
+  const world = () => worlds[Math.floor(r() * worlds.length)]!;
+  for (let i = 0; i < 80; i++) {
+    const ids = [world(), world(), world(), world(), i % 2 ? 'albers' : 'lambert-conformal'];
+    const members = ids.map((id) => member(id, orientation()));
+    const label = members.map((m) => `${m.def.id} ${JSON.stringify(m.state.orientation)}`).join(', ');
+    expect(seamJumps(cutGeometry(sphere, members), members), label).toEqual([]);
+  }
+}, 30_000);
+
+test('two Goodes whose lobe edges line up keep their lobes apart', () => {
+  const at = (lon: number, lat = 0, tilt = 0) => ({ lon, lat, tilt });
+  const sets = [
+    [at(90), at(10)],
+    [at(0, 90), at(-40, 0, 90)],
+    [at(0, 45, 45), at(0)],
+    [at(0, 45, 45), at(90)],
+  ];
+  for (const [a, b] of sets) {
+    const members = [member('goode', a), member('goode', b)];
+    const label = JSON.stringify([a, b]);
+    const pieces = cutGeometry(sphere, members);
+    members.forEach((_, i) => {
+      const alone = planarArea(cutGeometry(sphere, [members[i]!]), [members[i]!], 0);
+      expect(Math.abs(planarArea(pieces, members, i) / alone - 1), `${label} member ${i}`).toBeLessThan(0.01);
+    });
+  }
+});
+
+test('a graticule line along the central meridian of a clip stays on its side of the cap', () => {
+  // At lon -112.7 the meridian -150 runs at frame lon -37.3, which was the first clip spin.
+  // Plain regression: any spin has such a longitude, so the spins are not round numbers.
+  const conic = member('lambert-conformal', { lon: -112.7, lat: 0, tilt: 0 });
+  const [, far] = conic.caps;
+  for (const piece of cutGeometry(graticule, [conic])) {
+    if (!piece.inside[0]) continue;
+    for (const p of piece.coords.flat()) {
+      expect(geoDistance(conic.toFrame(p), far!.frameCenter) / rad).toBeGreaterThan(far!.radius - 0.01);
+    }
+  }
+});
+
+test('a graticule line along a seam through a pole stays in the caps it is flagged in', () => {
+  // The equator lies on Transverse Mercator's seam from its pole at [90, 0] onward.
+  const ids = ['orthographic', 'transverse-mercator', 'albers', 'mollweide', 'lambert-azimuthal'];
+  const members = ids.map((id) => member(id));
+  const orthographic = members[0]!;
+  const cap = orthographic.caps[0]!;
+  for (const piece of cutGeometry(graticule, members)) {
+    if (piece.inside[0]) continue;
+    for (const p of piece.coords.flat()) {
+      expect(geoDistance(orthographic.toFrame(p), cap.frameCenter) / rad).toBeLessThan(cap.radius + 0.01);
+    }
+  }
+});
+
+test('no front segment is a long chord round a small cap, at random orientations', () => {
+  const r = rng(55);
+  const limit = 0.25 * Math.hypot(VIEWPORT.width, VIEWPORT.height);
+  for (const s of stops) {
+    for (let i = 0; i < 8; i++) {
+      const m = member(s.id, { lon: r() * 360 - 180, lat: r() * 170 - 85, tilt: s.id === 'transverse-mercator' ? 90 : 0 });
+      const screen = computeScreen(m, VIEWPORT);
+      for (const geom of [land, graticule]) {
+        for (const piece of cutGeometry(geom, [m])) {
+          if (!isFront(piece, 0)) continue;
+          for (const path of piece.coords) {
+            const points = path.map((p) => projectPoint(m, screen, p, piece.lobes[0]));
+            let longest = 0;
+            for (let k = 1; k < points.length; k++) {
+              longest = Math.max(longest, Math.hypot(points[k]![0] - points[k - 1]![0], points[k]![1] - points[k - 1]![1]));
+            }
+            if (longest >= limit) expect.fail(`${s.id} ${JSON.stringify(m.state.orientation)}: ${longest} px near ${path[0]}`);
+          }
+        }
+      }
+    }
+  }
+}, 60_000);
+
+test('invariant: land stays whole on the two sets that once left a sliver near Wrangel Island', () => {
+  // Land-110m has an edge on the meridian ±180 there. Plain invariant.
+  const sets = [
+    clicks({ lon: 115, lat: -10, tilt: 45 }, ['globe', 'albers', 'robinson', 'goode', 'albers']),
+    clicks({ lon: 55, lat: 65, tilt: 30 }, ['globe', 'albers', 'hammer', 'lambert-azimuthal', 'goode']),
+  ];
+  for (const members of sets) expectLandArea(cutGeometry(land, members), members.map((m) => m.def.id).join(', '));
+});
+
+test('a ring reading within 1e-9 of 4π is dropped', () => {
+  // A tiny triangle wound the wrong way round reads as nearly the whole sphere, on the way in and out.
+  const size = 1e-4; // degrees: about 1.5e-12 sr
+  const inverted = {
+    type: 'Polygon',
+    coordinates: [[[20, 30], [20 + size, 30], [20, 30 + size], [20, 30]]],
+  } as GeoJSON.Polygon;
+  expect(2 * TAU - geoArea(inverted)).toBeLessThan(1e-9);
+  for (const ring of cutGeometry(inverted, [member('mercator')]).flatMap((p) => p.coords)) expect(2 * TAU - geoArea({ type: 'Polygon', coordinates: [ring] })).toBeGreaterThan(1e-9);
+});
+
+test('a repeated Goode does not change how the next one is cut', () => {
+  const a = member('goode');
+  const b = member('goode', { lon: 40, lat: 0, tilt: 0 });
+  expect(cutGeometry(sphere, [a, a, b]).map((p) => p.coords)).toEqual(cutGeometry(sphere, [a, b]).map((p) => p.coords));
+});
+
+test('flags and lobes describe where each piece lies, for rotated member sets', () => {
+  const r = rng(4242);
+  const TOLERANCE = 0.01; // degrees
+  const ids = stops.map((s) => s.id);
+  const orientation = () => ({ lon: r() * 360 - 180, lat: r() * 170 - 85, tilt: r() * 180 - 90 });
+  for (let n = 0; n < 24; n++) {
+    const chain = ['globe', ...Array.from({ length: 1 + (n % 4) }, () => ids[Math.floor(r() * ids.length)]!)];
+    const members = n % 3 ? clicks(orientation(), chain) : chain.map((id) => member(id, orientation()));
+    for (const geom of [land, sphere, graticule]) {
+      for (const piece of cutGeometry(geom, members)) {
+        members.forEach((m, i) => {
+          const label = `${chain} member ${i} ${m.def.id} ${JSON.stringify(m.state.orientation)}`;
+          const frame = piece.coords.flat().map((p) => m.toFrame(p));
+          const within = (radius: number, centre: LonLat) =>
+            frame.every((f) => geoDistance(f, centre) / rad <= radius + TOLERANCE);
+          const beyond = (radius: number, centre: LonLat) =>
+            frame.every((f) => geoDistance(f, centre) / rad >= radius - TOLERANCE);
+          const inMode = (mode: string) => m.caps.filter((c) => c.mode === mode);
+          if (piece.inside[i]) {
+            for (const c of inMode('clip')) expect(beyond(c.radius, c.frameCenter), `inside ${label}`).toBe(true);
+          } else {
+            expect(inMode('clip').some((c) => within(c.radius, c.frameCenter)), `outside ${label}`).toBe(true);
+          }
+          if (piece.behind[i]) {
+            expect(inMode('behind').some((c) => within(c.radius, c.frameCenter)), `behind ${label}`).toBe(true);
+          } else {
+            for (const c of inMode('behind')) expect(beyond(c.radius, c.frameCenter), `front ${label}`).toBe(true);
+          }
+          const seam = m.def.seam;
+          if (seam.kind !== 'lobes') {
+            expect(piece.lobes[i], label).toBeUndefined();
+            return;
+          }
+          const lobe = seam.lobes.find((l) => l.centralLon === piece.lobes[i])!;
+          expect(lobe, label).toBeDefined();
+          const escapes = frame.filter(
+            ([lon, lat]) =>
+              lat < lobe.latMin - TOLERANCE ||
+              lat > lobe.latMax + TOLERANCE ||
+              // Longitude means nothing right at a pole.
+              (Math.abs(lat) <= 89.9 && (lon < lobe.lonMin - TOLERANCE || lon > lobe.lonMax + TOLERANCE)),
+          );
+          expect(escapes, label).toEqual([]);
+        });
+      }
+    }
+  }
+}, 60_000);
