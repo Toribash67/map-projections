@@ -192,13 +192,13 @@ test('Mercator stop matches at any phi0; tilt 90 matches Transverse Mercator', (
   // A tilt of 0.005 is within tolerance.
   expect(matchStop({ ...base, orientation: { ...base.orientation, tilt: 0.005 } })?.id).toBe('mercator');
 
-  // The Transverse Mercator stop gives d3's transverse Mercator, up to the quarter turn
-  // that Task 2's north-up correction removes. Either sense of that turn is accepted, but
-  // it must be the same for every point.
+  // The Transverse Mercator stop gives d3's transverse Mercator turned a quarter turn: d3 builds
+  // that turn into its raw projection, ours leaves it to the screen's tilt compensation. The turn
+  // is a quarter turn clockwise on a y-up plane, (x, y) -> (y, -x) taking ours to d3's, the same
+  // for every point. That pins the sign of the tilt: +90 is d3's own rotate([0, 0, 90]).
   const c = compile(stateForStop(stop('transverse-mercator')));
   const d3tm = geoTransverseMercator().scale(1).translate([0, 0]);
   const r = rng(3);
-  let sense = 0;
   let checked = 0;
   while (checked < 30) {
     const p = randomPoint(r);
@@ -207,13 +207,7 @@ test('Mercator stop matches at any phi0; tilt 90 matches Transverse Mercator', (
     const got = c.raw(frame[0] * rad, frame[1] * rad);
     const screen = d3tm(p)!;
     const want: [number, number] = [screen[0], -screen[1]]; // d3 screen y points down
-    // got = rotate(want, sense * 90 degrees)
-    const found = [1, -1].find(
-      (s) => Math.abs(got[0] + s * want[1]) < 1e-9 && Math.abs(got[1] - s * want[0]) < 1e-9,
-    );
-    expect(found, `no quarter-turn match at ${p}`).toBeDefined();
-    if (sense === 0) sense = found!;
-    expect(found).toBe(sense);
+    expectPair([got[1], -got[0]], want);
     checked++;
   }
 });
