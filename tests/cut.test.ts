@@ -38,8 +38,13 @@ function area(pieces: Piece[]): number {
   return total;
 }
 
+/** Area as d3 reads it. Unlike `area`, this also sees a tiny ring turned inside out, which then reads as nearly 4π. */
+const unsignedArea = (pieces: Piece[]) =>
+  pieces.filter((p) => p.closed).reduce((sum, p) => sum + geoArea({ type: 'Polygon', coordinates: p.coords }), 0);
+
 function expectLandArea(pieces: Piece[], label?: string) {
   expect(Math.abs(area(pieces) - LAND_AREA), `${label}: area ${area(pieces)}`).toBeLessThan(1e-3);
+  expect(Math.abs(unsignedArea(pieces) - LAND_AREA), `${label}: unsigned area ${unsignedArea(pieces)}`).toBeLessThan(1e-3);
 }
 
 const allPoints = (pieces: Piece[]) => pieces.flatMap((p) => p.coords.flat());
@@ -63,11 +68,10 @@ test('land area is preserved for Goode with a rotated cylindrical member', () =>
   expectLandArea(cutGeometry(land, [member('goode', rotated)]), 'rotated goode');
 });
 
-/** Total area of a cut whole sphere, which is 4π, and which a full-sphere ring reads as 0. */
+/** The pieces of a cut sphere partition it. Every stop has a cap, so no single piece reads as a full-sphere 0. */
 function expectWholeSphere(pieces: Piece[], label: string) {
-  const total = pieces.reduce((sum, p) => sum + geoArea({ type: 'Polygon', coordinates: p.coords }), 0);
-  const remainder = total % (2 * TAU);
-  expect(Math.min(remainder, 2 * TAU - remainder), `${label}: area ${total}`).toBeLessThan(1e-3);
+  const total = unsignedArea(pieces);
+  expect(Math.abs(total - 2 * TAU), `${label}: area ${total}`).toBeLessThan(1e-3);
 }
 
 test('land and the whole sphere keep their area through pairs of stops', () => {
@@ -103,6 +107,41 @@ test('area survives members whose cuts line up', () => {
     expectLandArea(cutGeometry(land, members), label);
     expectWholeSphere(cutGeometry(sphere, members), label);
   }
+});
+
+test('the whole sphere survives a redirect from the globe through Goode to Transverse Mercator', () => {
+  const orders = [
+    ['globe', 'goode', 'transverse-mercator'],
+    ['orthographic', 'goode', 'transverse-mercator'],
+    ['goode', 'globe', 'transverse-mercator'],
+  ];
+  for (const ids of orders) expectWholeSphere(cutGeometry(sphere, ids.map((id) => member(id))), ids.join(', '));
+});
+
+test('the whole sphere survives a redirect through two Goodes centred apart', () => {
+  // Five members, as on a redirect mid-morph: clicks from a globe dragged to lon -59. The
+  // conic in the middle resets the centre, so the two Goodes end their lobes at one pole
+  // with different longitudes, and the sphere used to come out about 10 sr too large.
+  let state = { ...stateForStop(stops.find((s) => s.id === 'globe')!), orientation: { lon: -59, lat: 0, tilt: 0 } };
+  const states = [state];
+  for (const id of ['goode', 'mercator', 'lambert-conformal', 'goode']) {
+    state = stateForStop(stops.find((s) => s.id === id)!, state);
+    states.push(state);
+  }
+  const members = states.map(compile);
+  expectWholeSphere(cutGeometry(sphere, members), 'dragged redirect');
+  expectLandArea(cutGeometry(land, members), 'dragged redirect');
+});
+
+test('a cut whose area comes out wrong is redone at another spin', () => {
+  // At the first clip spin these leave one land ring inside out, 4π too large; no mock is
+  // involved. Reachable by clicks: each of these stops at its default centre.
+  const sets = [
+    ['goode', 'globe', 'robinson'],
+    ['mercator', 'goode', 'transverse-mercator'],
+    ['equirectangular', 'gnomonic', 'goode'],
+  ];
+  for (const ids of sets) expectLandArea(cutGeometry(land, ids.map((id) => member(id))), ids.join(', '));
 });
 
 test('no segment exceeds 2°', () => {

@@ -1,4 +1,4 @@
-import { geoClipAntimeridian, geoClipCircle, geoDistance, geoInterpolate, geoRotation, geoStream } from 'd3-geo';
+import { geoArea, geoClipAntimeridian, geoClipCircle, geoDistance, geoInterpolate, geoRotation, geoStream } from 'd3-geo';
 import type { GeoPermissibleObjects, GeoStream } from 'd3-geo';
 import { geoClipPolygon } from 'd3-geo-polygon';
 import type { CompiledProjection, ExcludedCap, Lobe, LonLat } from '../projections/types';
@@ -10,16 +10,22 @@ const SEAM_PULL = 1e-6; // radians
 const POLE_STEP = Math.PI / 3; // radians
 const LOBE_PULL = 1e-6; // degrees
 // A lobe stops short of the pole. Any closer and its end edge is too short for the clip's
-// arithmetic, and lies inside the turn that a seam makes round the pole.
+// arithmetic, and lies inside the turn that a seam makes round the pole. Each further lobed
+// seam stops twice as far off, because two end edges at one distance cross over and over.
 const LOBE_POLE_PULL = 1e-3; // degrees
 const LOBE_GAP = 2 * LOBE_PULL;
 const LOBE_EDGE_STEP = 30; // degrees
 // `geoClipCircle` reads what is inside from one point on its circle. Spinning the circle
 // about its centre moves that point off the meridians and poles where earlier cuts lie.
-const CLIP_SPIN = 37.3; // degrees
-// Keeps a cap's edge off anything lying exactly on it, such as the meridian ±180, where
-// Antarctica's ring has an edge.
-const CAP_PULL = 1e-6; // degrees
+// The first spin suits nearly everything; the others are for a cut whose area comes out wrong.
+const CLIP_SPINS = [37.3, 61.7, 13.9, 83.1]; // degrees
+// How far a cut's total area may drift from the input's. Correct cuts lose under 1e-4 to the
+// narrow gaps along seams; wrong ones are off by a fair part of the sphere.
+const AREA_TOLERANCE = 5e-4; // steradians
+// Keeps a cap's edge off anything lying exactly on it: the meridian ±180, where Antarctica's
+// ring has an edge, or another member's frame pole. There it has to clear the turn a seam
+// makes round the pole, of radius `SEAM_PULL`, or the ring crosses itself.
+const CAP_PULL = 2e-4; // degrees
 
 export type Piece = {
   /** A polygon's rings, or a single line. A ring repeats its first point at the end. */
@@ -134,13 +140,13 @@ function clipPaths(part: Part, frame: ClipFrame, clip: Clip): Path[] {
 }
 
 /** The space where `centre` (a frame point) sits at [0, 0], the only place `geoClipCircle` can clip around. */
-function aroundCentre(m: CompiledProjection, centre: LonLat): ClipFrame {
-  const turn = geoRotation([-centre[0], -centre[1], CLIP_SPIN]);
+function aroundCentre(m: CompiledProjection, centre: LonLat, spin: number): ClipFrame {
+  const turn = geoRotation([-centre[0], -centre[1], spin]);
   return { to: (p) => turn(m.toFrame(p)), from: (p) => m.fromFrame(turn.invert(p)) };
 }
 
 /** Splits a part into the side outside the cap and the side inside it. */
-function splitAtCap(part: Part, m: CompiledProjection, cap: ExcludedCap, key: string): Part[] {
+function splitAtCap(part: Part, m: CompiledProjection, cap: ExcludedCap, key: string, spin: number): Part[] {
   const [lon, lat] = cap.frameCenter;
   const radius = cap.radius + CAP_PULL;
   const child = (inCap: boolean) => (path: Path): Part => ({
@@ -148,8 +154,8 @@ function splitAtCap(part: Part, m: CompiledProjection, cap: ExcludedCap, key: st
     geom: pathGeometry(path),
     inCap: new Map(part.inCap).set(key, inCap),
   });
-  const kept = clipPaths(part, aroundCentre(m, [lon + 180, -lat]), geoClipCircle((180 - radius) * rad));
-  const capped = clipPaths(part, aroundCentre(m, cap.frameCenter), geoClipCircle(radius * rad));
+  const kept = clipPaths(part, aroundCentre(m, [lon + 180, -lat], spin), geoClipCircle((180 - radius) * rad));
+  const capped = clipPaths(part, aroundCentre(m, cap.frameCenter, spin), geoClipCircle(radius * rad));
   return [...kept.map(child(false)), ...capped.map(child(true))];
 }
 
@@ -183,11 +189,11 @@ function offSeam(sink: GeoStream): GeoStream {
 }
 
 /** Clockwise, in frame degrees, with the edges pulled in so that neighbouring lobes never share a point. */
-function lobePolygon(lobe: Lobe): GeoJSON.Polygon {
+function lobePolygon(lobe: Lobe, polePull: number): GeoJSON.Polygon {
   const west = lobe.lonMin + LOBE_PULL;
   const east = lobe.lonMax - LOBE_PULL;
-  const south = lobe.latMin === -90 ? -90 + LOBE_POLE_PULL : lobe.latMin + LOBE_PULL;
-  const north = lobe.latMax === 90 ? 90 - LOBE_POLE_PULL : lobe.latMax - LOBE_PULL;
+  const south = lobe.latMin === -90 ? -90 + polePull : lobe.latMin + LOBE_PULL;
+  const north = lobe.latMax === 90 ? 90 - polePull : lobe.latMax - LOBE_PULL;
   // Parallels are not great circles, and a lobe's can be wider than a half turn.
   const steps = Math.ceil((east - west) / LOBE_EDGE_STEP);
   const northEdge: LonLat[] = [];
@@ -216,7 +222,7 @@ function offLobeEdges(lobes: Lobe[]): PointMap {
 }
 
 /** Splits a part along the member's seam. */
-function cutSeam(part: Part, m: CompiledProjection, key: string): Part[] {
+function cutSeam(part: Part, m: CompiledProjection, key: string, polePull: number): Part[] {
   const frame: ClipFrame = { to: m.toFrame, from: m.fromFrame };
   const child = (path: Path): Part => ({ ...part, geom: pathGeometry(path) });
   const seam = m.def.seam;
@@ -229,7 +235,7 @@ function cutSeam(part: Part, m: CompiledProjection, key: string): Part[] {
       const off = offLobeEdges(seam.lobes);
       const lobeFrame: ClipFrame = { to: (p) => off(m.toFrame(p)), from: m.fromFrame };
       return seam.lobes.flatMap((lobe) =>
-        clipPaths(part, lobeFrame, geoClipPolygon(lobePolygon(lobe))).map((path) => ({
+        clipPaths(part, lobeFrame, geoClipPolygon(lobePolygon(lobe, polePull))).map((path) => ({
           ...child(path),
           lobe: new Map(part.lobe).set(key, lobe.centralLon),
         })),
@@ -278,12 +284,10 @@ function toPieces(part: Part, members: CompiledProjection[]): Piece[] {
 }
 
 /**
- * Splits geometry on the sphere at the caps and seams of every member, so that
- * each piece lies wholly on one side of each of them. A circle or seam that
- * several members share is cut only once: clipping again along an existing edge
- * is numerically unstable.
+ * One attempt at the cuts. A circle or seam that several members share is cut
+ * only once: clipping again along an existing edge is numerically unstable.
  */
-export function cutGeometry(geom: GeoJSON.GeoJsonObject, members: CompiledProjection[]): Piece[] {
+function cutParts(geom: GeoJSON.GeoJsonObject, members: CompiledProjection[], spin: number): Part[] {
   let parts: Part[] = [{ geom: geom as GeoPermissibleObjects, inCap: new Map(), lobe: new Map() }];
   const done = new Set<string>();
   const cutOnce = (key: string, cut: (part: Part) => Part[]) => {
@@ -295,15 +299,40 @@ export function cutGeometry(geom: GeoJSON.GeoJsonObject, members: CompiledProjec
   for (const m of members) {
     for (const cap of m.caps) {
       const key = capKey(m, cap);
-      cutOnce(key, (part) => splitAtCap(part, m, cap, key));
+      cutOnce(key, (part) => splitAtCap(part, m, cap, key, spin));
     }
   }
   // Lobes last: `geoClipAntimeridian` reads what is inside from the frame's south pole,
   // which can lie in a gap between lobes.
   const lobesLast = (m: CompiledProjection) => (m.def.seam.kind === 'lobes' ? 1 : 0);
+  let polePull = LOBE_POLE_PULL;
   for (const m of [...members].sort((a, b) => lobesLast(a) - lobesLast(b))) {
     const key = seamKey(m);
-    cutOnce(key, (part) => cutSeam(part, m, key));
+    cutOnce(key, (part) => cutSeam(part, m, key, polePull));
+    if (lobesLast(m)) polePull *= 2;
   }
-  return parts.flatMap((part) => toPieces(part, members));
+  return parts;
+}
+
+/**
+ * Splits geometry on the sphere at the caps and seams of every member, so that
+ * each piece lies wholly on one side of each of them. The clips can misjudge
+ * which side is inside when cuts line up exactly, which shows in the total area,
+ * so a cut that loses or gains area is redone at another spin and the closest
+ * attempt returned. Lines have no area and always pass at the first attempt.
+ */
+export function cutGeometry(geom: GeoJSON.GeoJsonObject, members: CompiledProjection[]): Piece[] {
+  const expected = geoArea(geom as GeoPermissibleObjects);
+  let best: Part[] = [];
+  let bestError = Infinity;
+  for (const spin of CLIP_SPINS) {
+    const parts = cutParts(geom, members, spin);
+    const error = Math.abs(parts.reduce((sum, part) => sum + geoArea(part.geom), 0) - expected);
+    if (error < bestError) {
+      best = parts;
+      bestError = error;
+    }
+    if (bestError <= AREA_TOLERANCE) break;
+  }
+  return best.flatMap((part) => toPieces(part, members));
 }
