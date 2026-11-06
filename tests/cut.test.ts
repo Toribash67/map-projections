@@ -453,6 +453,76 @@ test('a graticule line along a seam through a pole stays in the caps it is flagg
   }
 });
 
+test('a Goode and a world map one degree apart in tilt keep their ocean', () => {
+  // They share a centre and so an antipode, where the world map's seam meets the corners of the lobes.
+  const r = rng(99);
+  const at = (lon: number, lat = 0, tilt = 0) => ({ lon, lat, tilt });
+  const sets: CompiledProjection[][] = [
+    [member('goode', at(0, 0, 1)), member('mercator')],
+    [member('goode', at(0, 0, 1)), member('robinson')],
+    [member('goode', at(0, 0, 1)), member('hammer'), member('mollweide')],
+  ];
+  for (let i = 0; i < 6; i++) {
+    const [lon, lat, tilt] = [Math.round(r() * 36000 - 18000) / 100, Math.round(r() * 12000 - 6000) / 100, Math.round(r() * 18000 - 9000) / 100];
+    sets.push([member('goode', at(lon, lat, tilt)), member(i % 2 ? 'mercator' : 'robinson', at(lon, lat, tilt - 1))]);
+  }
+  for (const members of sets) {
+    const label = members.map((m) => `${m.def.id} ${JSON.stringify(m.state.orientation)}`).join(', ');
+    const pieces = cutGeometry(sphere, members);
+    expectWholeSphere(pieces, label);
+    expectLandArea(cutGeometry(land, members), label);
+    members.forEach((m, i) => {
+      const alone = planarArea(cutGeometry(sphere, [m]), [m], 0);
+      expect(Math.abs(planarArea(pieces, members, i) / alone - 1), `${label}, member ${i}`).toBeLessThan(0.01);
+    });
+  }
+});
+
+/** Land and the whole sphere come through a member set with the right area and no step across a seam. */
+function expectCleanCut(members: CompiledProjection[]) {
+  const label = members.map((m) => `${m.def.id} ${JSON.stringify(m.state.orientation)}`).join(', ');
+  const [landPieces, spherePieces] = [cutGeometry(land, members), cutGeometry(sphere, members)];
+  expect(seamJumps(landPieces, members), `land: ${label}`).toEqual([]);
+  expect(seamJumps(spherePieces, members), `sphere: ${label}`).toEqual([]);
+  expectLandArea(landPieces, label);
+  expectWholeSphere(spherePieces, label);
+}
+
+test('near-aligned tilted members stay clean: sets that once failed every attempt', () => {
+  const set = (a: string, b: string, lon: number, lat: number, tilt: number, lon2: number, lat2: number, tilt2: number) => [
+    member(a, { lon, lat, tilt }),
+    member(b, { lon: lon2, lat: lat2, tilt: tilt2 }),
+  ];
+  const sets = [
+    set('mollweide', 'sinusoidal', -39.95, -49.41, -16.79, -39.95, -49.41, -16.78),
+    set('mollweide', 'sinusoidal', 111.28, 52.69, -58.8, 111.28, 52.69, -58.79),
+    set('mollweide', 'sinusoidal', 32.52, 53.24, -89.59, 32.52, 53.239, -89.59),
+    set('mollweide', 'sinusoidal', -137.66, 26.34, -19.95, -137.66, 26.34, -19.949),
+    set('equal-earth', 'winkel-tripel', -80.47, -50.2, 88.42, -80.47, -50.201, 88.42),
+    set('equal-earth', 'winkel-tripel', 95.57, -59.87, 3.55, 95.47, -59.87, 3.55),
+    set('hammer', 'equirectangular', -63.03, 59.42, 3.31, -63.05, 59.42, 3.31),
+    set('mercator', 'robinson', 171.1, 59.53, 16.68, 171.09, 59.53, 16.68),
+    set('mercator', 'robinson', 121.72, -53.44, 42.65, 121.77, -53.44, 42.65),
+    set('goode', 'mercator', -86.47, -5.06, -88.3, -86.471, -5.06, -88.3),
+  ];
+  for (const members of sets) expectCleanCut(members);
+});
+
+test('near-aligned tilted members stay clean, seeded across separations', () => {
+  const r = rng(4711);
+  const pairs = [['mercator', 'robinson'], ['hammer', 'equirectangular'], ['equal-earth', 'winkel-tripel'], ['mollweide', 'sinusoidal'], ['goode', 'mercator']];
+  const round = (x: number) => Math.round(x * 100) / 100;
+  for (const separation of [0.001, 0.01, 0.05, 0.2]) {
+    for (let i = 0; i < 15; i++) {
+      const shift = separation * (i % 2 ? 1 : -1);
+      const a = { lon: round(r() * 360 - 180), lat: round(r() * 120 - 60), tilt: round(r() * 180 - 90) };
+      const b = { lon: a.lon + (i % 3 === 0 ? shift : 0), lat: a.lat + (i % 3 === 1 ? shift : 0), tilt: a.tilt + (i % 3 === 2 ? shift : 0) };
+      const [first, second] = pairs[i % pairs.length]!;
+      expectCleanCut([member(first!, a), member(second!, b)]);
+    }
+  }
+}, 30_000);
+
 test('no front segment is a long chord round a small cap, at random orientations', () => {
   const r = rng(55);
   const limit = 0.25 * Math.hypot(VIEWPORT.width, VIEWPORT.height);
