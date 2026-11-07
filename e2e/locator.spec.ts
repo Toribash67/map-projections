@@ -182,18 +182,24 @@ test('a conic turns sideways only, the other maps both ways, and a pointer past 
   await pick(page, 'robinson');
   await settle(page);
   const start = (await state(page)).orientation;
-  await dragMarker(page, [0, 0], [0, 0.5]);
+  const g = await globe(page);
+  const at = ([x, y]: Pair): Pair => [g.x + g.cx + x * g.r, g.y + g.cy + y * g.r];
+  await page.mouse.move(...at([0, 0]));
+  await page.mouse.down();
+  await page.mouse.move(...at([0, 0.5]), { steps: 6 });
   const down = (await state(page)).orientation;
   // The globe turned down 30 degrees, so what is at the middle is 30 degrees further north.
   expect(Math.abs(down.lat - 30)).toBeLessThan(1.5);
   expect(Math.abs(down.lon - start.lon)).toBeLessThan(1.5);
 
-  // Far off the globe nothing can be under the pointer: the centre stays where it last could be.
-  await dragMarker(page, [0, 0], [0, 4]);
-  const far = (await state(page)).orientation;
-  expect(Number.isFinite(far.lat) && Number.isFinite(far.lon)).toBe(true);
-  expect(far.lat).toBeLessThanOrEqual(90);
-  expect(far.lat).toBeGreaterThan(down.lat - 0.5);
+  // Far off the globe nothing can be under the pointer: the centre stays where it last was in reach.
+  await page.mouse.move(...at([0, 4]));
+  await frames(page);
+  expect((await state(page)).orientation).toEqual(down);
+  // And back in reach it holds the same land again.
+  await page.mouse.move(...at([0, 0.5]));
+  expect((await state(page)).orientation).toEqual(down);
+  await page.mouse.up();
 });
 
 test('it tints the area the map covers: all of Mollweide, a disc round the centre of gnomonic', async ({ page }) => {
@@ -265,31 +271,59 @@ test('it follows the centre and the tilt: the frame equator turns with a tilted 
   expect(await snapshot(page, '#locator canvas')).not.toBe(turned);
 });
 
-test('redraws are spaced out during rapid changes, and the last change is always drawn', async ({ page }) => {
+test('redraws are spaced at least 30 ms apart during rapid changes, and the last change is always drawn', async ({ page }) => {
   await open(page);
   await pick(page, 'robinson');
   await settle(page);
   const setLon = (lon: number) => page.evaluate((lon) => (window as any).__app.setLive({ orientation: { lon, lat: 10, tilt: 0 } }), lon);
-  // Forty changes in as many frames, the last to 40.
-  await page.evaluate(
+  // The locator clears its canvas once for each redraw, and nothing else does.
+  const times = await page.evaluate(
     () =>
-      new Promise<void>((done) => {
-        let lon = 0;
-        const step = () => {
-          (window as any).__app.setLive({ orientation: { lon: lon++, lat: 10, tilt: 0 } });
-          if (lon <= 40) requestAnimationFrame(step);
-          else done();
+      new Promise<number[]>((done) => {
+        const times: number[] = [];
+        const clear = CanvasRenderingContext2D.prototype.clearRect;
+        CanvasRenderingContext2D.prototype.clearRect = function (...args) {
+          times.push(performance.now());
+          return clear.apply(this, args);
         };
-        step();
+        // Forty changes, five milliseconds apart, the last to longitude 40.
+        let lon = 0;
+        const timer = setInterval(() => {
+          (window as any).__app.setLive({ orientation: { lon: lon++, lat: 10, tilt: 0 } });
+          if (lon > 40) {
+            clearInterval(timer);
+            setTimeout(() => {
+              CanvasRenderingContext2D.prototype.clearRect = clear;
+              done(times);
+            }, 200);
+          }
+        }, 5);
       }),
   );
-  await page.waitForTimeout(150);
+  expect(times.length).toBeGreaterThan(2);
+  for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(28);
   const burst = await snapshot(page, '#locator canvas');
   await setLon(20);
   await page.waitForTimeout(150);
   await setLon(40);
   await page.waitForTimeout(150);
   expect(await snapshot(page, '#locator canvas')).toBe(burst);
+});
+
+test('a click in the corner of the locator, outside its round edge, reaches the map', async ({ page }) => {
+  // Equirectangular is 2:1, so this window leaves it no margin: the corner lies on the map.
+  await page.setViewportSize({ width: 1300, height: 500 });
+  await open(page);
+  await pick(page, 'equirectangular');
+  await settle(page);
+  await page.getByRole('button', { name: 'Line', exact: true }).click();
+  const box = (await page.locator('#locator').boundingBox())!;
+  await page.mouse.click(box.x + 3, box.y + 3);
+  const draft = await page.evaluate(() => (window as any).__drawing.draft);
+  expect(draft?.points).toHaveLength(1);
+  // The same on the locator itself places nothing.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  expect((await page.evaluate(() => (window as any).__drawing.draft)).points).toHaveLength(1);
 });
 
 test('on a phone the locator sits inside the map, clear of the controls', async ({ page }) => {

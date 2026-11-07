@@ -4,7 +4,8 @@ import { LAND } from '../data/land';
 import { shapeToGeoJSON } from '../drawing/model';
 import { compile } from '../projections/compile';
 import type { LonLat, ProjectionState } from '../projections/types';
-import { clampLat, normaliseLon } from '../ui/slider';
+import { centreFor } from '../geo/grab';
+import { clampLat, normaliseLon } from '../geo/angles';
 import { MAP_STYLE } from './draw';
 
 // Space left round the globe for its outline, in CSS pixels.
@@ -22,30 +23,6 @@ const sphere: GeoSphere = { type: 'Sphere' };
 // The data comes typed as plain GeoJSON, which the path takes as it is.
 const land = LAND as GeoPermissibleObjects;
 const graticule = geoGraticule().step([MERIDIAN_STEP, MERIDIAN_STEP])();
-
-const wrap = (a: number): number => ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
-
-/**
- * The centre (longitude, latitude) that puts `land` at `place` on the globe, as fractions of its radius with north up:
- * x = cos(lat) sin(lon - lon0) fixes the longitude, and y = cos(lat0) sin(lat) - sin(lat0) cos(lat) cos(lon - lon0),
- * a cosine of lat0 plus a shift, fixes the latitude. Of its two solutions the nearer to `current` is taken. Null where no
- * centre does it: the land would have to come from, or go to, beyond the rim. With `latFree` false only longitude is solved.
- */
-function centreFor([lon, lat]: LonLat, [x, y]: Pair, current: LonLat, latFree: boolean): LonLat | null {
-  const cosLat = Math.cos(lat * rad);
-  if (!(Math.abs(x) <= cosLat)) return null;
-  const across = Math.asin(x / cosLat);
-  const lon0 = lon - across / rad;
-  if (!latFree) return [lon0, current[1]];
-  const [a, b] = [Math.sin(lat * rad), cosLat * Math.cos(across)];
-  const radius = Math.hypot(a, b);
-  if (!(Math.abs(y) <= radius)) return null;
-  const [shift, spread] = [Math.atan2(b, a), Math.acos(y / radius)];
-  const lats = [spread - shift, -spread - shift].map(wrap).filter((phi) => Math.abs(phi) <= Math.PI / 2);
-  if (lats.length === 0) return null;
-  const nearest = lats.reduce((best, phi) => (Math.abs(phi / rad - current[1]) < Math.abs(best / rad - current[1]) ? phi : best));
-  return [lon0, nearest / rad];
-}
 
 /**
  * A small globe in the corner of the map, for every projection but the globe itself. It is
@@ -68,7 +45,8 @@ export function createLocator(container: HTMLElement, app: App): void {
   const inverse = geoOrthographic().scale(1).translate([0, 0]);
 
   // The land taken hold of, the pointer that took it, and the state it was last held under.
-  // A state changed by anything else, as when a morph ends, is held afresh, so the map does not jump.
+  // A state changed by something else mid-drag, as by a slider, a key or a projection chosen from the list, is held afresh
+  // at the pointer, so the map does not jump.
   let grab: { id: number; land: LonLat; heldOn: ProjectionState | null } | null = null;
   let frameId = 0;
   let timer = 0;

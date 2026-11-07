@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { parseViewpoint } from '../src/ui/sidebar';
-import { clampLat, clampTilt, normaliseLon, parseDegrees, snapValue } from '../src/ui/slider';
+import { clampLat, normaliseLon } from '../src/geo/angles';
+import { clampTilt, parseDegrees, snapValue } from '../src/ui/slider';
 
 test('snapValue snaps inside the tolerance and not outside', () => {
   const stops = [0, 30, 45];

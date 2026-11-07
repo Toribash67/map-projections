@@ -1,9 +1,10 @@
 import type { App } from '../app';
+import { clampLat, normaliseLon } from '../geo/angles';
 import { getDef } from '../projections/catalog';
 import { stateForStop } from '../projections/compile';
 import type { Orientation, ProjectionState } from '../projections/types';
 import { el } from './dom';
-import { clampLat, clampTilt, createSlider, formatDegrees, normaliseLon, parseDegrees } from './slider';
+import { clampTilt, createSlider, formatDegrees, parseDegrees } from './slider';
 
 const TILT_OFF = 'Tilt is off here: on the globe and the azimuthal maps it would only spin the page.';
 const CONIC_OFF = 'Latitude and tilt are off: a cone keeps its axis on the pole, so a conic only moves sideways.';
