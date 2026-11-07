@@ -166,3 +166,20 @@ test('draw: the background fills the whole store whatever the transform', () => 
   expect(rect.args).toEqual([0, 0, 2000, 1200]);
   expect(transform()).toEqual([3, 0, 0, 3, 0, 0]);
 });
+
+test('draw: far-side ocean cells are filled as one path, each wound the same way, in place of the far-side ocean pieces', () => {
+  const { ctx, ops } = recordingContext();
+  // The second cell is wound the other way round on screen, as a folded cell comes out.
+  const clockwise = piece(square(0), square(0), { behind: true });
+  const reversed = piece([20, 0, 20, 10, 30, 10, 30, 0], [20, 0, 20, 10, 30, 10, 30, 0], { behind: true });
+  const farSphere = piece(square(100), square(100), { behind: true });
+  const nearSphere = piece(square(200), square(200));
+  const scene: Scene = { layers: { ...emptyLayers(), ocean: [farSphere, nearSphere], farOcean: [clockwise, reversed] }, indicatrices: [] };
+  drawScene(ctx, scene, 0.5, MAP_STYLE);
+  const oceanFills = ops.filter((o) => o.op === 'fill' && o.style === MAP_STYLE.ocean);
+  // One fill for both cells, then the near ocean; the far Sphere piece is not filled.
+  expect(oceanFills.map((o) => o.path[0]![0])).toEqual([0, 200]);
+  const cells = oceanFills[0]!.path;
+  const area = (ring: number[][]) => ring.reduce((sum, [x, y], i) => sum + x! * ring[(i + 1) % ring.length]![1]! - ring[(i + 1) % ring.length]![0]! * y!, 0) / 2;
+  expect(Math.sign(area(cells.slice(0, 4)))).toBe(Math.sign(area(cells.slice(4, 8))));
+});

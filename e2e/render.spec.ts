@@ -226,6 +226,35 @@ test('the first frame of a peel looks like the globe at rest: nothing of the far
   expect(await compare(rest, first)).toBeLessThan(60);
 });
 
+test('mid-peel, the folded far side is still filled: no background inside the map along the equator', async ({ page }) => {
+  await openPaused(page);
+  await select(page, 'mollweide');
+  // Eased t = 4u^3 = 0.4 at u = 0.464, 650 ms into the morph.
+  await page.clock.runFor(650);
+  const t = await page.evaluate(() => (window as any).__app.controller.t());
+  expect(t).toBeGreaterThan(0.35);
+  expect(t).toBeLessThan(0.45);
+  // Rows near the equator, from the map's left edge to its centre, where the far side folds over.
+  const holes = await page.evaluate((background) => {
+    const canvas = document.querySelector('canvas')!;
+    const { data, width } = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height);
+    const isBackground = (x: number, y: number) => {
+      const i = 4 * (x + y * width);
+      // Exactly the background: land under a faint line can come within a few levels of it.
+      return Math.abs(data[i]! - background[0]!) + Math.abs(data[i + 1]! - background[1]!) + Math.abs(data[i + 2]! - background[2]!) < 2;
+    };
+    let holes = 0;
+    for (let y = 240; y <= 360; y += 4) {
+      let x = 0;
+      while (x < width / 2 && isBackground(x, y)) x++;
+      // Past the edge's anti-aliasing.
+      for (x += 2; x < width / 2; x++) if (isBackground(x, y)) holes++;
+    }
+    return holes;
+  }, BACKGROUND);
+  expect(holes).toBe(0);
+});
+
 test('indicatrices and drawn shapes appear in the accent colour, and a changed shape is a new object', async ({ page }) => {
   await openPaused(page);
   expect(await countOf(page, ACCENT)).toBe(0);

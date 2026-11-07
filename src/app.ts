@@ -1,5 +1,6 @@
 import { geoCircle } from 'd3-geo';
 import { COAST, GRATICULE, LAND } from './data/land';
+import { farSideCells } from './geo/farCells';
 import type { Shape } from './drawing/model';
 import { MorphController } from './morph/controller';
 import { buildScene, type Scene } from './morph/scene';
@@ -11,6 +12,8 @@ import { computeScreen, type ScreenTransform, type Viewport } from './screen/scr
 import type { Member } from './tissot/indicatrix';
 
 const OCEAN = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
+// Side of a far-side ocean cell, in degrees. Smaller cells fold less within themselves, and cost more to cut.
+const FAR_CELL = 10;
 
 /**
  * Drawn shapes as one geometry. A polygon's outline is a line of its own, so the fill is never
@@ -137,12 +140,14 @@ export class App {
     const morphing = this.controller.tick();
     const settled = this.sceneIsMorph && !morphing;
     if (this.stale || settled) {
-      this.scene = buildScene(
-        { ocean: OCEAN, land: LAND, graticule: GRATICULE, coast: COAST, drawings: this.drawings },
-        this.controller.source(),
-        this.controller.target(),
-        this.tissot,
-      );
+      const [source, target] = [this.controller.source(), this.controller.target()];
+      const layers: Record<string, GeoJSON.GeoJsonObject> = { ocean: OCEAN, land: LAND, graticule: GRATICULE, coast: COAST, drawings: this.drawings };
+      // A globe's far side shows only in a morph, where it folds over: its ocean comes as cells too.
+      const globes = target ? [...source, target].filter((m) => m.compiled.caps.some((cap) => cap.mode === 'behind')) : [];
+      if (globes.length > 0) {
+        layers.farOcean = { type: 'GeometryCollection', geometries: globes.flatMap((m) => farSideCells(m.compiled, FAR_CELL).geometries) } as GeoJSON.GeometryCollection;
+      }
+      this.scene = buildScene(layers, source, target, this.tissot);
       this.sceneIsMorph = morphing;
       this.stale = false;
     }

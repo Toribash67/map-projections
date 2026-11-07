@@ -36,25 +36,43 @@ export const MAP_STYLE: Style = {
 
 const alphaOf = (a: { alphaSrc: number; alphaDst: number }, t: number) => (1 - t) * a.alphaSrc + t * a.alphaDst;
 
-/** Adds a piece's rings, at the blend of its two ends, to the current path. */
-function trace(ctx: CanvasRenderingContext2D, piece: ScenePiece, t: number): void {
+const ringEnd = (piece: ScenePiece, r: number) => (r + 1 < piece.ringStarts.length ? piece.ringStarts[r + 1]! : piece.src.length / 2);
+
+/** Adds a piece's rings, at the blend of its two ends, to the current path, each ring backwards if `reverse`. */
+function trace(ctx: CanvasRenderingContext2D, piece: ScenePiece, t: number, reverse = false): void {
   const { src, dst, ringStarts, closed } = piece;
-  const count = src.length / 2;
   const blended = src !== dst && t !== 0;
   for (let r = 0; r < ringStarts.length; r++) {
-    const end = r + 1 < ringStarts.length ? ringStarts[r + 1]! : count;
-    for (let i = ringStarts[r]!; i < end; i++) {
+    const [start, end] = [ringStarts[r]!, ringEnd(piece, r)];
+    for (let k = start; k < end; k++) {
+      const i = reverse ? start + end - 1 - k : k;
       let x = src[2 * i]!;
       let y = src[2 * i + 1]!;
       if (blended) {
         x += t * (dst[2 * i]! - x);
         y += t * (dst[2 * i + 1]! - y);
       }
-      if (i === ringStarts[r]) ctx.moveTo(x, y);
+      if (k === start) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
     if (closed) ctx.closePath();
   }
+}
+
+/** A piece's signed area on screen at the blend of its two ends. */
+function signedArea(piece: ScenePiece, t: number): number {
+  const { src, dst, ringStarts } = piece;
+  let total = 0;
+  for (let r = 0; r < ringStarts.length; r++) {
+    const [start, end] = [ringStarts[r]!, ringEnd(piece, r)];
+    for (let i = start; i < end; i++) {
+      const j = i + 1 < end ? i + 1 : start;
+      const [ax, ay] = [src[2 * i]! + t * (dst[2 * i]! - src[2 * i]!), src[2 * i + 1]! + t * (dst[2 * i + 1]! - src[2 * i + 1]!)];
+      const [bx, by] = [src[2 * j]! + t * (dst[2 * j]! - src[2 * j]!), src[2 * j + 1]! + t * (dst[2 * j + 1]! - src[2 * j + 1]!)];
+      total += ax * by - bx * ay;
+    }
+  }
+  return total / 2;
 }
 
 /**
@@ -75,6 +93,30 @@ function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind:
     ctx.fill();
     if (outline !== null) ctx.stroke();
   }
+}
+
+/**
+ * Fills cells that may be folded over, as one path for each run of cells at the same alpha. A cell
+ * that comes out wound the other way on screen is traced backwards, so every cell winds the same
+ * way: where folded cells overlap their windings add up instead of cancelling, and there is no
+ * hairline between neighbours, as they are filled together.
+ */
+function fillCells(ctx: CanvasRenderingContext2D, cells: ScenePiece[], t: number, colour: string): void {
+  ctx.fillStyle = colour;
+  let current = -1;
+  for (const cell of cells) {
+    if (!cell.behind || !cell.closed) continue;
+    const alpha = Math.min(1, alphaOf(cell, t));
+    if (alpha <= 0) continue;
+    if (alpha !== current) {
+      if (current > 0) ctx.fill();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      current = alpha;
+    }
+    trace(ctx, cell, t, signedArea(cell, t) < 0);
+  }
+  if (current > 0) ctx.fill();
 }
 
 /** Strokes the lines among `pieces`, one path for each run of pieces at the same alpha. */
@@ -137,7 +179,10 @@ function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndi
 
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, t: number, style: Style, base: DOMMatrix): void {
   const layer = (name: string) => scene.layers[name] ?? [];
-  fillPieces(ctx, layer('ocean'), behind, t, style.ocean, style.seamWidth);
+  // A globe's far side folds over in a morph, so where it comes as cells it is filled from those.
+  const cells = scene.layers.farOcean;
+  if (behind && cells) fillCells(ctx, cells, t, style.ocean);
+  else fillPieces(ctx, layer('ocean'), behind, t, style.ocean, style.seamWidth);
   fillPieces(ctx, layer('land'), behind, t, style.land, style.seamWidth);
   strokePieces(ctx, layer('graticule'), behind, t, style.graticule, style.graticuleWidth);
   strokePieces(ctx, layer('coast'), behind, t, style.coast, style.coastWidth);
