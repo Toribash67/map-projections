@@ -42,6 +42,8 @@ export class App {
   viewport: Viewport;
   tissot = false;
   shapes: Shape[] = [];
+  /** The projection last chosen from the list, whose defaults the resets return to. */
+  selected: Stop;
 
   private readonly ctx: CanvasRenderingContext2D;
   private readonly controller = new MorphController(() => performance.now());
@@ -61,7 +63,8 @@ export class App {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
-    this.state = stateForStop(stops.find((s) => s.id === 'globe')!);
+    this.selected = stops.find((s) => s.id === 'globe')!;
+    this.state = stateForStop(this.selected);
     this.viewport = { width: canvas.clientWidth, height: canvas.clientHeight };
     this.controller.jumpTo(this.memberOf(this.state));
     new ResizeObserver(() => this.resize()).observe(canvas);
@@ -91,6 +94,7 @@ export class App {
 
   /** Morphs to a named projection, or redirects the morph under way. */
   select(stop: Stop): void {
+    this.selected = stop;
     const conic = (defId: string) => getDef(defId).family === 'conic';
     if (conic(stop.defId) && !conic(this.state.defId)) {
       const { lon, lat } = this.state.orientation;

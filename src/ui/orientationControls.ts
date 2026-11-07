@@ -1,5 +1,6 @@
 import type { App } from '../app';
 import { getDef } from '../projections/catalog';
+import { stateForStop } from '../projections/compile';
 import type { Orientation, ProjectionState } from '../projections/types';
 import { el } from './dom';
 import { clampLat, clampTilt, createSlider, formatDegrees, normaliseLon, parseDegrees } from './slider';
@@ -29,7 +30,8 @@ export function createOrientationControls(app: App): { el: HTMLElement; set(stat
   const hint = el('p', 'hint');
   hint.id = 'orientation-hint';
 
-  const defaults = () => getDef(app.state.defId).defaultOrientation;
+  // The projection last chosen from the list, not the stop the map is highlighted as: Mercator tilted to 90 resets to 0.
+  const defaults = () => stateForStop(app.selected).orientation;
   const change = (patch: Partial<Orientation>) => {
     app.setLive({ orientation: { ...app.state.orientation, ...patch } });
     // A change during a morph is ignored, and the controls show the map again.

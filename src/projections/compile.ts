@@ -91,24 +91,26 @@ function conicLimit(state: ProjectionState): Stop | null {
 }
 
 /**
- * The named stop that `state` sits on, with params and tilt within 0.01, or null. A conic
+ * The named stop that `state` sits on, with params within 0.01, or null. Tilt and centre are an
+ * aspect, not another projection, so a tilted Mollweide is Mollweide. The one exception is a stop
+ * that brings its own tilt: Mercator at tilt 90 (within 0.01) is Transverse Mercator. A conic
  * that has reached a limit of its sliders sits on the stop it becomes, which belongs to
  * another definition.
  */
 export function matchStop(state: ProjectionState): Stop | null {
   const def = getDef(state.defId);
-  for (const stop of stops) {
-    if (stop.defId !== state.defId) continue;
+  const matching = stops.filter((stop) => {
+    if (stop.defId !== state.defId) return false;
     const skipped = stop.ignoreParams ?? [];
-    const paramsMatch = Object.keys(def.defaultParams).every((key) => {
+    return Object.keys(def.defaultParams).every((key) => {
       if (skipped.includes(key)) return true;
       const have = state.params[key] ?? def.defaultParams[key]!;
       const want = stop.params[key] ?? def.defaultParams[key]!;
       return Math.abs(have - want) <= TOLERANCE;
     });
-    if (!paramsMatch) continue;
-    if (def.tiltEnabled && Math.abs(state.orientation.tilt - (stop.tilt ?? 0)) > TOLERANCE) continue;
-    return stop;
-  }
-  return def.family === 'conic' ? conicLimit(state) : null;
+  });
+  const tilt = def.tiltEnabled ? state.orientation.tilt : 0;
+  const aspect = matching.find((stop) => stop.tilt !== undefined && Math.abs(tilt - stop.tilt) <= TOLERANCE);
+  const plain = matching.find((stop) => stop.tilt === undefined);
+  return aspect ?? plain ?? (def.family === 'conic' ? conicLimit(state) : null);
 }

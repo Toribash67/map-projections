@@ -273,6 +273,54 @@ test('tilt slider to 90 on Mercator highlights Transverse Mercator; moving away 
   await expect(page.locator('#note h3')).toHaveText('Mercator');
 });
 
+test('a tilted map keeps its name: Mercator and Mollweide at tilt 45', async ({ page }) => {
+  await open(page);
+  for (const [id, name, family] of [['mercator', 'Mercator', 'cylindrical'], ['mollweide', 'Mollweide', 'equal-area']]) {
+    await pick(page, id!);
+    await settle(page);
+    await move(page, 'Tilt', 45);
+    expect((await orientation(page)).tilt).toBe(45);
+    expect(await isCurrent(page, `[data-stop="${id}"]`), id).toBe(true);
+    await expect(page.locator(`[data-family="${family}"] [data-custom]`)).toBeHidden();
+    await expect(page.locator('#note h3')).toHaveText(name!);
+    // A drag, which can move the centre anywhere, keeps the name too.
+    await setOrientation(page, { lon: -60, lat: 35, tilt: 45 });
+    expect(await isCurrent(page, `[data-stop="${id}"]`), id).toBe(true);
+  }
+  // Custom is for parameters that match no stop.
+  await pick(page, 'equirectangular');
+  await settle(page);
+  await move(page, 'Vertical spacing', 0.5);
+  await expect(page.locator('[data-family="cylindrical"] [data-custom]')).toBeVisible();
+});
+
+test('resets return to the projection last chosen from the list, not the one highlighted', async ({ page }) => {
+  await open(page);
+  const reset = (name: string) => page.getByRole('button', { name, exact: true }).click();
+  // Transverse Mercator chosen: its tilt is 90.
+  await pick(page, 'transverse-mercator');
+  await settle(page);
+  await move(page, 'Tilt', 30);
+  expect(await isCurrent(page, '[data-stop="mercator"]')).toBe(true);
+  await reset('Reset tilt');
+  expect((await orientation(page)).tilt).toBe(90);
+  expect(await isCurrent(page, '[data-stop="transverse-mercator"]')).toBe(true);
+  await setOrientation(page, { lon: 50, lat: -10, tilt: 20 });
+  await reset('Reset all');
+  expect(await orientation(page)).toEqual({ lon: 0, lat: 0, tilt: 90 });
+
+  // Mercator chosen and tilted to 90 by slider: highlighted as Transverse Mercator, but its tilt is 0.
+  await pick(page, 'mercator');
+  await settle(page);
+  await move(page, 'Tilt', 90);
+  expect(await isCurrent(page, '[data-stop="transverse-mercator"]')).toBe(true);
+  await reset('Reset tilt');
+  expect((await orientation(page)).tilt).toBe(0);
+  await move(page, 'Tilt', 90);
+  await reset('Reset all');
+  expect(await orientation(page)).toEqual({ lon: 0, lat: 0, tilt: 0 });
+});
+
 test('selecting Mercator from Transverse Mercator returns tilt to 0', async ({ page }) => {
   await open(page);
   await pick(page, 'transverse-mercator');

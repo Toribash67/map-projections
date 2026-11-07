@@ -483,7 +483,7 @@ test('a tilt set by hand carries over; the 90 degrees of Transverse Mercator doe
   await pick(page, 'equirectangular');
   expect(await tilt()).toBe(90);
   await settle(page);
-  // Tilted so, equirectangular is a custom map, and Mercator takes the tilt on; the highlighted Transverse Mercator is turned back by Mercator.
+  // Tilted so, equirectangular keeps its name, and Mercator takes the tilt on; the highlighted Transverse Mercator is turned back by Mercator.
   await pick(page, 'mercator');
   expect(await tilt()).toBe(90);
   await settle(page);

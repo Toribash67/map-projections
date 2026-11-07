@@ -36,10 +36,25 @@ const bothPoles = (radius: number): ExcludedCap[] => [cap(NORTH_POLE, radius), c
 /** Distance from the centre, as P Earth radii. x = 1 is Infinity (orthographic). */
 const viewpoint = (x: number): number => (x >= 1 ? Infinity : x / (1 - x));
 
-/** Largest angle from the centre, in degrees, that a perspective view shows. */
+// How far a perspective view may reach: its radius, over its scale at the centre, at the edge of
+// stereographic's 165 degrees. Wider would shrink the middle of the fitted map further.
+const PERSPECTIVE_REACH = 2 * Math.tan(82.5 * rad);
+
+/**
+ * Largest angle from the centre, in degrees, that a perspective view shows: 68 for gnomonic, 165
+ * for stereographic and 90 for orthographic. A view from inside the globe (P < 1) runs to
+ * infinity where cos c = -P, so it stops where its radius (P + 1) sin c / (P + cos c) reaches
+ * PERSPECTIVE_REACH if that comes before 68 + 97P. A view from outside folds back over itself where
+ * cos c = -1/P, 90 + asin(1/P) degrees out, so it stops five sixths of the way from 90 to there.
+ */
 function perspectiveLimit(P: number): number {
-  const m = Math.min(P, 1 / P);
-  return P < 1 ? 68 + 97 * m : 90 + 75 * m;
+  if (P < 1) {
+    // The angle where the radius reaches PERSPECTIVE_REACH: (P + 1) sin c - R cos c = R P.
+    const R = PERSPECTIVE_REACH;
+    const reach = Math.atan2(R, P + 1) + Math.asin((R * P) / Math.hypot(P + 1, R));
+    return Math.min(68 + 97 * P, reach / rad);
+  }
+  return 90 + (75 * Math.asin(1 / P)) / (Math.PI / 2);
 }
 
 /** Cone constant of the equal-area conic. */

@@ -111,6 +111,33 @@ test('perspective stops use P = x / (1 - x) with x = 1 as orthographic', () => {
   for (const [l, p] of sample) expectPair(globe.raw(l, p), ortho.raw(l, p));
 });
 
+test('perspective limit: exact at the stops, continuous, short of infinity and of the fold, and never wider than stereographic', () => {
+  const def = getDef('perspective');
+  const limit = (x: number) => 180 - def.caps({ x })[0]!.radius;
+  expect(limit(0)).toBe(68);
+  expect(limit(0.5)).toBe(165);
+  expect(limit(1)).toBe(90);
+  // The radius of a view from P, relative to its scale at the centre, which is 1.
+  const radius = (P: number, c: number) => (P === Infinity ? Math.sin(c * rad) : ((P + 1) * Math.sin(c * rad)) / (P + Math.cos(c * rad)));
+  const stereographic = radius(1, 165);
+  const xs: number[] = [];
+  for (let i = 0; i <= 10_000; i++) xs.push(i / 10_000);
+  for (let i = 0; i <= 10_000; i++) xs.push(0.38 + (0.1 * i) / 10_000);
+  for (const x of xs) {
+    const P = x >= 1 ? Infinity : x / (1 - x);
+    const c = limit(x);
+    // Inside cos c > -min(P, 1/P): short of infinity (P < 1) or of where the view folds back over itself (P > 1).
+    const edge = Math.acos(-Math.min(P, 1 / P)) / rad;
+    const margin = P < 1 ? 5 : (edge - 90) / 6 - 1e-9;
+    expect(edge - c, `x = ${x}, limit ${c}, edge ${edge}`).toBeGreaterThanOrEqual(margin);
+    expect(radius(P, c), `x = ${x}`).toBeLessThanOrEqual(stereographic * (1 + 1e-12));
+    // Continuous: a step a billion times finer than the slider's moves it by a sliver.
+    for (const h of [-1e-9, 1e-9]) {
+      if (x + h >= 0 && x + h <= 1) expect(Math.abs(limit(x + h) - c), `x = ${x}`).toBeLessThan(0.01);
+    }
+  }
+});
+
 test('perspective cap grows as the viewpoint moves toward the globe', () => {
   const def = getDef('perspective');
   const radius = (x: number) => def.caps({ x })[0]!.radius;
@@ -181,6 +208,20 @@ test('matchStop finds every named stop and returns null for spacing 0.5', () => 
   expect(matchStop({ ...custom, params: { phi0: 0.05, spacing: 1 } })).toBeNull();
 });
 
+test('tilt is an aspect, not a projection: a tilted map is named by its parameters, except Mercator at 90', () => {
+  const tilted = (id: string, tilt: number, lon = 30, lat = -20): ProjectionState => ({ ...stateForStop(stop(id)), orientation: { lon, lat, tilt } });
+  expect(matchStop(tilted('mercator', 45))?.id).toBe('mercator');
+  expect(matchStop(tilted('mercator', 90))?.id).toBe('transverse-mercator');
+  expect(matchStop(tilted('mercator', 89))?.id).toBe('mercator');
+  expect(matchStop(tilted('transverse-mercator', 45))?.id).toBe('mercator');
+  for (const id of ['mollweide', 'goode', 'robinson', 'equirectangular', 'gall-peters', 'equal-earth']) {
+    for (const tilt of [0, 17, 45, 90]) expect(matchStop(tilted(id, tilt))?.id, `${id} tilt ${tilt}`).toBe(id);
+  }
+  // Custom is for parameters that match no stop, at any tilt.
+  const custom: ProjectionState = { defId: 'cylindrical', params: { phi0: 0, spacing: 0.5 }, orientation: { lon: 0, lat: 0, tilt: 90 } };
+  expect(matchStop(custom)).toBeNull();
+});
+
 test('Mercator stop matches at any phi0; tilt 90 matches Transverse Mercator', () => {
   const base: ProjectionState = {
     defId: 'cylindrical',
@@ -189,9 +230,9 @@ test('Mercator stop matches at any phi0; tilt 90 matches Transverse Mercator', (
   };
   expect(matchStop(base)?.id).toBe('mercator');
   expect(matchStop({ ...base, orientation: { ...base.orientation, tilt: 90 } })?.id).toBe('transverse-mercator');
-  expect(matchStop({ ...base, orientation: { ...base.orientation, tilt: 45 } })).toBeNull();
   // A tilt of 0.005 is within tolerance.
   expect(matchStop({ ...base, orientation: { ...base.orientation, tilt: 0.005 } })?.id).toBe('mercator');
+  expect(matchStop({ ...base, orientation: { ...base.orientation, tilt: 89.995 } })?.id).toBe('transverse-mercator');
 
   // The Transverse Mercator stop gives d3's transverse Mercator turned a quarter turn: d3 builds
   // that turn into its raw projection, ours leaves it to the screen's tilt compensation. The turn

@@ -609,3 +609,44 @@ test('the ocean fills correctly at both ends of globe, Goode, then Transverse Me
   const goodeEnd = before.filter((p) => p.alphaDst > 0);
   expect(Math.abs(filledArea(goodeEnd, (p) => p.dst) / aloneArea(goode, ocean) - 1)).toBeLessThan(0.01);
 });
+
+test('the viewpoint slider gives a whole, unstreaked map at every step, live and morphing to and from the in-between views', () => {
+  const r = rng(43);
+  const out: SweepResult = { nan: [], streaks: [], worst: 0, pairs: 0 };
+  const view = (x: number): ProjectionState => ({ ...stateForStop(stops.find((s) => s.id === 'stereographic')!), params: { x } });
+  const xs: number[] = [];
+  for (let i = 0; i <= 50; i++) xs.push(i / 50);
+  for (let i = 0; i <= 25; i++) xs.push(0.38 + (0.1 * i) / 25);
+  // How large the hemisphere facing the viewer is drawn (or as much of it as the map shows): the
+  // radius of the circle at that angle, as a share of half the viewport's smaller side.
+  const core = (m: Member) => {
+    const reach = Math.min(90, 180 - m.compiled.caps[0]!.radius - 1e-6);
+    const centre = projectPoint(m.compiled, m.screen, m.compiled.fromFrame([0, 0]));
+    let smallest = Infinity;
+    for (let az = 0; az < 360; az += 15) {
+      const p = projectPoint(m.compiled, m.screen, m.compiled.fromFrame(destination([0, 0], reach, az)));
+      smallest = Math.min(smallest, Math.hypot(p[0] - centre[0], p[1] - centre[1]));
+    }
+    return smallest / (Math.min(VIEW.width, VIEW.height) / 2);
+  };
+  let smallest = Infinity;
+  for (const x of xs) {
+    const settled = memberOf(view(x));
+    smallest = Math.min(smallest, core(settled));
+    expect(core(settled), `x = ${x}`).toBeGreaterThan(0.1);
+    sweepScene(buildScene(world, [settled], null, true), `x = ${x}`, out);
+  }
+  // Morphs into and out of views in the band that used to run to infinity, and either side of it.
+  const others = ['globe', 'gnomonic', 'stereographic', 'orthographic', 'mercator', 'mollweide', 'goode'].map((id) => stops.find((s) => s.id === id)!);
+  for (const x of [0.3, 0.38, 0.43, 0.47, 0.55, 0.8]) {
+    for (const o of others) {
+      sweepScene(buildScene(world, [memberOf(view(x))], memberOf(stateForStop(o, view(x))), true), `x = ${x} to ${o.id}`, out);
+      // From a map at a random centre: the centre carries over, and a perspective view has no tilt.
+      const oriented = { ...stateForStop(o), orientation: randomOrientation(r) };
+      sweepScene(buildScene(world, [memberOf(oriented)], memberOf({ ...view(x), orientation: { ...oriented.orientation, tilt: 0 } }), true), `${o.id} to x = ${x}`, out);
+    }
+  }
+  expect(out.nan).toEqual([]);
+  expect(out.streaks).toEqual([]);
+  console.log(`smallest facing hemisphere: ${smallest.toFixed(3)} of half the viewport; longest segment ${out.worst.toFixed(0)} px`);
+}, 180_000);
