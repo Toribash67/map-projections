@@ -32,6 +32,9 @@ body {
 
 #map {
   display: block;
+  /* Placed, as the locator shares its cell and an unplaced canvas would be moved out of it. */
+  grid-column: 2;
+  grid-row: 1;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -431,6 +434,34 @@ input {
   margin-bottom: 4px;
 }
 
+/* Locator globe: in the corner of the map's cell, over the map. */
+#locator {
+  --locator: 96px;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  justify-self: end;
+  z-index: 1;
+  width: var(--locator);
+  height: var(--locator);
+  margin: 10px;
+  border-radius: 50%;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--line), 0 1px 5px rgba(43, 58, 68, 0.25);
+  cursor: grab;
+  user-select: none;
+}
+
+#locator:active {
+  cursor: grabbing;
+}
+
+#locator canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* Narrow screens: the map on top, the controls scrolling below it. */
 @media (max-width: 720px) {
   #app {
@@ -439,7 +470,13 @@ input {
   }
 
   #map {
-    grid-row: 1;
+    grid-column: 1;
+  }
+
+  #locator {
+    --locator: 72px;
+    grid-column: 1;
+    margin: 6px;
   }
 
   #sidebar {

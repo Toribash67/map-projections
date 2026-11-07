@@ -1,6 +1,7 @@
 import './style.css';
 import { App } from './app';
 import type { DrawingModel } from './drawing/model';
+import { createLocator } from './render/locator';
 import { createDrawingTools } from './ui/drawingTools';
 import { createSidebar } from './ui/sidebar';
 
@@ -14,6 +15,7 @@ declare global {
 const canvas = document.querySelector<HTMLCanvasElement>('#map')!;
 const app = new App(canvas);
 const tools = createDrawingTools(app, canvas);
+createLocator(document.querySelector<HTMLElement>('#locator')!, app);
 createSidebar(app, document.querySelector<HTMLElement>('#sidebar')!, tools.el);
 // For tests.
 window.__app = app;
