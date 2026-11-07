@@ -100,7 +100,7 @@ function* range(min: number, max: number, step: number): Generator<number> {
 }
 
 /** The point at angular distance `distance` and bearing `azimuth` (all degrees) from `from`. Also works at a pole. */
-function destination(from: LonLat, distance: number, azimuth: number): LonLat {
+export function destination(from: LonLat, distance: number, azimuth: number): LonLat {
   const lon = from[0] * rad;
   const lat = from[1] * rad;
   const d = distance * rad;
