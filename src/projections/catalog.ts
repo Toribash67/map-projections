@@ -54,10 +54,44 @@ function conformalN(p1: number, p2: number): number {
   return Math.log(Math.cos(y0) / Math.cos(y1)) / Math.log(tany(y1) / tany(y0));
 }
 
-/** Apex pole and far pole of a cone. A cone with n = 0 is a cylinder; the north pole is called the apex. */
-function conicCaps(n: number, farRadius: number): ExcludedCap[] {
+/** The cone constant of a conic definition at standard parallels `p1` and `p2`: 0 is a cylinder, 1 a disc. */
+export const coneConstant = (defId: string, p1: number, p2: number): number =>
+  defId === 'conic-conformal' ? conformalN(p1, p2) : equalAreaN(p1, p2);
+
+/** The parallels of a conic stop at the pole, which the conic sliders reach but do not pass. */
+export const POLAR_PARALLEL = 89.9;
+
+/** 0 up to `from`, 1 from `to`, linear between. */
+const ramp = (v: number, from: number, to: number): number => Math.min(1, Math.max(0, (v - from) / (to - from)));
+const mix = (a: number, b: number, w: number): number => a * (1 - w) + b * w;
+
+// Where a cone has become close enough to a cylinder, or to a disc, that its caps are those of the projection it is becoming.
+const CYLINDER_BELOW = 0.2;
+const DISC_ABOVE = 0.9;
+
+/**
+ * Apex pole and far pole of a cone, with the radii they are given at cone constant `n`. A cone
+ * with n = 0 is a cylinder; the north pole is called the apex.
+ */
+function conicCaps(n: number, apexRadius: number, farRadius: number): ExcludedCap[] {
   const [apex, far] = n >= 0 ? [NORTH_POLE, SOUTH_POLE] : [SOUTH_POLE, NORTH_POLE];
-  return [cap(apex, 0.1), cap(far, farRadius)];
+  return [cap(apex, apexRadius), cap(far, farRadius)];
+}
+
+/**
+ * Caps of the conformal conic. At the limits of its sliders they are Mercator's, which cuts both
+ * poles, and polar stereographic's, which cuts a cap round the antipode of its centre.
+ */
+function conformalCaps(p1: number, p2: number): ExcludedCap[] {
+  const n = conformalN(p1, p2);
+  const a = Math.abs(n);
+  return conicCaps(n, mix(5, 0.1, ramp(a, 0, CYLINDER_BELOW)), mix(5 + 55 * a, 15, ramp(a, DISC_ABOVE, 1)));
+}
+
+/** Caps of the equal-area conic. Cylindrical equal-area and polar Lambert azimuthal cut next to nothing. */
+function equalAreaCaps(p1: number, p2: number): ExcludedCap[] {
+  const n = equalAreaN(p1, p2);
+  return conicCaps(n, 0.1, mix(0.1 + 25 * Math.abs(n), 0.1, ramp(Math.abs(n), DISC_ABOVE, 1)));
 }
 
 const antimeridian: Seam = { kind: 'antimeridian' };
@@ -149,7 +183,7 @@ const defList: ProjectionDef[] = [
     tiltEnabled: false,
     latEnabled: false,
     raw: (p) => geoConicConformalRaw(p.p1! * rad, p.p2! * rad),
-    caps: (p) => conicCaps(conformalN(p.p1!, p.p2!), 5 + 55 * Math.abs(conformalN(p.p1!, p.p2!))),
+    caps: (p) => conformalCaps(p.p1!, p.p2!),
     seam: antimeridian,
   },
   {
@@ -160,7 +194,7 @@ const defList: ProjectionDef[] = [
     tiltEnabled: false,
     latEnabled: false,
     raw: (p) => geoConicEqualAreaRaw(p.p1! * rad, p.p2! * rad),
-    caps: (p) => conicCaps(equalAreaN(p.p1!, p.p2!), 0.1 + 25 * Math.abs(equalAreaN(p.p1!, p.p2!))),
+    caps: (p) => equalAreaCaps(p.p1!, p.p2!),
     seam: antimeridian,
   },
   plain('robinson', 'compromise', () => geoRobinsonRaw),

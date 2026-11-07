@@ -1,0 +1,354 @@
+/* The palette is the map's (MAP_STYLE in render/draw.ts): paper, slate and one red accent. */
+:root {
+  --paper: #eceae4;
+  --panel: #f7f5ef;
+  --ink: #2b3a44;
+  --muted: #5d6e78;
+  --line: rgba(62, 84, 98, 0.18);
+  --accent: #d9472b;
+  --accent-wash: rgba(217, 71, 43, 0.1);
+  --sidebar: 300px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--ink);
+  font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+#app {
+  display: grid;
+  grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+}
+
+#map {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+#sidebar {
+  overflow-y: auto;
+  padding: 14px 14px 20px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Projection list */
+.family {
+  border-top: 1px solid var(--line);
+}
+
+.family-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 0;
+  background: none;
+  border: 0;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.family-head::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+}
+
+.family-head[aria-expanded='true']::before {
+  transform: rotate(45deg);
+}
+
+.family-head.current::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.family-body {
+  padding-bottom: 8px;
+}
+
+.stops,
+.limit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stop,
+.custom {
+  display: block;
+  width: 100%;
+  padding: 5px 8px 5px 14px;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0 3px 3px 0;
+  text-align: left;
+}
+
+.stop {
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .stop:hover {
+    background: var(--line);
+  }
+}
+
+.stop.current,
+.custom.current {
+  background: var(--accent-wash);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.custom {
+  font-style: italic;
+}
+
+/* The limits of the conic sliders */
+.limits {
+  margin: 8px 0 0 14px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+  color: var(--muted);
+}
+
+.limits p {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.limit-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.limit {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.limit.current {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.limits-reached {
+  display: none;
+  margin-top: 5px !important;
+  color: var(--accent);
+}
+
+.reached .limits-reached {
+  display: block;
+}
+
+/* Sliders */
+.sliders {
+  margin: 6px 0 0 14px;
+}
+
+.slider {
+  margin-top: 8px;
+}
+
+.slider.disabled {
+  opacity: 0.45;
+}
+
+.slider-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slider-label {
+  flex: 1;
+  color: var(--muted);
+}
+
+.slider-number {
+  width: 58px;
+  padding: 2px 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-reset {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.slider-reset:hover:not(:disabled) {
+  border-color: var(--line);
+}
+
+.slider-track {
+  position: relative;
+  padding: 0 7px;
+}
+
+.slider-range {
+  display: block;
+  width: calc(100% + 14px);
+  margin: 2px -7px 0;
+  accent-color: var(--accent);
+}
+
+.slider-tick {
+  position: absolute;
+  bottom: -2px;
+  width: 1px;
+  height: 4px;
+  background: var(--muted);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 10px;
+}
+
+.kind > span {
+  color: var(--muted);
+}
+
+.kind label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.kind input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* Note and Tissot */
+.note,
+.tissot {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.note h3 {
+  margin: 0 0 3px;
+  font-size: 13px;
+}
+
+.note p,
+.hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+.tissot {
+  margin-top: 12px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle input {
+  accent-color: var(--accent);
+}
+
+.hint {
+  font-size: 12px;
+}
+
+/* Narrow screens: the map on top, the controls scrolling below it. */
+@media (max-width: 720px) {
+  #app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 46%) minmax(0, 1fr);
+  }
+
+  #map {
+    grid-row: 1;
+  }
+
+  #sidebar {
+    grid-row: 2;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .stop,
+  .family-head {
+    min-height: 38px;
+  }
+}

@@ -13,6 +13,7 @@ import { getDef, stops } from '../src/projections/catalog';
 import { compile, matchStop, stateForStop } from '../src/projections/compile';
 import { cylindricalRaw, goodeRaw, perspectiveRaw } from '../src/projections/raws';
 import type { Lobe, LonLat, ProjectionState } from '../src/projections/types';
+import { similarity } from './similarity';
 
 const rad = Math.PI / 180;
 
@@ -304,4 +305,128 @@ test('compile ignores tilt and latitude where the projection disables them', () 
   const back = r.fromFrame(frame);
   expect(back[0]).toBeCloseTo(10, 9);
   expect(back[1]).toBeCloseTo(40, 9);
+});
+
+const atParallels = (defId: string, p1: number, p2: number): ProjectionState => ({
+  defId,
+  params: { p1, p2 },
+  orientation: { lon: 10, lat: 0, tilt: 0 },
+});
+
+test('conic sliders reaching a limit match the named projection that the conic becomes', () => {
+  const match = (defId: string, p1: number, p2: number) => matchStop(atParallels(defId, p1, p2))?.id ?? null;
+  // The cone opens into a cylinder when the parallels are symmetric about the equator.
+  expect(match('conic-conformal', 0, 0)).toBe('mercator');
+  expect(match('conic-conformal', 33, -33)).toBe('mercator');
+  expect(match('conic-equal-area', 0, 0)).toBe('lambert-cylindrical');
+  expect(match('conic-equal-area', -30, 30)).toBe('behrmann');
+  expect(match('conic-equal-area', 45, -45)).toBe('gall-peters');
+  // and flattens into a disc when both reach the pole, at either pole.
+  expect(match('conic-conformal', 89.9, 89.9)).toBe('stereographic');
+  expect(match('conic-conformal', -89.9, -89.9)).toBe('stereographic');
+  expect(match('conic-equal-area', 89.9, 89.9)).toBe('lambert-azimuthal');
+  expect(match('conic-equal-area', -89.9, -89.9)).toBe('lambert-azimuthal');
+  // Its own stops, and everything in between, stay as they are.
+  expect(match('conic-equal-area', 29.5, 45.5)).toBe('albers');
+  expect(match('conic-conformal', 33, 45)).toBe('lambert-conformal');
+  expect(match('conic-equal-area', 40, 50)).toBeNull();
+  expect(match('conic-equal-area', 50, -40)).toBeNull();
+  expect(match('conic-conformal', 89.9, 60)).toBeNull();
+  expect(match('conic-equal-area', 89.9, 60)).toBeNull();
+  // Parallels at opposite poles are symmetric, so a cylinder.
+  expect(match('conic-conformal', 89.9, -89.9)).toBe('mercator');
+  // Reaching a limit is told apart from being on the stop itself by the stop's own projection.
+  expect(matchStop(atParallels('conic-conformal', 0, 0))!.defId).toBe('cylindrical');
+});
+
+test('a conic at a limit draws the named projection, up to a similarity, within 1%', () => {
+  const positions = (state: ProjectionState, points: LonLat[]) => {
+    const c = compile(state);
+    return points.map((p) => {
+      const f = c.toFrame(p);
+      return c.raw(f[0] * rad, f[1] * rad);
+    });
+  };
+  const grid = (latMin: number, latMax: number): LonLat[] => {
+    const out: LonLat[] = [];
+    for (let lat = latMin; lat <= latMax; lat += 10) for (let lon = -165; lon <= 175; lon += 20) out.push([lon, lat]);
+    return out;
+  };
+  const named = (id: string, orientation = { lon: 10, lat: 0, tilt: 0 }) => ({ ...stateForStop(stop(id)), orientation });
+  const cases: [string, ProjectionState, ProjectionState, LonLat[]][] = [
+    ['Lambert conformal conic -> Mercator', atParallels('conic-conformal', 0, 0), named('mercator'), grid(-70, 70)],
+    ['Albers -> Lambert cylindrical equal-area', atParallels('conic-equal-area', 0, 0), named('lambert-cylindrical'), grid(-80, 80)],
+    ['Albers -> Gall-Peters', atParallels('conic-equal-area', 45, -45), named('gall-peters'), grid(-80, 80)],
+    ['Lambert conformal conic -> polar stereographic', atParallels('conic-conformal', 89.9, 89.9), named('stereographic', { lon: 10, lat: 90, tilt: 0 }), grid(-60, 80)],
+    ['Albers -> polar Lambert azimuthal equal-area', atParallels('conic-equal-area', 89.9, 89.9), named('lambert-azimuthal', { lon: 10, lat: 90, tilt: 0 }), grid(-60, 80)],
+  ];
+  for (const [name, conic, target, points] of cases) {
+    expect(similarity(positions(conic, points), positions(target, points)).error, name).toBeLessThan(0.01);
+  }
+});
+
+const withOrientation = (state: ProjectionState, orientation: Partial<ProjectionState['orientation']>): ProjectionState => ({
+  ...state,
+  orientation: { ...state.orientation, ...orientation },
+});
+
+test('a tilt set by hand carries over, a tilt a stop brought does not, and a disabled tilt is not one', () => {
+  const tiltOf = (s: ProjectionState) => s.orientation.tilt;
+  const robinson = withOrientation(stateForStop(stop('robinson')), { tilt: 40 });
+  expect(tiltOf(stateForStop(stop('equal-earth'), robinson))).toBe(40);
+  expect(tiltOf(stateForStop(stop('mercator'), robinson))).toBe(40);
+  // Where tilt is disabled it is 0, and a leftover from a source that had it disabled is not carried on.
+  expect(tiltOf(stateForStop(stop('globe'), robinson))).toBe(0);
+  const staleGlobe = withOrientation(stateForStop(stop('globe')), { tilt: 25 });
+  expect(tiltOf(stateForStop(stop('robinson'), staleGlobe))).toBe(0);
+  expect(tiltOf(stateForStop(stop('mercator'), withOrientation(stateForStop(stop('albers')), { tilt: 25 })))).toBe(0);
+
+  // The 90 degrees from choosing Transverse Mercator does not.
+  const transverse = stateForStop(stop('transverse-mercator'), stateForStop(stop('mercator')));
+  expect(tiltOf(transverse)).toBe(90);
+  expect(tiltOf(stateForStop(stop('robinson'), transverse))).toBe(0);
+  expect(tiltOf(stateForStop(stop('mercator'), transverse))).toBe(0);
+  // The same 90 degrees put there by hand does, except into Mercator, which Transverse Mercator turns back to.
+  const byHand = { tiltByHand: true };
+  expect(tiltOf(stateForStop(stop('robinson'), transverse, byHand))).toBe(90);
+  expect(tiltOf(stateForStop(stop('mercator'), transverse, byHand))).toBe(0);
+});
+
+test('a conic keeps its own centre on arrival and the centre from before it on leaving; conic to conic keeps the longitude', () => {
+  const robinson = withOrientation(stateForStop(stop('robinson')), { lon: 50, lat: 20 });
+  const albers = stateForStop(stop('albers'), robinson);
+  expect(albers.orientation).toEqual({ lon: 10, lat: 0, tilt: 0 });
+  const dragged = withOrientation(albers, { lon: 70 });
+  expect(stateForStop(stop('lambert-conformal'), dragged).orientation.lon).toBe(70);
+  expect(stateForStop(stop('albers'), dragged).orientation.lon).toBe(70);
+  // Leaving restores the centre from before the conic, whichever conic it was left from.
+  const before: LonLat = [50, 20];
+  const back = stateForStop(stop('mollweide'), dragged, { centreBeforeConic: before });
+  expect(back.orientation).toEqual({ lon: 50, lat: 20, tilt: 0 });
+  // Without a memory the destination's own default stands in.
+  expect(stateForStop(stop('mollweide'), dragged).orientation.lon).toBe(0);
+  // Between two non-conics the centre carries over, and the memory is not used.
+  expect(stateForStop(stop('mollweide'), robinson, { centreBeforeConic: [5, 5] }).orientation).toMatchObject({ lon: 50, lat: 20 });
+});
+
+test('a conic at a limit hides what the named projection hides, and no more than a hair beyond', () => {
+  const polar = { lon: 10, lat: 90, tilt: 0 };
+  const cases: [string, ProjectionState, ProjectionState][] = [
+    ['LCC -> Mercator', atParallels('conic-conformal', 0, 0), { ...stateForStop(stop('mercator')), orientation: { lon: 10, lat: 0, tilt: 0 } }],
+    ['Albers -> Gall-Peters', atParallels('conic-equal-area', 45, -45), { ...stateForStop(stop('gall-peters')), orientation: { lon: 10, lat: 0, tilt: 0 } }],
+    ['LCC -> polar stereographic', atParallels('conic-conformal', 89.9, 89.9), { ...stateForStop(stop('stereographic')), orientation: polar }],
+    ['Albers -> polar Lambert azimuthal', atParallels('conic-equal-area', 89.9, 89.9), { ...stateForStop(stop('lambert-azimuthal')), orientation: polar }],
+  ];
+  for (const [name, conicState, targetState] of cases) {
+    const [conic, target] = [compile(conicState), compile(targetState)];
+    const centre = (c: ReturnType<typeof compile>, frame: LonLat) => c.fromFrame(frame);
+    for (const cap of target.caps) {
+      const found = conic.caps.find((k) => geoDistance(centre(conic, k.frameCenter), centre(target, cap.frameCenter)) / rad < 1e-3 && Math.abs(k.radius - cap.radius) < 0.05);
+      expect(found, `${name}: ${JSON.stringify(cap)}`).toBeDefined();
+    }
+    for (const k of conic.caps) {
+      const matched = target.caps.some((cap) => geoDistance(centre(conic, k.frameCenter), centre(target, cap.frameCenter)) / rad < 1e-3);
+      if (!matched) expect(k.radius, `${name}: extra cap`).toBeLessThanOrEqual(0.1 + 1e-9);
+    }
+  }
 });

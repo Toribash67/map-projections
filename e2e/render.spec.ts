@@ -136,7 +136,7 @@ test('moving to a screen with another pixel ratio keeps the map sharp', async ({
   });
   await open(page);
   const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 600, deviceScaleFactor: 2, mobile: false });
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1300, height: 600, deviceScaleFactor: 2, mobile: false });
   await page.evaluate(() => {
     const listeners = (window as any).__ratioListeners;
     (window as any).__ratioListeners = [];
@@ -156,7 +156,7 @@ test('resizing the window refits the map, including mid-morph', async ({ page })
   await page.clock.runFor(700);
   expect(await isMorphing(page)).toBe(true);
 
-  await page.setViewportSize({ width: 700, height: 500 });
+  await page.setViewportSize({ width: 1000, height: 500 });
   await page.waitForFunction(() => document.querySelector('canvas')!.width === 700);
 
   // Mid-morph, with both ends refitted, so the blend between them fits too.

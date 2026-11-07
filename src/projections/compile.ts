@@ -1,8 +1,10 @@
 import { fromFrame, toFrame } from '../geo/orientation';
-import { getDef, stops } from './catalog';
-import type { CompiledProjection, Orientation, ProjectionState, Stop } from './types';
+import { coneConstant, getDef, POLAR_PARALLEL, stops } from './catalog';
+import type { CompiledProjection, LonLat, Orientation, ProjectionState, Stop } from './types';
 
 const TOLERANCE = 0.01;
+// A cone this close to a cylinder is drawn as one, to within a fraction of a percent.
+const CYLINDER_TOLERANCE = 5e-4;
 
 /** The orientation the projection really uses: disabled controls count as zero. */
 function effectiveOrientation(state: ProjectionState, tiltEnabled: boolean, latEnabled: boolean): Orientation {
@@ -24,13 +26,23 @@ export function compile(state: ProjectionState): CompiledProjection {
   };
 }
 
+/** What `stateForStop` needs to know that the states alone do not say. */
+export interface SwitchMemory {
+  /** The centre from before the conic being left, restored on leaving it. */
+  centreBeforeConic?: LonLat;
+  /** Whether the tilt was last set by hand rather than by choosing a stop that brings its own. */
+  tiltByHand?: boolean;
+}
+
 /**
  * The state for choosing `stop`, given the state it is reached from.
- * The centre carries over, except into or out of a conic, which use their own
- * default. A tilt set by hand carries over where the destination allows tilt,
- * `stop.tilt` overrides it, and leaving Transverse Mercator resets it to 0.
+ * The centre carries over, except that a conic arrived at from a non-conic uses its own
+ * default, leaving a conic restores the centre from before it, and a conic to a conic keeps
+ * the longitude. A tilt set by hand carries over where both ends allow tilt. The tilt that
+ * a stop brings (Transverse Mercator's 90) does not, and Mercator is Transverse Mercator
+ * turned back, so it takes tilt 0.
  */
-export function stateForStop(stop: Stop, from?: ProjectionState): ProjectionState {
+export function stateForStop(stop: Stop, from?: ProjectionState, memory: SwitchMemory = {}): ProjectionState {
   const def = getDef(stop.defId);
   const params = { ...def.defaultParams, ...stop.params };
   const base = def.defaultOrientation;
@@ -38,10 +50,17 @@ export function stateForStop(stop: Stop, from?: ProjectionState): ProjectionStat
   let { lon, lat } = base;
   let tilt = 0;
   if (from) {
-    const conic = def.family === 'conic' || getDef(from.defId).family === 'conic';
-    if (!conic) ({ lon, lat } = from.orientation);
-    const leavingTransverse = matchStop(from)?.id === 'transverse-mercator';
-    if (def.tiltEnabled && !leavingTransverse) tilt = from.orientation.tilt;
+    const fromDef = getDef(from.defId);
+    const [toConic, fromConic] = [def.family === 'conic', fromDef.family === 'conic'];
+    if (toConic && fromConic) lon = from.orientation.lon;
+    else if (fromConic) [lon, lat] = memory.centreBeforeConic ?? [lon, lat];
+    else if (!toConic) ({ lon, lat } = from.orientation);
+
+    // The tilt that counts is the one the source really uses.
+    const matched = matchStop(from);
+    const brought = matched?.tilt !== undefined && !memory.tiltByHand;
+    const turnedBack = matched?.id === 'transverse-mercator' && stop.id === 'mercator';
+    if (def.tiltEnabled && fromDef.tiltEnabled && !brought && !turnedBack) tilt = from.orientation.tilt;
   }
   if (stop.tilt !== undefined) tilt = stop.tilt;
   if (!def.tiltEnabled) tilt = 0;
@@ -49,7 +68,33 @@ export function stateForStop(stop: Stop, from?: ProjectionState): ProjectionStat
   return { defId: def.id, params, orientation: { lon, lat, tilt } };
 }
 
-/** The named stop that `state` sits on, with params and tilt within 0.01, or null. */
+const stopById = (id: string): Stop => stops.find((s) => s.id === id)!;
+
+/**
+ * The named projection that a conic becomes at a limit of its sliders, or null. A cone with
+ * n = 0 is a cylinder: Mercator if conformal, the cylindrical equal-area stop at the same
+ * standard parallel if equal-area. Both parallels at the same pole make a disc: polar
+ * stereographic or polar Lambert azimuthal equal-area.
+ */
+function conicLimit(state: ProjectionState): Stop | null {
+  const def = getDef(state.defId);
+  const { p1, p2 } = { ...def.defaultParams, ...state.params } as { p1: number; p2: number };
+  const conformal = def.id === 'conic-conformal';
+  if (Math.abs(coneConstant(def.id, p1, p2)) <= CYLINDER_TOLERANCE) {
+    if (conformal) return stopById('mercator');
+    return stops.find((s) => s.defId === 'cylindrical' && s.params.spacing === 2 && Math.abs(s.params.phi0! - Math.abs(p1)) <= TOLERANCE) ?? null;
+  }
+  if (p1 * p2 > 0 && Math.min(Math.abs(p1), Math.abs(p2)) >= POLAR_PARALLEL - TOLERANCE) {
+    return stopById(conformal ? 'stereographic' : 'lambert-azimuthal');
+  }
+  return null;
+}
+
+/**
+ * The named stop that `state` sits on, with params and tilt within 0.01, or null. A conic
+ * that has reached a limit of its sliders sits on the stop it becomes, which belongs to
+ * another definition.
+ */
 export function matchStop(state: ProjectionState): Stop | null {
   const def = getDef(state.defId);
   for (const stop of stops) {
@@ -65,5 +110,5 @@ export function matchStop(state: ProjectionState): Stop | null {
     if (def.tiltEnabled && Math.abs(state.orientation.tilt - (stop.tilt ?? 0)) > TOLERANCE) continue;
     return stop;
   }
-  return null;
+  return def.family === 'conic' ? conicLimit(state) : null;
 }

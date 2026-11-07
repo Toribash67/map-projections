@@ -4,9 +4,9 @@ import { farSideCells } from './geo/farCells';
 import type { Shape } from './drawing/model';
 import { MorphController } from './morph/controller';
 import { buildScene, type Scene } from './morph/scene';
-import { stops } from './projections/catalog';
+import { getDef, stops } from './projections/catalog';
 import { compile, stateForStop } from './projections/compile';
-import type { CompiledProjection, ProjectionState, Stop } from './projections/types';
+import type { CompiledProjection, LonLat, ProjectionState, Stop } from './projections/types';
 import { drawScene, MAP_STYLE } from './render/draw';
 import { computeScreen, type ScreenTransform, type Viewport } from './screen/screen';
 import type { Member } from './tissot/indicatrix';
@@ -55,6 +55,9 @@ export class App {
   // The last fit, by everything it depends on. Moving the centre does not change it.
   private fitKey = '';
   private fit: ScreenTransform | null = null;
+  // What choosing a projection needs to know that the state does not say. See stateForStop.
+  private centreBeforeConic: LonLat | undefined;
+  private tiltByHand = false;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -70,13 +73,25 @@ export class App {
     return this.controller.isMorphing;
   }
 
-  subscribe(fn: () => void): void {
+  /** Calls `fn` whenever the state, the viewport or the drawings change, and when a morph ends. Returns how to stop. */
+  subscribe(fn: () => void): () => void {
     this.listeners.push(fn);
+    return () => {
+      const i = this.listeners.indexOf(fn);
+      if (i >= 0) this.listeners.splice(i, 1);
+    };
   }
 
   /** Morphs to a named projection, or redirects the morph under way. */
   select(stop: Stop): void {
-    this.state = stateForStop(stop, this.state);
+    const conic = (defId: string) => getDef(defId).family === 'conic';
+    if (conic(stop.defId) && !conic(this.state.defId)) {
+      const { lon, lat } = this.state.orientation;
+      this.centreBeforeConic = [lon, lat];
+    }
+    this.state = stateForStop(stop, this.state, { centreBeforeConic: this.centreBeforeConic, tiltByHand: this.tiltByHand });
+    // A tilt a stop brought, or none, is not one set by hand.
+    this.tiltByHand &&= stop.tilt === undefined && this.state.orientation.tilt !== 0;
     const before = this.controller.target();
     this.controller.morphTo(this.memberOf(this.state));
     if (this.controller.target() !== before) this.invalidate();
@@ -86,6 +101,7 @@ export class App {
   /** Changes the map at once, with no morph. Ignored while a morph runs. */
   setLive(patch: Partial<ProjectionState>): void {
     if (this.controller.tick()) return;
+    if (patch.orientation && patch.orientation.tilt !== this.state.orientation.tilt) this.tiltByHand = true;
     this.state = { ...this.state, ...patch };
     this.controller.jumpTo(this.memberOf(this.state));
     this.invalidate();
@@ -169,6 +185,7 @@ export class App {
       this.viewport = { width, height };
       this.controller.resize((m) => ({ ...m, screen: this.screenFor(m.compiled) }));
       this.stale = true;
+      this.notify();
     }
     if (!sized && !this.stale) return;
     cancelAnimationFrame(this.frameId);

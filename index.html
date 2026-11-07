@@ -4,22 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Map projections</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        height: 100%;
-        background: #eceae4;
-      }
-      #map {
-        display: block;
-        width: 100%;
-        height: 100%;
-      }
-    </style>
   </head>
   <body>
-    <canvas id="map"></canvas>
+    <div id="app">
+      <aside id="sidebar"></aside>
+      <canvas id="map" aria-label="Map"></canvas>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
