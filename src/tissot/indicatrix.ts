@@ -66,6 +66,16 @@ export function jacobian(c: CompiledProjection, s: ScreenTransform, p: LonLat): 
   return [east[0], north[0], east[1], north[1]];
 }
 
+/** The axes of the ellipse a matrix makes of a unit circle: its singular values, largest first. */
+export function singularValues([a, b, c, d]: Mat2): [number, number] {
+  const p = a * a + c * c;
+  const r = b * b + d * d;
+  const q = a * b + c * d;
+  const mid = (p + r) / 2;
+  const spread = Math.hypot((p - r) / 2, q);
+  return [Math.sqrt(mid + spread), Math.sqrt(Math.max(0, mid - spread))];
+}
+
 /** Where indicatrices sit: every 30 degrees of longitude and, from -60 to 60, of latitude, plus both poles. */
 export function indicatrixCentres(): LonLat[] {
   const centres: LonLat[] = [];

@@ -175,7 +175,12 @@ export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransfo
 /** Screen position of a geographic point. `lobe` (central longitude, degrees) defaults to the lobe that holds the point. */
 export function projectPoint(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe?: number): [number, number] {
   const frame = c.toFrame(p);
-  const [x, y] = rotatedRaw(c, s.cos, s.sin, frame, lobe ?? lobeOf(c, frame));
+  return projectFrame(c, s, frame, lobe ?? lobeOf(c, frame));
+}
+
+/** Screen position of a point already in the projection's frame, on the lobe with this central longitude (degrees). */
+export function projectFrame(c: CompiledProjection, s: ScreenTransform, frame: LonLat, lobe: number | undefined): [number, number] {
+  const [x, y] = rotatedRaw(c, s.cos, s.sin, frame, lobe);
   return [s.tx + s.k * x, s.ty - s.k * y];
 }
 

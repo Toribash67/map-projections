@@ -8,6 +8,9 @@ const MIN_SEGMENT = 0.01; // degrees
 // A step near a singular point spans at most this many radians as seen from it.
 const SINGULAR_STEP = 0.1;
 
+/** Farther than this (degrees) from every singular point, a path needs only the `MAX_SEGMENT` steps. */
+export const SINGULAR_REACH = MAX_SEGMENT / SINGULAR_STEP;
+
 export type Vector = [number, number, number];
 
 export function toVector([lon, lat]: LonLat): Vector {

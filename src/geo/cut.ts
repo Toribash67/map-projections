@@ -11,7 +11,7 @@ const SEAM_PULL = 1e-6; // radians
 const SEAM_STEP = Math.PI / 6; // radians
 // Each further lobed seam pulls in half as far, so that its edges stay clear of an earlier seam's
 // when the two line up.
-const LOBE_PULL = 1e-6; // degrees
+export const LOBE_PULL = 1e-6; // degrees
 // A lobe stops short of the pole. Any closer and its end edge is too short for the clip's
 // arithmetic, and lies inside the turn that a seam makes round the pole. Each further lobed
 // seam stops twice as far off, because two end edges at one distance cross over and over.
@@ -27,8 +27,9 @@ const LOBE_EDGE_STEP = 30; // degrees
 // Seam order counts too: which seam crosses the others' narrow gaps decides what can go wrong.
 // So does the pull: seams crossing at a very shallow angle run within d3's tolerance of each
 // other for a long way, which only a wider gap gets clear of.
+export const CLIP_SPIN = 37.30681;
 const ATTEMPTS = [
-  { spin: 37.30681, reverseSeams: false, pullScale: 1 },
+  { spin: CLIP_SPIN, reverseSeams: false, pullScale: 1 },
   { spin: 61.71337, reverseSeams: true, pullScale: 1 },
   { spin: 13.93271, reverseSeams: false, pullScale: 1 },
   { spin: 83.12459, reverseSeams: true, pullScale: 1 },
@@ -71,9 +72,9 @@ type Part = {
   lobe: Map<string, number>;
 };
 
-type Path = { closed: boolean; coords: LonLat[][] };
+export type Path = { closed: boolean; coords: LonLat[][] };
 type Clip = (sink: GeoStream) => GeoStream;
-type PointMap = (p: LonLat) => LonLat;
+export type PointMap = (p: LonLat) => LonLat;
 /** How far one seam's cut pulls its edges in: radians for `seamPull`, degrees for the rest. */
 type Pulls = { seamPull: number; lobePull: number; polePull: number };
 /** Into and out of the space a clip works in, both in degrees. */
@@ -91,7 +92,7 @@ function forwarding(sink: GeoStream): Omit<GeoStream, 'point'> {
 }
 
 /** Passes a stream on with every point moved by `f`. */
-function mapPoints(f: PointMap, sink: GeoStream): GeoStream {
+export function mapPoints(f: PointMap, sink: GeoStream): GeoStream {
   return {
     ...forwarding(sink),
     point(x, y) {
@@ -114,7 +115,7 @@ function closeRing(ring: LonLat[]): LonLat[] {
  * anything too short to draw. Polygon starts can nest: `geoClipPolygon` opens
  * its own inside the clip's when the subject surrounds the whole clip polygon.
  */
-function collector(out: Path[]): GeoStream {
+export function collector(out: Path[]): GeoStream {
   let depth = 0;
   let rings: LonLat[][] = [];
   let line: LonLat[] | null = null;
@@ -261,7 +262,7 @@ function lobePolygon(lobe: Lobe, { lobePull, polePull }: Pulls): GeoJSON.Polygon
  * lost. Only points exactly on it: an earlier seam's edges lie close by, and must
  * stay on their own side.
  */
-function offLobeEdges(lobes: Lobe[], gap: number): PointMap {
+export function offLobeEdges(lobes: Lobe[], gap: number): PointMap {
   const off = (value: number, edges: number[], top: number) => {
     const edge = edges.find((e) => Math.abs(value - e) <= ON_LOBE_EDGE);
     if (edge === undefined) return value;

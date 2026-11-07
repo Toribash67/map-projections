@@ -8,6 +8,7 @@ import {
   blendIndicatrix,
   indicatrixCentres,
   jacobian,
+  singularValues,
   type Mat2,
 } from '../src/tissot/indicatrix';
 
@@ -47,15 +48,7 @@ function orientations(seed: number, n = 3): Partial<Orientation>[] {
   return out;
 }
 
-/** Singular values of a matrix, largest first. */
-function axes([a, b, c, d]: Mat2): [number, number] {
-  const p = a * a + c * c;
-  const r = b * b + d * d;
-  const q = a * b + c * d;
-  const mid = (p + r) / 2;
-  const spread = Math.hypot((p - r) / 2, q);
-  return [Math.sqrt(mid + spread), Math.sqrt(Math.max(0, mid - spread))];
-}
+const axes = singularValues;
 
 /** The centres and some random points where the map shows something. */
 function samples(c: CompiledProjection, s: ScreenTransform, seed: number): { p: LonLat; m: Mat2 }[] {
