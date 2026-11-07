@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { stops } from '../src/projections/catalog';
+import { MAP_STYLE } from '../src/render/draw';
 import type { Shape } from '../src/drawing/model';
 import { isMorphing, open, openPaused, pick, settle, state } from './support';
 
@@ -111,6 +112,41 @@ test('every ordered pair of stops morphs with no console error or NaN', async ({
   expect(problems).toEqual([]);
   expect(seen.size).toBe(ids.length * (ids.length - 1));
   expect(frames).toBeGreaterThan(2000);
+  expect(errors).toEqual([]);
+});
+
+/** The share of the 1400 ms at which the morph's eased progress (in-out cubic) is `t`. */
+const timeOf = (t: number) => (t < 0.5 ? Math.cbrt(t / 4) : 1 - Math.cbrt(2 * (1 - t)) / 2);
+
+test('gnomonic to Albers: the ocean that unfolds from gnomonic\'s rim leaves no hole mid-morph', async ({ page }) => {
+  const errors = watchErrors(page);
+  await openPaused(page);
+  await pick(page, 'gnomonic');
+  await page.clock.runFor(1600);
+  const background = [1, 3, 5].map((i) => parseInt(MAP_STYLE.background.slice(i, i + 2), 16));
+  // Canvas pixels (the map is 1000 x 600) inside the cone's upper right, where the far side of gnomonic
+  // arrives. Before the fix the ocean was missing there from about t = 0.5 to 0.8, down to the bare background.
+  const spots = [[700, 110], [680, 100], [720, 130], [740, 100]];
+  for (const t of [0.5, 0.6, 0.7, 0.8]) {
+    await pick(page, 'albers');
+    await page.clock.runFor(16);
+    await page.clock.fastForward(Math.round(timeOf(t) * 1400) - 32);
+    await page.clock.runFor(16);
+    expect(Math.abs((await page.evaluate(() => (window as any).__app.controller.t() as number)) - t)).toBeLessThan(0.01);
+    const seen = await page.evaluate((spots) => {
+      const canvas = document.querySelector<HTMLCanvasElement>('#map')!;
+      const ratio = canvas.width / canvas.clientWidth;
+      const ctx = canvas.getContext('2d')!;
+      return spots.map(([x, y]) => [...ctx.getImageData(Math.round(x! * ratio), Math.round(y! * ratio), 1, 1).data.slice(0, 3)]);
+    }, spots);
+    seen.forEach((rgb, i) => {
+      const away = Math.abs(rgb[0]! - background[0]!) + Math.abs(rgb[1]! - background[1]!) + Math.abs(rgb[2]! - background[2]!);
+      expect(away, `t ${t} at ${spots[i]}`).toBeGreaterThanOrEqual(2);
+    });
+    await page.clock.runFor(1500);
+    await pick(page, 'gnomonic');
+    await page.clock.runFor(1600);
+  }
   expect(errors).toEqual([]);
 });
 

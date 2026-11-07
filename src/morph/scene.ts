@@ -30,7 +30,11 @@ export type ScenePiece = {
   ringStarts: Uint32Array;
   alphaSrc: number;
   alphaDst: number;
+  /** The weights of the source members that cannot show it, which with `alphaDst` set how it fades. See `alphaOf`. */
+  hidden?: number[];
   behind: boolean;
+  /** Beyond what a map can show at one end or the other: past a clip cap, or behind a globe's limb. Its ocean is filled from cells. */
+  out: boolean;
 };
 export type SceneIndicatrix = {
   srcPos: Pair;
@@ -39,6 +43,8 @@ export type SceneIndicatrix = {
   dstMat: Mat2;
   alphaSrc: number;
   alphaDst: number;
+  /** As for a piece. */
+  hidden?: number[];
   /** On the far side of a globe at some end: drawn with the far-side pieces, under the near side until the peel opens. */
   behind: boolean;
 };
@@ -153,8 +159,10 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   const alphaSrc = source.reduce((sum, m, i) => (shownBy(i) ? sum + m.weight : sum), 0);
   const alphaDst = target ? (shownBy(source.length) ? 1 : 0) : alphaSrc;
   const behind = piece.behind.some(Boolean);
+  const out = behind || piece.inside.some((inside) => !inside);
   if (alphaSrc <= 0 && alphaDst <= 0) return null;
   if (!target && behind) return null;
+  const hidden = source.filter((_, i) => !shownBy(i)).map((m) => m.weight);
 
   const axes = members.map((m, i) => (piece.inside[i] ? null : capHolding(m.compiled, m.compiled.toFrame(piece.coords[0]![0]!))));
   const views = piece.coords.map((ring) => members.map((m, i) => (axes[i] ? viewFromCap(m.compiled, axes[i]!, ring) : null)));
@@ -186,7 +194,7 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   };
   const src = fill(source, 0);
   const dst = target ? fill([{ ...target, weight: 1 }], source.length) : src;
-  return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, behind };
+  return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, hidden, behind, out };
 }
 
 /** What a live build cut from a geometry, and the map it cut it for. */
@@ -213,7 +221,7 @@ function cutLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
         src[n++] = y;
       }
     }
-    return { closed: piece.closed, src, dst: src, ringStarts, alphaSrc: m.weight, alphaDst: m.weight, behind: false };
+    return { closed: piece.closed, src, dst: src, ringStarts, alphaSrc: m.weight, alphaDst: m.weight, behind: false, out: false };
   });
 }
 
@@ -249,17 +257,19 @@ const isSingular = (m: Mat2) => {
  * cap, or for which it is singular, adds no alpha. A globe's far side counts as shown, like far-side land. Its matrix still counts if it has one,
  * so an ellipse flat on a globe's limb widens as it fades in, and a redirect cannot make it pop.
  */
-function indicatrixEnd(members: Member[], p: LonLat): { mat: Mat2; alpha: number } | null {
+function indicatrixEnd(members: Member[], p: LonLat): { mat: Mat2; alpha: number; hidden: number[] } | null {
   const blend = blendIndicatrix(members, p);
   if (!blend) return null;
-  if (isSingular(blend.mat)) return { mat: blend.mat, alpha: 0 };
-  if (members.length === 1) return { mat: blend.mat, alpha: members[0]!.weight };
+  if (isSingular(blend.mat)) return { mat: blend.mat, alpha: 0, hidden: members.map((m) => m.weight) };
+  if (members.length === 1) return { mat: blend.mat, alpha: members[0]!.weight, hidden: [] };
   let alpha = 0;
+  const hidden: number[] = [];
   for (const m of members) {
     const mat = jacobian(m.compiled, m.screen, p);
     if (mat && !isSingular(mat)) alpha += m.weight;
+    else hidden.push(m.weight);
   }
-  return { mat: blend.mat, alpha };
+  return { mat: blend.mat, alpha, hidden };
 }
 
 /** An indicatrix follows the land beneath it, through a cap's edge like everything else. Only its alpha and matrix depend on what can show it. */
@@ -299,6 +309,7 @@ function buildIndicatrix(p: LonLat, source: Member[], target: Member | null): Sc
     dstMat: (end ?? start)!.mat,
     alphaSrc,
     alphaDst,
+    hidden: start ? start.hidden : source.map((m) => m.weight),
     behind,
   };
 }
@@ -314,10 +325,12 @@ export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source
   const compiled = (target ? [...source, target] : source).map((m) => m.compiled);
   const scene: Scene = { layers: {}, indicatrices: [] };
   for (const [name, geom] of Object.entries(layers)) {
-    scene.layers[name] =
+    const pieces =
       !target && source.length === 1
         ? livePieces(geom, source[0]!)
         : cutGeometry(geom, compiled).flatMap((piece) => morphPiece(piece, source, target) ?? []);
+    // Cells of ocean are only for what some map cannot show; the rest of them are drawn by the ocean itself.
+    scene.layers[name] = name === 'capOcean' ? pieces.filter((piece) => piece.out) : pieces;
   }
   if (withTissot) {
     for (const p of indicatrixCentres()) {

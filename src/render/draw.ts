@@ -34,7 +34,22 @@ export const MAP_STYLE: Style = {
   indicatrixWidth: 1.25,
 };
 
-const alphaOf = (a: { alphaSrc: number; alphaDst: number }, t: number) => (1 - t) * a.alphaSrc + t * a.alphaDst;
+/** How far a weight `w` of the maps that cannot show something hides it: slow to start, so what arrives or leaves is faint for long. */
+const hiding = (w: number) => 1 - (1 - w) ** 3;
+
+/**
+ * How visible a piece or indicatrix is at morph progress `t`. What every map shows keeps its alpha. Whatever
+ * some map cannot show is hidden by that map's weight, which is (1 - t) times its weight at the start for a
+ * source and t for the target, through `hiding`: it arrives as t^3 and leaves as (1 - t)^3, so while it is
+ * folded onto an edge, at the start or the end, it is faint. A weight of zero hides nothing and each map hides on its
+ * own, so a morph redirected under way starts at the alpha it had, whatever the redirect.
+ */
+export function alphaOf(a: { alphaSrc: number; alphaDst: number; hidden?: readonly number[] }, t: number): number {
+  if (a.alphaSrc === a.alphaDst) return a.alphaSrc;
+  let alpha = 1 - (1 - a.alphaDst) * hiding(t);
+  for (const w of a.hidden ?? [1 - a.alphaSrc]) alpha -= hiding((1 - t) * w);
+  return Math.max(0, Math.min(1, alpha));
+}
 
 const ringEnd = (piece: ScenePiece, r: number) => (r + 1 < piece.ringStarts.length ? piece.ringStarts[r + 1]! : piece.src.length / 2);
 
@@ -79,12 +94,12 @@ function signedArea(piece: ScenePiece, t: number): number {
  * Fills each piece on its own, so that pieces cannot cancel each other out under the
  * non-zero rule where they overlap mid-morph. `outline`, if given, is a stroke in the same colour.
  */
-function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, outline: number | null): void {
+function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, outline: number | null, skipOut = false): void {
   ctx.fillStyle = colour;
   ctx.strokeStyle = colour;
   if (outline !== null) ctx.lineWidth = outline;
   for (const piece of pieces) {
-    if (piece.behind !== behind || !piece.closed) continue;
+    if (piece.behind !== behind || !piece.closed || (skipOut && piece.out)) continue;
     const alpha = alphaOf(piece, t);
     if (alpha <= 0) continue;
     ctx.globalAlpha = Math.min(1, alpha);
@@ -101,11 +116,11 @@ function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind:
  * way: where folded cells overlap their windings add up instead of cancelling, and there is no
  * hairline between neighbours, as they are filled together.
  */
-function fillCells(ctx: CanvasRenderingContext2D, cells: ScenePiece[], t: number, colour: string): void {
+function fillCells(ctx: CanvasRenderingContext2D, cells: ScenePiece[], behind: boolean, t: number, colour: string): void {
   ctx.fillStyle = colour;
   let current = -1;
   for (const cell of cells) {
-    if (!cell.behind || !cell.closed) continue;
+    if (cell.behind !== behind || !cell.closed) continue;
     const alpha = Math.min(1, alphaOf(cell, t));
     if (alpha <= 0) continue;
     if (alpha !== current) {
@@ -179,10 +194,10 @@ function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndi
 
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, t: number, style: Style, base: DOMMatrix): void {
   const layer = (name: string) => scene.layers[name] ?? [];
-  // A globe's far side folds over in a morph, so where it comes as cells it is filled from those.
-  const cells = scene.layers.farOcean;
-  if (behind && cells) fillCells(ctx, cells, t, style.ocean);
-  else fillPieces(ctx, layer('ocean'), behind, t, style.ocean, style.seamWidth);
+  // What a map cannot show folds over in a morph, so where its ocean comes as cells it is filled from those.
+  const cells = scene.layers.capOcean;
+  if (cells) fillCells(ctx, cells, behind, t, style.ocean);
+  fillPieces(ctx, layer('ocean'), behind, t, style.ocean, style.seamWidth, cells !== undefined);
   fillPieces(ctx, layer('land'), behind, t, style.land, style.seamWidth);
   strokePieces(ctx, layer('graticule'), behind, t, style.graticule, style.graticuleWidth);
   strokePieces(ctx, layer('coast'), behind, t, style.coast, style.coastWidth);

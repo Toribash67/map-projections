@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import { MorphController } from '../src/morph/controller';
+import { alphaOf } from '../src/render/draw';
 import { buildScene, type Scene } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
@@ -152,7 +153,7 @@ test('redirect: a singular indicatrix keeps its alpha', () => {
   controller.morphTo(member('mollweide'));
   const after = buildScene({}, controller.source(), controller.target(), true);
   expect(before.indicatrices.some((m) => m.alphaSrc === 0 && m.alphaDst === 1)).toBe(true);
-  const alphaAt = (m: Scene['indicatrices'][number], at: number) => (1 - at) * m.alphaSrc + at * m.alphaDst;
+  const alphaAt = (m: Scene['indicatrices'][number], at: number) => alphaOf(m, at);
   const byPosition = new Map(after.indicatrices.map((m) => [m.srcPos.map((v) => v.toFixed(1)).join(), m]));
   let compared = 0;
   for (const m of before.indicatrices) {

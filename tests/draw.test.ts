@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { Scene, SceneIndicatrix, ScenePiece } from '../src/morph/scene';
-import { drawScene, MAP_STYLE } from '../src/render/draw';
+import { alphaOf, drawScene, MAP_STYLE } from '../src/render/draw';
 import { INDICATRIX_RADIUS } from '../src/tissot/indicatrix';
 
 type Op = { op: string; args: number[]; style?: string; alpha: number; transform: number[]; path: number[][] };
@@ -38,7 +38,7 @@ function recordingContext(base = [2, 0, 0, 2, 0, 0]) {
 }
 
 function piece(from: number[], to: number[], options: Partial<ScenePiece> = {}): ScenePiece {
-  return { closed: true, src: new Float32Array(from), dst: new Float32Array(to), ringStarts: new Uint32Array([0]), alphaSrc: 1, alphaDst: 1, behind: false, ...options };
+  return { closed: true, src: new Float32Array(from), dst: new Float32Array(to), ringStarts: new Uint32Array([0]), alphaSrc: 1, alphaDst: 1, behind: false, out: false, ...options };
 }
 
 const square = (x: number) => [x, 0, x + 10, 0, x + 10, 10, x, 10];
@@ -73,7 +73,7 @@ test('draw: a piece is drawn at the blend of its alphas, and not at all at alpha
   const later = recordingContext();
   drawScene(later.ctx, { layers: { ...emptyLayers(), land: [fading, gone, arriving] }, indicatrices: [] }, 0.25, MAP_STYLE);
   const shown = painted(later.ops).filter((o) => o.op === 'fill' && o.style === MAP_STYLE.land);
-  expect(shown.map((o) => [o.path[0]![0], o.alpha])).toEqual([[0, 0.75], [100, 0.25]]);
+  expect(shown.map((o) => [o.path[0]![0], o.alpha])).toEqual([[0, alphaOf({ alphaSrc: 1, alphaDst: 0 }, 0.25)], [100, alphaOf({ alphaSrc: 0, alphaDst: 1 }, 0.25)]]);
   // Whatever is painted later is not left at a fading piece's alpha.
   expect(later.ctx.globalAlpha).toBe(1);
 });
@@ -145,7 +145,7 @@ test('draw: a far-side indicatrix goes under the near ocean; others on top of ev
   expect(order).toEqual([4, 'ocean', 2]);
 });
 
-test('draw: an indicatrix at alpha 0 is skipped, and a fading one uses its blended alpha', () => {
+test('draw: an indicatrix at alpha 0 is skipped, and a fading one uses its eased alpha', () => {
   const { ctx, ops } = recordingContext();
   const scene: Scene = {
     layers: emptyLayers(),
@@ -154,7 +154,7 @@ test('draw: an indicatrix at alpha 0 is skipped, and a fading one uses its blend
   drawScene(ctx, scene, 0.25, MAP_STYLE);
   const arcs = ops.filter((o) => o.op === 'arc');
   expect(arcs.length).toBe(1);
-  expect(arcs[0]!.alpha).toBe(0.75);
+  expect(arcs[0]!.alpha).toBe(alphaOf({ alphaSrc: 1, alphaDst: 0 }, 0.25));
 });
 
 test('draw: the background fills the whole store whatever the transform', () => {
@@ -167,14 +167,14 @@ test('draw: the background fills the whole store whatever the transform', () => 
   expect(transform()).toEqual([3, 0, 0, 3, 0, 0]);
 });
 
-test('draw: far-side ocean cells are filled as one path, each wound the same way, in place of the far-side ocean pieces', () => {
+test('draw: ocean cells beyond a globe\'s limb are filled as one path, each wound the same way, in place of the far-side ocean pieces', () => {
   const { ctx, ops } = recordingContext();
   // The second cell is wound the other way round on screen, as a folded cell comes out.
-  const clockwise = piece(square(0), square(0), { behind: true });
-  const reversed = piece([20, 0, 20, 10, 30, 10, 30, 0], [20, 0, 20, 10, 30, 10, 30, 0], { behind: true });
-  const farSphere = piece(square(100), square(100), { behind: true });
+  const clockwise = piece(square(0), square(0), { behind: true, out: true });
+  const reversed = piece([20, 0, 20, 10, 30, 10, 30, 0], [20, 0, 20, 10, 30, 10, 30, 0], { behind: true, out: true });
+  const farSphere = piece(square(100), square(100), { behind: true, out: true });
   const nearSphere = piece(square(200), square(200));
-  const scene: Scene = { layers: { ...emptyLayers(), ocean: [farSphere, nearSphere], farOcean: [clockwise, reversed] }, indicatrices: [] };
+  const scene: Scene = { layers: { ...emptyLayers(), ocean: [farSphere, nearSphere], capOcean: [clockwise, reversed] }, indicatrices: [] };
   drawScene(ctx, scene, 0.5, MAP_STYLE);
   const oceanFills = ops.filter((o) => o.op === 'fill' && o.style === MAP_STYLE.ocean);
   // One fill for both cells, then the near ocean; the far Sphere piece is not filled.
@@ -182,4 +182,58 @@ test('draw: far-side ocean cells are filled as one path, each wound the same way
   const cells = oceanFills[0]!.path;
   const area = (ring: number[][]) => ring.reduce((sum, [x, y], i) => sum + x! * ring[(i + 1) % ring.length]![1]! - ring[(i + 1) % ring.length]![0]! * y!, 0) / 2;
   expect(Math.sign(area(cells.slice(0, 4)))).toBe(Math.sign(area(cells.slice(4, 8))));
+});
+
+const at = (alphaSrc: number, alphaDst: number, t: number, hidden?: number[]) => alphaOf({ alphaSrc, alphaDst, hidden }, t);
+
+test('alphaOf: the ends are what the maps there show, and it is continuous and monotone between', () => {
+  for (const [a, b] of [[0, 1], [1, 0]] as [number, number][]) {
+    expect(at(a, b, 0)).toBeCloseTo(a, 12);
+    expect(at(a, b, 1)).toBeCloseTo(b, 12);
+    let last = a;
+    for (let k = 1; k <= 1000; k++) {
+      const v = at(a, b, k / 1000);
+      // A step of 0.001 in t moves it by at most 0.01.
+      expect(Math.abs(v - last)).toBeLessThan(0.01);
+      expect(b > a ? v >= last : v <= last).toBe(true);
+      last = v;
+    }
+  }
+});
+
+test('alphaOf: what every map shows is blended linearly, and what arrives or leaves is fainter than that', () => {
+  for (const t of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]) {
+    expect(at(1, 1, t)).toBe(1);
+    expect(at(0.4, 0.4, t)).toBe(0.4);
+  }
+  for (const t of [0.1, 0.25, 0.5, 0.75, 0.9]) {
+    expect(at(0, 1, t)).toBeCloseTo(t ** 3, 12);
+    expect(at(1, 0, t)).toBeCloseTo((1 - t) ** 3, 12);
+  }
+});
+
+test('alphaOf: a morph redirected under way starts at the alpha it had, however its sources are mixed', () => {
+  // A piece that the first source (weight 0.6 at the start) cannot show, the second (0.4) can, and so can the target.
+  const before = (t: number) => at(0.4, 1, t, [0.6]);
+  for (const t of [0.1, 0.35, 0.6, 0.9]) {
+    // Redirected at t: the sources are now the two of them at (1 - t) times their weights, and the old target at t, and
+    // a piece that the old first source cannot show has the same hidden weight, (1 - t) 0.6.
+    const after = at(0.4 * (1 - t) + t, 1, 0, [(1 - t) * 0.6]);
+    expect(after).toBeCloseTo(before(t), 12);
+  }
+  // A piece that only the old target cannot show: after a redirect at t its weight t hides it, as before.
+  for (const t of [0.2, 0.5, 0.8]) expect(at(1 - t, 1, 0, [t])).toBeCloseTo(at(1, 0, t), 12);
+});
+
+test('draw: cells of ocean beyond a map\'s coverage replace the ocean pieces that lie beyond it, wherever the cap is', () => {
+  const { ctx, ops } = recordingContext();
+  // Out of coverage at one end but not behind a globe's limb: a clip cap's far side.
+  const out = piece(square(100), square(100), { alphaSrc: 0, alphaDst: 1, out: true });
+  const covered = piece(square(200), square(200));
+  const cell = piece(square(0), square(0), { alphaSrc: 0, alphaDst: 1, out: true });
+  const scene: Scene = { layers: { ...emptyLayers(), ocean: [out, covered], capOcean: [cell] }, indicatrices: [] };
+  drawScene(ctx, scene, 0.5, MAP_STYLE);
+  const oceanFills = ops.filter((o) => o.op === 'fill' && o.style === MAP_STYLE.ocean);
+  expect(oceanFills.map((o) => o.path[0]![0])).toEqual([0, 200]);
+  expect(oceanFills[0]!.alpha).toBe(alphaOf({ alphaSrc: 0, alphaDst: 1 }, 0.5));
 });
