@@ -1,4 +1,5 @@
 import type { Stop } from '../projections/types';
+import { el } from './dom';
 
 const FAMILY_NAMES: Record<string, string> = {
   globe: 'Globe',
@@ -34,13 +35,6 @@ export interface ProjectionList {
   slotFor(family: string): HTMLElement;
   update(view: ListView): void;
 }
-
-const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] => {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
 
 const mark = (node: HTMLElement, on: boolean) => {
   node.classList.toggle('current', on);

@@ -1,3 +1,5 @@
+import { el } from './dom';
+
 /** The value of `stops` nearest to `v` if it lies within `tolerance`, else `v`. */
 export function snapValue(v: number, stops: number[], tolerance: number): number {
   let best = v;
@@ -27,6 +29,8 @@ export interface SliderOptions {
   /** Reads typed text, or null if it is not a value. */
   parse?: (raw: string) => number | null;
   format?: (v: number) => string;
+  /** What a screen reader says for a value, if the number alone is not enough. */
+  valueText?: (v: number) => string;
   /** What reset returns to; a function if it depends on something that changes. */
   defaultValue: number | (() => number);
   onInput(v: number): void;
@@ -39,18 +43,13 @@ export interface Slider {
   setEnabled(on: boolean): void;
 }
 
-const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] => {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
+let sliderCount = 0;
 
 /** A labelled range with an editable number and a reset to the default. */
 export function createSlider(opts: SliderOptions): Slider {
   const { min, max } = opts;
   const format = opts.format ?? ((v: number) => String(Math.round(v * 100) / 100));
-  const parse = opts.parse ?? ((raw: string) => (raw.trim() === '' || Number.isNaN(Number(raw)) ? null : Number(raw)));
+  const parse = opts.parse ?? ((raw: string) => (raw.trim() === '' || !Number.isFinite(Number(raw)) ? null : Number(raw)));
 
   const root = el('div', 'slider');
   const head = el('div', 'slider-head');
@@ -61,7 +60,8 @@ export function createSlider(opts: SliderOptions): Slider {
 
   range.type = 'range';
   [range.min, range.max, range.step] = [String(min), String(max), String(opts.step)];
-  range.setAttribute('aria-label', opts.label);
+  range.id = `slider-${++sliderCount}`;
+  label.htmlFor = range.id;
   number.type = 'text';
   number.inputMode = 'decimal';
   number.setAttribute('aria-label', `${opts.label}, value`);
@@ -79,27 +79,36 @@ export function createSlider(opts: SliderOptions): Slider {
   head.append(label, number, reset);
   root.append(head, track);
 
+  // The value the slider shows, which is what the map has: the range itself only holds multiples of its step.
+  let current = opts.value;
   const set = (v: number) => {
+    current = v;
     range.value = String(v);
+    range.setAttribute('aria-valuetext', opts.valueText?.(v) ?? format(v));
     // Not under the caret of someone typing.
     if (document.activeElement !== number) number.value = format(v);
   };
   const commit = (v: number) => {
     set(v);
     opts.onInput(v);
+    // As the caret leaves: what the slider shows now, which is not what was typed if the map did not take it.
+    number.value = format(current);
   };
 
+  // A key moves by one step, so a stop it started on must not pull it back; a pointer, or a value set
+  // outright, lands where it lands and snaps.
+  let byKey = false;
+  range.addEventListener('keydown', () => (byKey = true));
+  range.addEventListener('keyup', () => (byKey = false));
+  range.addEventListener('blur', () => (byKey = false));
   range.addEventListener('input', () => {
-    commit(snapValue(Number(range.value), opts.stops ?? [], opts.snap ?? 0));
+    const v = Number(range.value);
+    commit(byKey ? v : snapValue(v, opts.stops ?? [], opts.snap ?? 0));
   });
   number.addEventListener('change', () => {
     const typed = parse(number.value);
-    if (typed === null) {
-      number.value = format(Number(range.value));
-      return;
-    }
-    commit(Math.min(max, Math.max(min, typed)));
-    number.value = format(Number(range.value));
+    if (typed === null) number.value = format(current);
+    else commit(Math.min(max, Math.max(min, typed)));
   });
   number.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') number.blur();

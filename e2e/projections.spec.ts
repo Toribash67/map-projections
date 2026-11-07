@@ -263,6 +263,173 @@ test('a conic slider reaching a limit gives the same map as selecting what it be
   await viaConic('albers', 100, 100, 'lambert-azimuthal', true);
 });
 
+const numberBox = (page: Page, name: string) => page.getByRole('textbox', { name: `${name}, value`, exact: true });
+
+/** Types into a slider's number box and confirms with Enter. */
+async function type(page: Page, name: string, text: string) {
+  const box = numberBox(page, name);
+  await box.fill(text);
+  await box.press('Enter');
+}
+
+test('arrow keys move a slider off a stop by one step, forward when forward and back when back', async ({ page }) => {
+  await open(page);
+  // Each starts on a stop it snaps to: Behrmann's 30 degrees, equirectangular's spacing 1, stereographic's 0.5,
+  // and a conic parallel at the equator and at the pole.
+  const cases: { start: string; name: string; key: string; step: number; at?: number }[] = [
+    { start: 'behrmann', name: 'Standard parallel', key: 'phi0', step: 0.5 },
+    { start: 'equirectangular', name: 'Vertical spacing', key: 'spacing', step: 0.01 },
+    { start: 'stereographic', name: 'Viewpoint', key: 'x', step: 0.005 },
+    { start: 'albers', name: 'First parallel', key: 'p1', step: 0.1, at: 0 },
+    { start: 'albers', name: 'First parallel', key: 'p1', step: 0.1, at: 89.9 },
+  ];
+  for (const { start, name, key, step, at } of cases) {
+    await pick(page, start);
+    await settle(page);
+    if (at !== undefined) await type(page, name, String(at));
+    const value = async () => (await state(page)).params[key]!;
+    const first = await value();
+    await slider(page, name).focus();
+    const atTop = at === 89.9;
+    const [forward, backward] = atTop ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft'];
+    const sign = atTop ? -1 : 1;
+    let last = first;
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press(forward);
+      const now = await value();
+      expect(now, `${name} from ${first}, press ${i + 1}`).toBeCloseTo(last + sign * step, 6);
+      last = now;
+    }
+    // And back, past where it started and on to the other side; a slider at its end can only come back to it.
+    for (let i = 0; i < (atTop ? 8 : 12); i++) {
+      await page.keyboard.press(backward);
+      const now = await value();
+      expect(now, `${name} back, press ${i + 1}`).toBeCloseTo(last - sign * step, 6);
+      last = now;
+    }
+    // What the box shows is what the map took.
+    expect((await state(page)).params[key]).toBeCloseTo(last, 6);
+  }
+
+  // From a value near a stop, but not on it, it still goes the way it was pushed: 31 with a stop at 30.
+  await pick(page, 'behrmann');
+  await settle(page);
+  await type(page, 'Standard parallel', '31');
+  await slider(page, 'Standard parallel').focus();
+  await page.keyboard.press('ArrowRight');
+  expect((await state(page)).params.phi0).toBe(31.5);
+  // Dragging or setting a value without the keyboard still snaps, once the keys are let go.
+  await move(page, 'Standard parallel', 44);
+  expect((await state(page)).params.phi0).toBe(45);
+});
+
+test('typed values: bad ones revert, out-of-range ones clamp, and the box shows the value the map took', async ({ page }) => {
+  await open(page);
+  const params = async () => (await state(page)).params;
+  const shows = async (name: string) => numberBox(page, name).inputValue();
+
+  await pick(page, 'albers');
+  await settle(page);
+  for (const bad of ['abc', '', '   ', '12abc', 'Infinity']) {
+    await type(page, 'First parallel', bad);
+    expect((await params()).p1, `"${bad}"`).toBe(29.5);
+    expect(await shows('First parallel'), `"${bad}"`).toBe('29.5°');
+  }
+  await type(page, 'First parallel', '999');
+  expect((await params()).p1).toBe(89.9);
+  expect(await shows('First parallel')).toBe('89.9°');
+  await expect(slider(page, 'First parallel')).toHaveValue('89.9');
+  await type(page, 'Second parallel', '-999°');
+  expect((await params()).p2).toBe(-89.9);
+  expect(await shows('Second parallel')).toBe('-89.9°');
+  await type(page, 'First parallel', '45 °');
+  expect((await params()).p1).toBe(45);
+
+  await pick(page, 'equirectangular');
+  await settle(page);
+  await type(page, 'Vertical spacing', '5');
+  expect((await params()).spacing).toBe(2);
+  expect(await shows('Vertical spacing')).toBe('2');
+  await type(page, 'Vertical spacing', '-1');
+  expect((await params()).spacing).toBe(0);
+  expect(await shows('Vertical spacing')).toBe('0');
+  // A value between two steps of the slider is taken as typed and shown as typed, not as the thumb's nearest step.
+  await type(page, 'Standard parallel', '30.25');
+  expect((await params()).phi0).toBe(30.25);
+  expect(await shows('Standard parallel')).toBe('30.25°');
+  await type(page, 'Standard parallel', '12abc');
+  expect((await params()).phi0).toBe(30.25);
+  expect(await shows('Standard parallel')).toBe('30.25°');
+
+  await pick(page, 'stereographic');
+  await settle(page);
+  for (const [text, x, shown] of [['inf', 1, '∞'], ['∞', 1, '∞'], ['3', 0.75, '3'], ['-3', 0, '0'], ['0', 0, '0']] as const) {
+    await type(page, 'Viewpoint', text);
+    expect((await params()).x, text).toBe(x);
+    expect(await shows('Viewpoint'), text).toBe(shown);
+  }
+  for (const bad of ['abc', '', '-inf']) {
+    await type(page, 'Viewpoint', bad);
+    expect((await params()).x, `"${bad}"`).toBe(0);
+    expect(await shows('Viewpoint'), `"${bad}"`).toBe('0');
+  }
+});
+
+test('a family whose sliders are off says why, and says it to a screen reader too', async ({ page }) => {
+  await open(page);
+  const group = (family: string) => page.locator(`[data-family="${family}"] .sliders`);
+  const hint = (family: string) => group(family).locator('.hint');
+
+  // On the globe, the Azimuthal family's slider is off.
+  await head(page, 'azimuthal').click();
+  await expect(slider(page, 'Viewpoint')).toBeDisabled();
+  await expect(hint('azimuthal')).toBeVisible();
+  await expect(hint('azimuthal')).toContainText('Gnomonic, Stereographic or Orthographic');
+  await expect(group('azimuthal')).toHaveAccessibleDescription(/Gnomonic, Stereographic or Orthographic/);
+
+  await pick(page, 'stereographic');
+  await settle(page);
+  await expect(slider(page, 'Viewpoint')).toBeEnabled();
+  await expect(hint('azimuthal')).toBeHidden();
+  await expect(group('azimuthal')).toHaveAccessibleDescription('');
+
+  // The plain azimuthals are not perspective views.
+  await pick(page, 'azimuthal-equidistant');
+  await settle(page);
+  await expect(slider(page, 'Viewpoint')).toBeDisabled();
+  await expect(hint('azimuthal')).toBeVisible();
+
+  await head(page, 'cylindrical').click();
+  await expect(hint('cylindrical')).toHaveText('Choose a projection in this family to use these sliders.');
+  await head(page, 'conic').click();
+  await expect(hint('conic')).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Conformal' })).toBeDisabled();
+  await pick(page, 'albers');
+  await settle(page);
+  await expect(hint('conic')).toBeHidden();
+  await expect(page.getByRole('radio', { name: 'Conformal' })).toBeEnabled();
+});
+
+test('each slider is labelled by its visible label, and the viewpoint reads out its distance and name', async ({ page }) => {
+  await open(page);
+  await pick(page, 'stereographic');
+  await settle(page);
+  const labelled = await page.evaluate(() => [...document.querySelectorAll<HTMLInputElement>('.slider-range')].map((r) => [r.labels?.[0]?.textContent ?? '', r.labels?.[0]?.classList.contains('slider-label') ?? false]));
+  expect(labelled.length).toBe(5);
+  for (const [text, isLabel] of labelled) {
+    expect(text).not.toBe('');
+    expect(isLabel).toBe(true);
+  }
+  const viewpoint = slider(page, 'Viewpoint');
+  await expect(viewpoint).toHaveAttribute('aria-valuetext', 'P = 1, stereographic');
+  await move(page, 'Viewpoint', 0);
+  await expect(viewpoint).toHaveAttribute('aria-valuetext', 'P = 0, gnomonic');
+  await move(page, 'Viewpoint', 1);
+  await expect(viewpoint).toHaveAttribute('aria-valuetext', 'P = ∞, orthographic');
+  await move(page, 'Viewpoint', 0.25);
+  await expect(viewpoint).toHaveAttribute('aria-valuetext', 'P = 0.333');
+});
+
 test('rapid clicks across 5 projections settle on the last with no console errors', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (message) => {

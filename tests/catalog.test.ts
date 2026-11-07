@@ -430,3 +430,35 @@ test('a conic at a limit hides what the named projection hides, and no more than
     }
   }
 });
+
+test('conic caps change continuously with the cone constant, from one pole to the other and from cylinder to disc', () => {
+  // n from -1 to 1, dense where the caps start to move (|n| = 0.2 and 0.9) and where the apex changes pole (0).
+  const ns = new Set<number>();
+  for (let n = -1; n <= 1.0000001; n += 0.01) ns.add(Math.round(n * 1e4) / 1e4);
+  for (const centre of [0, 0.2, 0.9, -0.2, -0.9]) for (let d = -0.03; d <= 0.0300001; d += 0.001) ns.add(Math.round((centre + d) * 1e4) / 1e4);
+  ns.add(1).add(-1);
+  const sorted = [...ns].filter((n) => Math.abs(n) <= 1).sort((a, b) => a - b);
+  // Standard parallels at the same latitude have n = sin(parallel); the sign of the parallel puts the apex.
+  const radiusAt = (caps: { frameCenter: LonLat; radius: number }[], pole: number) => caps.find((c) => c.frameCenter[1] === pole)!.radius;
+  for (const defId of ['conic-conformal', 'conic-equal-area']) {
+    const def = getDef(defId);
+    let previous: { n: number; north: number; south: number } | undefined;
+    for (const n of sorted) {
+      const p = Math.asin(Math.max(-1, Math.min(1, n))) / rad;
+      const caps = def.caps({ p1: p, p2: p });
+      const here = { n, north: radiusAt(caps, 90), south: radiusAt(caps, -90) };
+      if (previous) {
+        const dn = here.n - previous.n;
+        // The steepest the blend goes is 4.9 degrees over 0.2 at the cylinder end and about 45 degrees over 0.1 at the disc end.
+        for (const pole of ['north', 'south'] as const) {
+          expect(Math.abs(here[pole] - previous[pole]), `${defId} ${pole} between n=${previous.n} and ${here.n}`).toBeLessThanOrEqual(500 * dn + 1e-9);
+        }
+      }
+      previous = here;
+    }
+    // And at the two ends: a cylinder cuts what the cylinder cuts, a disc what the disc cuts.
+    const [cylinder, disc] = [def.caps({ p1: 0, p2: 0 }), def.caps({ p1: 89.9, p2: 89.9 })];
+    expect(radiusAt(cylinder, 90), defId).toBeCloseTo(defId === 'conic-conformal' ? 5 : 0.1, 6);
+    expect(radiusAt(disc, -90), defId).toBeCloseTo(defId === 'conic-conformal' ? 15 : 0.1, 2);
+  }
+});

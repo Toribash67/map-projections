@@ -5,7 +5,7 @@ import { MorphController } from '../src/morph/controller';
 import { buildScene, type Scene, type ScenePiece } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
 import { stateForStop } from '../src/projections/compile';
-import type { LonLat } from '../src/projections/types';
+import type { LonLat, ProjectionState } from '../src/projections/types';
 import { isCovered, projectPoint } from '../src/screen/screen';
 import { destination } from '../src/screen/screen';
 import { indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../src/tissot/indicatrix';
@@ -523,6 +523,41 @@ test('no streak and no NaN on a settled or dragged map, for every stop', () => {
   expect(out.nan).toEqual([]);
   expect(out.streaks).toEqual([]);
 }, 60_000);
+
+test('no streak and no NaN for conics away from their defaults, live and morphing to and from a world map', () => {
+  const r = rng(7771);
+  const out: SweepResult = { nan: [], streaks: [], worst: 0, pairs: 0 };
+  const conic = (defId: string, p1: number, p2: number): ProjectionState => ({
+    ...stateForStop(stops.find((s) => s.defId === defId)!),
+    params: { p1, p2 },
+  });
+  const conics = [
+    conic('conic-equal-area', 10, 60),
+    conic('conic-conformal', 5, 15),
+    // Close to a cylinder, close to a disc, and a cone opening the other way.
+    conic('conic-conformal', 3, -2),
+    conic('conic-equal-area', 80, 89.9),
+    conic('conic-conformal', -60, -30),
+  ];
+  const maps = ['globe', 'equirectangular', 'mercator', 'robinson', 'mollweide', 'goode'].map((id) => stops.find((s) => s.id === id)!);
+  for (const c of conics) {
+    const name = `${c.defId} ${c.params.p1}/${c.params.p2}`;
+    // Settled, and dragged sideways.
+    for (const lon of [c.orientation.lon, -150, 40, 170]) {
+      const state = { ...c, orientation: { ...c.orientation, lon } };
+      sweepScene(buildScene(world, [memberOf(state)], null, true), `${name} at lon ${lon}`, out);
+    }
+    for (const w of maps) {
+      sweepScene(buildScene(world, [memberOf(c)], memberOf(stateForStop(w, c)), true), `${name} to ${w.id}`, out);
+      const wm = { ...stateForStop(w), orientation: randomOrientation(r) };
+      sweepScene(buildScene(world, [memberOf(wm)], memberOf(stateForStop(stops.find((s) => s.defId === c.defId)!, wm)), true), `${w.id} to ${c.defId}`, out);
+      const to = { ...c, orientation: { ...c.orientation, lon: r() * 360 - 180 } };
+      sweepScene(buildScene(world, [memberOf({ ...stateForStop(w), orientation: randomOrientation(r) })], memberOf(to), true), `${w.id} to ${name} at ${to.orientation.lon.toFixed(0)}`, out);
+    }
+  }
+  expect(out.nan).toEqual([]);
+  expect(out.streaks).toEqual([]);
+}, 120_000);
 
 // Fills in the plane.
 

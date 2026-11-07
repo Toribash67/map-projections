@@ -330,6 +330,10 @@ input {
   font-size: 12px;
 }
 
+.sliders > .hint {
+  margin-bottom: 4px;
+}
+
 /* Narrow screens: the map on top, the controls scrolling below it. */
 @media (max-width: 720px) {
   #app {
