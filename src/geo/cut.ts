@@ -9,6 +9,10 @@ const TAU = 2 * Math.PI;
 
 const SEAM_PULL = 1e-6; // radians
 const SEAM_STEP = Math.PI / 6; // radians
+// How far (degrees) a line's vertex keeps from a lobe's edge, beyond the edge's pull, unless it lies exactly on it.
+const LOBE_BAND = 3e-6;
+// A point this close (true degrees) to a seam lies on it, whichever side rounding has it.
+const ON_SEAM = 1e-9;
 // Each further lobed seam pulls in half as far, so that its edges stay clear of an earlier seam's
 // when the two line up.
 export const LOBE_PULL = 1e-6; // degrees
@@ -33,7 +37,7 @@ const ATTEMPTS = [
   { spin: 61.71337, reverseSeams: true, pullScale: 1 },
   { spin: 13.93271, reverseSeams: false, pullScale: 1 },
   { spin: 83.12459, reverseSeams: true, pullScale: 1 },
-  { spin: 37.30681, reverseSeams: false, pullScale: 8 },
+  { spin: CLIP_SPIN, reverseSeams: false, pullScale: 8 },
   { spin: 61.71337, reverseSeams: true, pullScale: 8 },
 ];
 // How far a cut's total area may drift from the input's, at the normal pull. Correct cuts lose
@@ -196,6 +200,96 @@ function pullOffSeam([lambda, phi]: LonLat, pull: number): LonLat {
   const pulledPhi = Math.max(-latLimit, Math.min(latLimit, phi));
   const lonLimit = Math.PI - pull / Math.cos(pulledPhi);
   return [Math.max(-lonLimit, Math.min(lonLimit, lambda)), pulledPhi];
+}
+
+/**
+ * How far (true radians) a line lying on a seam is set off it: beyond the farthest that the seams'
+ * pulls, doubling from seam to seam, and d3's own shift can carry a point. No more than that, as
+ * a map tears any distance apart close to a cap's centre, and a line may run by one on another map.
+ */
+const seamGap = (seams: number) => 1.5 * SEAM_PULL * 2 ** Math.max(1, seams);
+
+const isOnSeam = (p: LonLat) => (180 - Math.abs(p[0])) * Math.cos(p[1] * rad) < ON_SEAM;
+
+/**
+ * Sends a path lying exactly on a seam to one fixed side of it, given the path in the frame. Left to
+ * themselves its points take either side by rounding, so the line would hop across the whole map
+ * between one cut and the next. A run along the seam goes to the west side; a lone point on it, such
+ * as a line's end, goes with its neighbours, or is left if the line crosses there. Returns `frame`
+ * itself when there is nothing to move.
+ */
+export function offSeamSide(frame: LonLat[], seams = 1): LonLat[] {
+  const onSeam = (p: LonLat | undefined) => p !== undefined && isOnSeam(p);
+  // A step from the seam's own meridian to the opposite one runs through a pole and then along the seam.
+  const goesWest = (neighbour: LonLat) => neighbour[0] < ON_SEAM;
+  let moved: LonLat[] | null = null;
+  const move = (i: number, west: boolean) => {
+    const [lambda, phi] = pullOffSeam([(west ? -180 : 180) * rad, frame[i]![1] * rad], seamGap(seams));
+    (moved ??= [...frame])[i] = [lambda / rad, phi / rad];
+  };
+  frame.forEach((point, i) => {
+    if (!onSeam(point)) return;
+    const [before, after] = [frame[i - 1], frame[i + 1]];
+    if (onSeam(before) || onSeam(after)) move(i, true);
+    // At a pole a point lies on the seam only in name, and has no need to go anywhere.
+    else if (Math.abs(point[1]) > SEAM_CHECK_LAT) return;
+    else if (before && after) {
+      if (goesWest(before) === goesWest(after)) move(i, goesWest(before));
+    } else if (before || after) move(i, goesWest(before ?? after!));
+  });
+  return moved ?? frame;
+}
+
+/** The lines of a geometry after `f`, and the rest of it as it was. */
+function withLines(geom: any, f: (path: LonLat[]) => LonLat[]): any {
+  switch (geom?.type) {
+    case 'FeatureCollection':
+      return { ...geom, features: geom.features.map((feature: unknown) => withLines(feature, f)) };
+    case 'Feature':
+      return { ...geom, geometry: withLines(geom.geometry, f) };
+    case 'GeometryCollection':
+      return { ...geom, geometries: geom.geometries.map((part: unknown) => withLines(part, f)) };
+    case 'MultiLineString':
+      return { ...geom, coordinates: geom.coordinates.map(f) };
+    case 'LineString':
+      return { ...geom, coordinates: f(geom.coordinates) };
+    default:
+      return geom;
+  }
+}
+
+/**
+ * Moves a vertex off the band where a lobe's edge is pulled in, given the path in the frame. There
+ * the polygon clip can lose the rest of the line, or misplace the vertex by 0.005 degrees. The
+ * graticule has vertices right there: d3 ends its long meridians 1e-6 degrees off the equator.
+ */
+function offLobeBands(frame: LonLat[], lobes: Lobe[]): LonLat[] {
+  const lats = [...new Set(lobes.flatMap((l) => [l.latMin, l.latMax]))];
+  let moved: LonLat[] | null = null;
+  frame.forEach(([lon, lat], i) => {
+    for (const edge of lats) {
+      const away = lat - edge;
+      if (away !== 0 && Math.abs(away) < LOBE_BAND) (moved ??= [...frame])[i] = [lon, edge + Math.sign(away) * LOBE_BAND];
+    }
+  });
+  return moved ?? frame;
+}
+
+/**
+ * Sets each line clear of every member's seam, one frame at a time, before any cut: on one fixed
+ * side of a seam it lies along, and clear of a lobe's edge.
+ */
+function linesOffSeams(geom: GeoJSON.GeoJsonObject, members: CompiledProjection[]): GeoJSON.GeoJsonObject {
+  const seamed = members.filter((m) => m.def.seam.kind !== 'none');
+  const seams = new Set(seamed.filter((m) => m.def.seam.kind === 'antimeridian').map(seamKey)).size;
+  return withLines(geom, (path) =>
+    seamed.reduce((current, m) => {
+      const seam = m.def.seam;
+      const frame = current.map((p) => m.toFrame(p));
+      const moved = seam.kind === 'lobes' ? offLobeBands(offSeamSide(frame, seams), seam.lobes) : offSeamSide(frame, seams);
+      return moved === frame ? current : current.map((p, i) => (moved[i] === frame[i] ? p : m.fromFrame(moved[i]!)));
+    }, path),
+  );
 }
 
 /**
@@ -418,7 +512,8 @@ function crossesSeam(parts: Part[], m: CompiledProjection): boolean {
  * another way and the best attempt returned. One seam needs no such check: it is
  * the last clip, and nothing can undo it.
  */
-export function cutGeometry(geom: GeoJSON.GeoJsonObject, members: CompiledProjection[]): Piece[] {
+export function cutGeometry(input: GeoJSON.GeoJsonObject, members: CompiledProjection[]): Piece[] {
+  const geom = linesOffSeams(input, members);
   const expected = geoArea(geom as GeoPermissibleObjects);
   const seams = new Set(members.filter((m) => m.def.seam.kind !== 'none').map(seamKey));
   const seamed = seams.size > 1 ? members.filter((m) => m.def.seam.kind !== 'none') : [];
