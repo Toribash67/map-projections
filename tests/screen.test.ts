@@ -145,18 +145,8 @@ test('the fit agrees with the 3 degree grid fit within 0.5 px, across stops, ran
     'conic-conformal': () => ({ p1: 179.8 * r() - 89.9, p2: 179.8 * r() - 89.9 }),
     'conic-equal-area': () => ({ p1: 179.8 * r() - 89.9, p2: 179.8 * r() - 89.9 }),
   };
-  // A perspective view from inside the globe, at P Earth radii, goes to infinity where cos c = -P. For P
-  // between about 0.62 and 0.94 the catalog's limit lies beyond that circle, so the map has no finite
-  // extent and no sampling can fit it: a fault of the limit, not of the fit, and left out here.
-  const reachesInfinity = (c: CompiledProjection) => {
-    if (c.def.id !== 'perspective') return false;
-    const x = c.state.params.x ?? 0.5;
-    const P = x / (1 - x);
-    return P < 1 && 180 - c.caps[0]!.radius >= Math.acos(-P) / rad;
-  };
   let worst = 0;
   let cases = 0;
-  let skipped = 0;
   for (const s of stops) {
     const def = getDef(s.defId);
     const variants: { tilt: number; params?: Record<string, number> }[] = [{ tilt: s.tilt ?? 0 }];
@@ -166,10 +156,6 @@ test('the fit agrees with the 3 degree grid fit within 0.5 px, across stops, ran
     for (const { tilt, params } of variants) {
       const state = stopState(s.id, { tilt, lon: 360 * r() - 180, lat: def.latEnabled ? 180 * r() - 90 : 0 });
       const c = compile(params ? { ...state, params } : state);
-      if (reachesInfinity(c)) {
-        skipped++;
-        continue;
-      }
       for (const v of views) {
         const t = computeScreen(c, v);
         const { fit, raw } = gridFit(c, v, t.cos, t.sin);
@@ -183,9 +169,8 @@ test('the fit agrees with the 3 degree grid fit within 0.5 px, across stops, ran
       }
     }
   }
-  expect(cases).toBe((stops.length * 9 - skipped) * 3);
-  expect(skipped).toBeLessThan(6);
-  console.log(`worst gap between the fits: ${worst.toFixed(4)} px over ${cases} cases, ${skipped} perspective maps left out`);
+  expect(cases).toBe(stops.length * 9 * 3);
+  console.log(`worst gap between the fits: ${worst.toFixed(4)} px over ${cases} cases`);
 }, 120_000);
 
 test('fit is independent of centre lon/lat', () => {
