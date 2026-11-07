@@ -3,30 +3,58 @@ import type { App } from '../app';
 import { LAND } from '../data/land';
 import { shapeToGeoJSON } from '../drawing/model';
 import { compile } from '../projections/compile';
-import type { LonLat } from '../projections/types';
+import type { LonLat, ProjectionState } from '../projections/types';
 import { clampLat, normaliseLon } from '../ui/slider';
 import { MAP_STYLE } from './draw';
 
 // Space left round the globe for its outline, in CSS pixels.
 const PAD = 2;
-// What the map cannot show, in the slate of the graticule but darker, so that it reads over land and sea alike.
-const SHADE = 'rgba(43, 58, 68, 0.38)';
+// The area the map covers is tinted in the coast's slate, lightly enough for land and sea to show through.
+const TINT_ALPHA = 0.32;
 const INK = '#2b3a44';
 const MERIDIAN_STEP = 30;
+// Least time between two redraws of the globe. While the map is dragged this halves them; the last change is always drawn.
+const REDRAW_GAP = 30;
 const rad = Math.PI / 180;
+type Pair = [number, number];
 
 const sphere: GeoSphere = { type: 'Sphere' };
 // The data comes typed as plain GeoJSON, which the path takes as it is.
 const land = LAND as GeoPermissibleObjects;
 const graticule = geoGraticule().step([MERIDIAN_STEP, MERIDIAN_STEP])();
 
+const wrap = (a: number): number => ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
+
+/**
+ * The centre (longitude, latitude) that puts `land` at `place` on the globe, as fractions of its radius with north up:
+ * x = cos(lat) sin(lon - lon0) fixes the longitude, and y = cos(lat0) sin(lat) - sin(lat0) cos(lat) cos(lon - lon0),
+ * a cosine of lat0 plus a shift, fixes the latitude. Of its two solutions the nearer to `current` is taken. Null where no
+ * centre does it: the land would have to come from, or go to, beyond the rim. With `latFree` false only longitude is solved.
+ */
+function centreFor([lon, lat]: LonLat, [x, y]: Pair, current: LonLat, latFree: boolean): LonLat | null {
+  const cosLat = Math.cos(lat * rad);
+  if (!(Math.abs(x) <= cosLat)) return null;
+  const across = Math.asin(x / cosLat);
+  const lon0 = lon - across / rad;
+  if (!latFree) return [lon0, current[1]];
+  const [a, b] = [Math.sin(lat * rad), cosLat * Math.cos(across)];
+  const radius = Math.hypot(a, b);
+  if (!(Math.abs(y) <= radius)) return null;
+  const [shift, spread] = [Math.atan2(b, a), Math.acos(y / radius)];
+  const lats = [spread - shift, -spread - shift].map(wrap).filter((phi) => Math.abs(phi) <= Math.PI / 2);
+  if (lats.length === 0) return null;
+  const nearest = lats.reduce((best, phi) => (Math.abs(phi / rad - current[1]) < Math.abs(best / rad - current[1]) ? phi : best));
+  return [lon0, nearest / rad];
+}
+
 /**
  * A small globe in the corner of the map, for every projection but the globe itself. It is
- * centred on the map's centre and shows what the map leaves out (shaded), the map's own equator
- * and poles, and the drawings in full. It shows the projection a morph is going to, and is
- * redrawn when the state, the drawings or its own size change, not on every morph frame.
- * Pressing or dragging on it moves the map's centre there, with tilt held; while it is held
- * the globe keeps its view, so that the marker can travel over it.
+ * always centred on the map's centre, which its marker holds at the middle, and shows the area
+ * the map covers (tinted), the map's own equator and poles, and the drawings in full. It shows
+ * the projection a morph is going to, and is redrawn when the state, the drawings or its own size
+ * change, not on every morph frame. Dragging turns the globe under the pointer, as if grabbed:
+ * the land under the press stays under the pointer, and the map's centre moves with it, tilt
+ * held. A press alone moves nothing.
  */
 export function createLocator(container: HTMLElement, app: App): void {
   const canvas = document.createElement('canvas');
@@ -36,14 +64,19 @@ export function createLocator(container: HTMLElement, app: App): void {
   const ctx = canvas.getContext('2d')!;
   const projection = geoOrthographic().clipAngle(90);
   const path = geoPath(projection, ctx);
+  // Unit globe, for finding the land under a place on it.
+  const inverse = geoOrthographic().scale(1).translate([0, 0]);
 
-  // The centre the globe is turned to while it is held, or null.
-  let held: LonLat | null = null;
-  let pointerId = -1;
+  // The land taken hold of, the pointer that took it, and the state it was last held under.
+  // A state changed by anything else, as when a morph ends, is held afresh, so the map does not jump.
+  let grab: { id: number; land: LonLat; heldOn: ProjectionState | null } | null = null;
   let frameId = 0;
+  let timer = 0;
+  let drawnAt = -Infinity;
 
   const draw = (): void => {
     frameId = 0;
+    drawnAt = performance.now();
     const size = container.clientWidth;
     if (container.hidden || !(size > 0)) return;
     const ratio = window.devicePixelRatio || 1;
@@ -55,8 +88,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     const compiled = compile(app.state);
     // What the map uses: a conic's centre latitude is zero whatever the state says.
     const centre = compiled.fromFrame([0, 0]);
-    const view = held ?? centre;
-    projection.rotate([-view[0], -view[1]]).translate([size / 2, size / 2]).scale(size / 2 - PAD);
+    projection.rotate([-centre[0], -centre[1]]).translate([size / 2, size / 2]).scale(size / 2 - PAD);
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
@@ -78,13 +110,14 @@ export function createLocator(container: HTMLElement, app: App): void {
     ctx.lineWidth = MAP_STYLE.coastWidth;
     ctx.stroke();
 
-    // Excluded caps are circles in the projection's frame.
-    ctx.fillStyle = SHADE;
-    for (const cap of compiled.caps) {
-      ctx.beginPath();
-      path(geoCircle().center(compiled.fromFrame(cap.frameCenter)).radius(cap.radius)());
-      ctx.fill();
-    }
+    // The covered area is the sphere less the excluded caps, which are circles in the projection's frame.
+    ctx.beginPath();
+    path(sphere);
+    for (const cap of compiled.caps) path(geoCircle().center(compiled.fromFrame(cap.frameCenter)).radius(cap.radius)());
+    ctx.globalAlpha = TINT_ALPHA;
+    ctx.fillStyle = MAP_STYLE.coast;
+    ctx.fill('evenodd');
+    ctx.globalAlpha = 1;
 
     // The map's own equator, and where its poles are: on a transverse map the equator is a meridian.
     const [north, south] = [compiled.fromFrame([0, 90]), compiled.fromFrame([0, -90])];
@@ -117,7 +150,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     ctx.fillStyle = INK;
     for (const [pole, letter] of [[north, 'N'], [south, 'S']] as const) {
       // A pole on the far side of the globe is not drawn. A tilted map's lie on the rim, so a hair of slack.
-      if (geoDistance(pole, view) > Math.PI / 2 + 1e-3) continue;
+      if (geoDistance(pole, centre) > Math.PI / 2 + 1e-3) continue;
       const [x, y] = projection(pole)!;
       ctx.beginPath();
       ctx.arc(x, y, 2, 0, 2 * Math.PI);
@@ -129,8 +162,7 @@ export function createLocator(container: HTMLElement, app: App): void {
       ctx.fillText(letter, x + 7 * ux, y + 7 * uy);
     }
 
-    // The centre. Held, the marker is where the map's centre now is on the globe as it was when taken hold of.
-    const [mx, my] = projection(centre)!;
+    const [mx, my] = [size / 2, size / 2];
     ctx.beginPath();
     ctx.arc(mx, my, 4.5, 0, 2 * Math.PI);
     ctx.fillStyle = 'rgba(247, 245, 239, 0.85)';
@@ -151,7 +183,14 @@ export function createLocator(container: HTMLElement, app: App): void {
   };
 
   const schedule = (): void => {
-    if (!frameId) frameId = requestAnimationFrame(draw);
+    if (frameId || timer) return;
+    const wait = drawnAt + REDRAW_GAP - performance.now();
+    if (wait <= 0) frameId = requestAnimationFrame(draw);
+    else
+      timer = window.setTimeout(() => {
+        timer = 0;
+        frameId = requestAnimationFrame(draw);
+      }, wait);
   };
 
   // The state is the one a morph is going to, so a morph needs no redraw of its own.
@@ -162,38 +201,47 @@ export function createLocator(container: HTMLElement, app: App): void {
   app.subscribe(update);
   new ResizeObserver(schedule).observe(container);
 
-  /** The longitude and latitude under the pointer on the globe as it is now, or the nearest on its rim. */
-  const lonLatAt = (e: PointerEvent): LonLat => {
+  /** The pointer's place on the globe, as fractions of its radius with north up, or null off the globe. */
+  const placeOf = (e: PointerEvent): Pair | null => {
     const box = canvas.getBoundingClientRect();
-    const [x, y] = [e.clientX - box.left - box.width / 2, e.clientY - box.top - box.height / 2];
-    const reach = Math.hypot(x, y);
-    const limit = projection.scale() * 0.999;
-    const k = reach > limit ? limit / reach : 1;
-    const p = projection.invert!([box.width / 2 + x * k, box.height / 2 + y * k]);
-    return [normaliseLon(p![0]), clampLat(p![1])];
+    const radius = box.width / 2 - PAD;
+    const [x, y] = [(e.clientX - box.left - box.width / 2) / radius, -(e.clientY - box.top - box.height / 2) / radius];
+    return Math.hypot(x, y) < 1 ? [x, y] : null;
   };
-  const moveTo = (e: PointerEvent): void => {
-    const [lon, lat] = lonLatAt(e);
-    const o = app.state.orientation;
-    // A conic keeps its centre latitude, and tilt is held.
-    app.setLive({ orientation: { ...o, lon, lat: compile(app.state).def.latEnabled ? lat : o.lat } });
+  /** The land under a place on the globe as it is now. */
+  const landAt = ([x, y]: Pair): LonLat => {
+    const [lon, lat] = compile(app.state).fromFrame([0, 0]);
+    return inverse.rotate([-lon, -lat]).invert!([x, -y])! as LonLat;
   };
+  const latFree = () => compile(app.state).def.latEnabled;
 
   canvas.addEventListener('pointerdown', (e) => {
     // A morph ignores changes; and one press holds the globe at a time.
-    if (e.button !== 0 || app.isMorphing || held) return;
-    held = compile(app.state).fromFrame([0, 0]);
-    pointerId = e.pointerId;
+    if (e.button !== 0 || app.isMorphing || grab) return;
+    const place = placeOf(e);
+    if (!place) return;
     canvas.setPointerCapture(e.pointerId);
-    moveTo(e);
+    grab = { id: e.pointerId, land: landAt(place), heldOn: app.state };
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (held && e.pointerId === pointerId && !app.isMorphing) moveTo(e);
+    const g = grab;
+    if (!g || e.pointerId !== g.id || app.isMorphing) return;
+    const place = placeOf(e);
+    if (!place) return;
+    if (g.heldOn !== app.state) {
+      g.land = landAt(place);
+      g.heldOn = app.state;
+      return;
+    }
+    const centre = centreFor(g.land, place, compile(app.state).fromFrame([0, 0]), latFree());
+    if (!centre) return;
+    const o = app.state.orientation;
+    // Tilt is held. A conic keeps its centre latitude.
+    app.setLive({ orientation: { ...o, lon: normaliseLon(centre[0]), lat: latFree() ? clampLat(centre[1]) : o.lat } });
+    g.heldOn = app.state;
   });
   const release = (e: PointerEvent): void => {
-    if (!held || e.pointerId !== pointerId) return;
-    held = null;
-    schedule();
+    if (grab && e.pointerId === grab.id) grab = null;
   };
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'] as const) canvas.addEventListener(type, release);
 

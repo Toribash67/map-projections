@@ -1,9 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { geoOrthographic } from 'd3-geo';
 import type { Shape } from '../src/drawing/model';
 import { MAP_STYLE } from '../src/render/draw';
 import { move, open, pick, settle, state } from './support';
 
 type Pair = [number, number];
+type LonLat = [number, number];
 type Rgb = [number, number, number];
 
 const hex = (c: string): Rgb => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) as Rgb;
@@ -99,69 +101,121 @@ test('hidden on the globe, visible on other projections', async ({ page }) => {
   await expect(page.locator('#locator')).toBeVisible();
 });
 
-test('dragging the centre marker changes centre, holds tilt, and moves the map', async ({ page }) => {
+const DEG = 180 / Math.PI;
+
+test('dragging turns the globe under the pointer: the centre moves continuously, tilt is held, and nothing jumps at press or release', async ({ page }) => {
   await open(page);
   await pick(page, 'transverse-mercator');
   await settle(page);
   await frames(page);
-  const before = await state(page);
-  expect(before.orientation.tilt).toBe(90);
+  const orientation = async () => (await state(page)).orientation;
+  const before = await orientation();
+  expect(before.tilt).toBe(90);
   const mapBefore = await snapshot(page, '#map');
 
   // The tool is on, as a drag on the locator is neither a click on the map nor a drag of it.
   await page.getByRole('button', { name: 'Line', exact: true }).click();
-  // The globe was centred on the map's centre, so a drag from its middle to (0.4, 0.3 up) of its radius lands at this longitude and latitude.
-  await dragMarker(page, [0, 0], [0.4, -0.3]);
-  const after = await state(page);
-  const [lon, lat] = [(Math.atan2(0.4, Math.sqrt(1 - 0.4 ** 2 - 0.3 ** 2)) * 180) / Math.PI, (Math.asin(0.3) * 180) / Math.PI];
-  expect(after.orientation.tilt).toBe(90);
-  expect(Math.abs(after.orientation.lon - before.orientation.lon - lon)).toBeLessThan(1.5);
-  expect(Math.abs(after.orientation.lat - before.orientation.lat - lat)).toBeLessThan(1.5);
+  const g = await globe(page);
+  const at = ([x, y]: Pair): Pair => [g.x + g.cx + x * g.r, g.y + g.cy + y * g.r];
+  // The land under the press: the globe is centred on the map's centre, so this is what the orthographic view puts at (0.3, 0).
+  const grabbed: LonLat = [before.lon + Math.asin(0.3) * DEG, before.lat];
+
+  await page.mouse.move(...at([0.3, 0]));
+  await page.mouse.down();
+  await frames(page);
+  expect(await orientation()).toEqual(before);
+
+  // Drag to (0.5, 0.2 up) in many small steps: the centre never moves far in one.
+  let last = before;
+  for (let i = 1; i <= 12; i++) {
+    await page.mouse.move(...at([0.3 + (0.2 * i) / 12, (-0.2 * i) / 12]));
+    await frames(page, 1);
+    const o = await orientation();
+    expect(Math.max(Math.abs(o.lon - last.lon), Math.abs(o.lat - last.lat))).toBeLessThan(6);
+    expect(o.tilt).toBe(90);
+    last = o;
+  }
+  // The land that was under the press is under the pointer, and the centre has moved the other way.
+  const p = geoOrthographic().rotate([-last.lon, -last.lat]).scale(1).translate([0, 0])(grabbed)!;
+  expect(Math.abs(p[0] - 0.5)).toBeLessThan(0.04);
+  expect(Math.abs(p[1] + 0.2)).toBeLessThan(0.04);
+  expect(last.lon).toBeLessThan(before.lon - 5);
   expect(await snapshot(page, '#map')).not.toBe(mapBefore);
-  const draft = await page.evaluate(() => (window as any).__drawing.draft);
-  expect(draft).toBeNull();
+
+  // Release changes neither the centre nor the locator.
+  await frames(page);
+  const held = await orientation();
+  const heldLocator = await snapshot(page, '#locator canvas');
+  await page.mouse.up();
+  await frames(page);
+  expect(await orientation()).toEqual(held);
+  expect(await snapshot(page, '#locator canvas')).toBe(heldLocator);
+  expect(await page.evaluate(() => (window as any).__drawing.draft)).toBeNull();
 });
 
-test('a drag that leaves the globe stops at its rim, and a conic moves only sideways', async ({ page }) => {
+test('a press and release on the locator does nothing', async ({ page }) => {
+  await open(page);
+  await pick(page, 'robinson');
+  await settle(page);
+  await frames(page);
+  const before = await state(page);
+  const locator = await snapshot(page, '#locator canvas');
+  const g = await globe(page);
+  await page.mouse.click(g.x + g.cx + 0.4 * g.r, g.y + g.cy - 0.1 * g.r);
+  await frames(page);
+  expect(await state(page)).toEqual(before);
+  expect(await snapshot(page, '#locator canvas')).toBe(locator);
+});
+
+test('a conic turns sideways only, the other maps both ways, and a pointer past the reach of the grab keeps the last centre', async ({ page }) => {
   await open(page);
   await pick(page, 'albers');
   await settle(page);
   const before = (await state(page)).orientation;
-  await dragMarker(page, [0, 0], [3, -3]);
+  await dragMarker(page, [0.2, 0], [0.5, -0.5]);
   const after = (await state(page)).orientation;
   expect(after.lat).toBe(before.lat);
   expect(after.tilt).toBe(before.tilt);
-  // The rim is 90 degrees from the old centre, so the new longitude is nearly that far round.
-  expect(after.lon).toBeGreaterThan(before.lon + 30);
-  expect(after.lon).toBeLessThanOrEqual(90 + before.lon);
+  // The land at 11.5 degrees east of the centre is now 30 degrees east of the view's middle.
+  expect(Math.abs(after.lon - (before.lon - (Math.asin(0.5) - Math.asin(0.2)) * DEG))).toBeLessThan(2);
 
   await pick(page, 'robinson');
   await settle(page);
-  await dragMarker(page, [0, 0], [0, 3]);
-  const robinson = (await state(page)).orientation;
-  expect(robinson.lat).toBeLessThan(0);
-  expect(robinson.lat).toBeGreaterThanOrEqual(-90);
+  const start = (await state(page)).orientation;
+  await dragMarker(page, [0, 0], [0, 0.5]);
+  const down = (await state(page)).orientation;
+  // The globe turned down 30 degrees, so what is at the middle is 30 degrees further north.
+  expect(Math.abs(down.lat - 30)).toBeLessThan(1.5);
+  expect(Math.abs(down.lon - start.lon)).toBeLessThan(1.5);
+
+  // Far off the globe nothing can be under the pointer: the centre stays where it last could be.
+  await dragMarker(page, [0, 0], [0, 4]);
+  const far = (await state(page)).orientation;
+  expect(Number.isFinite(far.lat) && Number.isFinite(far.lon)).toBe(true);
+  expect(far.lat).toBeLessThanOrEqual(90);
+  expect(far.lat).toBeGreaterThan(down.lat - 0.5);
 });
 
-test('it shades excluded caps on gnomonic and shades nothing visible on Mollweide', async ({ page }) => {
+test('it tints the area the map covers: all of Mollweide, a disc round the centre of gnomonic', async ({ page }) => {
   await open(page);
   await pick(page, 'mollweide');
   await settle(page);
   await frames(page);
   const g = await globe(page);
-  // 70 degrees east, 20 south: open ocean, 71 degrees from the centre, past gnomonic's 68, and clear of the rim.
+  // 70 degrees east, 20 south is open ocean 71 degrees from the centre, past gnomonic's 68 and clear of the rim; the South Atlantic is 28 degrees from the centre.
   const [dx, dy] = [g.r * Math.cos((20 * Math.PI) / 180) * Math.sin((70 * Math.PI) / 180), g.r * Math.sin((20 * Math.PI) / 180)];
-  expect(apart(await colourAt(page, dx, dy), OCEAN)).toBeLessThan(12);
-  const mollweide = await snapshot(page, '#locator canvas');
+  const [nx, ny] = [-g.r * 0.32, g.r * 0.34];
+  const [farMollweide, nearMollweide] = [await colourAt(page, dx, dy), await colourAt(page, nx, ny)];
+  expect(apart(farMollweide, OCEAN)).toBeGreaterThan(25);
+  expect(apart(nearMollweide, OCEAN)).toBeGreaterThan(25);
+  expect(apart(farMollweide, nearMollweide)).toBeLessThan(12);
 
   await pick(page, 'gnomonic');
   await settle(page);
   await frames(page);
-  const shaded = await colourAt(page, dx, dy);
-  expect(apart(shaded, OCEAN)).toBeGreaterThan(40);
-  // The covered part is left as it was: the South Atlantic, 28 degrees from the centre.
-  expect(apart(await colourAt(page, -g.r * 0.32, g.r * 0.34), OCEAN)).toBeLessThan(12);
-  expect(await snapshot(page, '#locator canvas')).not.toBe(mollweide);
+  // The same tint inside the disc, and the plain globe outside it.
+  expect(apart(await colourAt(page, nx, ny), nearMollweide)).toBeLessThan(12);
+  expect(apart(await colourAt(page, dx, dy), OCEAN)).toBeLessThan(12);
 });
 
 test('it shows the coverage of the projection a morph is going to', async ({ page }) => {
@@ -171,10 +225,11 @@ test('it shows the coverage of the projection a morph is going to', async ({ pag
   await frames(page);
   const g = await globe(page);
   const [dx, dy] = [g.r * Math.cos((20 * Math.PI) / 180) * Math.sin((70 * Math.PI) / 180), g.r * Math.sin((20 * Math.PI) / 180)];
+  expect(apart(await colourAt(page, dx, dy), OCEAN)).toBeGreaterThan(25);
   await pick(page, 'gnomonic');
   expect(await page.evaluate(() => (window as any).__app.isMorphing)).toBe(true);
   await frames(page);
-  expect(apart(await colourAt(page, dx, dy), OCEAN)).toBeGreaterThan(40);
+  expect(apart(await colourAt(page, dx, dy), OCEAN)).toBeLessThan(12);
 });
 
 test('it draws a shape in full on gnomonic even when the main map clips it', async ({ page }) => {
@@ -208,6 +263,33 @@ test('it follows the centre and the tilt: the frame equator turns with a tilted 
   await move(page, 'Tilt', 90);
   await frames(page);
   expect(await snapshot(page, '#locator canvas')).not.toBe(turned);
+});
+
+test('redraws are spaced out during rapid changes, and the last change is always drawn', async ({ page }) => {
+  await open(page);
+  await pick(page, 'robinson');
+  await settle(page);
+  const setLon = (lon: number) => page.evaluate((lon) => (window as any).__app.setLive({ orientation: { lon, lat: 10, tilt: 0 } }), lon);
+  // Forty changes in as many frames, the last to 40.
+  await page.evaluate(
+    () =>
+      new Promise<void>((done) => {
+        let lon = 0;
+        const step = () => {
+          (window as any).__app.setLive({ orientation: { lon: lon++, lat: 10, tilt: 0 } });
+          if (lon <= 40) requestAnimationFrame(step);
+          else done();
+        };
+        step();
+      }),
+  );
+  await page.waitForTimeout(150);
+  const burst = await snapshot(page, '#locator canvas');
+  await setLon(20);
+  await page.waitForTimeout(150);
+  await setLon(40);
+  await page.waitForTimeout(150);
+  expect(await snapshot(page, '#locator canvas')).toBe(burst);
 });
 
 test('on a phone the locator sits inside the map, clear of the controls', async ({ page }) => {
