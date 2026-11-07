@@ -192,6 +192,24 @@ function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndi
   }
 }
 
+/**
+ * Clips to the outline of a group of the map: the ocean the frame fills in it, wherever it is not faded out. A piece of ocean that cells
+ * stand in for is left out and the cells are in, wound the same way, as for filling them, so folded cells do not cancel one another.
+ */
+function clipToOutline(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, t: number): void {
+  const cells = scene.layers.capOcean;
+  ctx.beginPath();
+  for (const piece of scene.layers.ocean ?? []) {
+    if (piece.behind !== behind || !piece.closed || (cells !== undefined && piece.out) || alphaOf(piece, t) <= 0) continue;
+    trace(ctx, piece, t, signedArea(piece, t) < 0);
+  }
+  for (const cell of cells ?? []) {
+    if (cell.behind !== behind || !cell.closed || alphaOf(cell, t) <= 0) continue;
+    trace(ctx, cell, t, signedArea(cell, t) < 0);
+  }
+  ctx.clip();
+}
+
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, t: number, style: Style, base: DOMMatrix): void {
   const layer = (name: string) => scene.layers[name] ?? [];
   // What a map cannot show folds over in a morph, so where its ocean comes as cells it is filled from those.
@@ -204,7 +222,13 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
   // A drawn polygon's own outline comes in its line pieces, so its fill is not outlined along a seam.
   fillPieces(ctx, layer('drawings'), behind, t, style.accentFill, null);
   strokePieces(ctx, layer('drawings'), behind, t, style.accent, style.drawingWidth);
-  drawIndicatrices(ctx, scene.indicatrices, behind, t, style, base);
+  // An ellipse is cut by the map's edge like the coast: the part past the outline is not drawn, at rest or in a morph.
+  if (scene.indicatrices.some((m) => m.behind === behind && alphaOf(m, t) > 0)) {
+    ctx.save();
+    clipToOutline(ctx, scene, behind, t);
+    drawIndicatrices(ctx, scene.indicatrices, behind, t, style, base);
+    ctx.restore();
+  }
 }
 
 /**

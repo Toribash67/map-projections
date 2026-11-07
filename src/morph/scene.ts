@@ -3,8 +3,9 @@ import { cutGeometry, type Piece } from '../geo/cut';
 import { toVector, type Vector } from '../geo/densify';
 import { cutFront } from '../geo/frontCut';
 import type { CompiledProjection, ExcludedCap, LonLat } from '../projections/types';
-import { lobeOf, projectFrame, type ScreenTransform } from '../screen/screen';
+import { isClipped, lobeOf, projectFrame, type ScreenTransform } from '../screen/screen';
 import { blendIndicatrix, indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../tissot/indicatrix';
+import { CAP_MARGIN, continuesOutward, isHuge, isPastCap } from '../tissot/pastCap';
 
 const rad = Math.PI / 180;
 const TAU = 2 * Math.PI;
@@ -236,12 +237,13 @@ function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
 }
 
 /** Where a member puts a point: projected, or moved to the edge of the clip cap holding it. */
-function positionOn({ compiled: c, screen: s }: Member, p: LonLat): Pair {
+function positionOn({ compiled: c, screen: s }: Member, p: LonLat, margin = 0): Pair {
   const frame = c.toFrame(p);
   const v = toVector(frame);
   for (const cap of clipCaps(c)) {
     const axes = capAxes(cap);
-    if (dot(v, axes.centre) <= axes.cosRadius) continue;
+    // Within the margin of the edge a point stays where the map puts it.
+    if (dot(v, axes.centre) <= Math.cos(Math.max(0, cap.radius - margin) * rad)) continue;
     const edge = edgePoint(axes, directionsOf(axes, [v])[0]!);
     return projectFrame(c, s, edge, lobeOf(c, edge));
   }
@@ -258,9 +260,10 @@ const isSingular = (m: Mat2) => {
  * cap, or for which it is singular, adds no alpha. A globe's far side counts as shown, like far-side land. Its matrix still counts if it has one,
  * so an ellipse flat on a globe's limb widens as it fades in, and a redirect cannot make it pop.
  */
-function indicatrixEnd(members: Member[], p: LonLat): { mat: Mat2; alpha: number; hidden: number[] } | null {
-  const blend = blendIndicatrix(members, p);
+function indicatrixEnd(members: Member[], p: LonLat, margin = 0): { mat: Mat2; alpha: number; hidden: number[] } | null {
+  const blend = blendIndicatrix(members, p, margin);
   if (!blend) return null;
+  if (margin > 0 && isPastCap(members, p) && (isHuge(blend.mat, members) || !members.every((m) => !isClipped(m.compiled, p) || continuesOutward(m, p)))) return null;
   if (isSingular(blend.mat)) return { mat: blend.mat, alpha: 0, hidden: members.map((m) => m.weight) };
   if (members.length === 1) return { mat: blend.mat, alpha: members[0]!.weight, hidden: [] };
   let alpha = 0;
@@ -274,10 +277,10 @@ function indicatrixEnd(members: Member[], p: LonLat): { mat: Mat2; alpha: number
 }
 
 /** An indicatrix follows the land beneath it, through a cap's edge like everything else. Only its alpha and matrix depend on what can show it. */
-function blendedPosition(members: Member[], p: LonLat): Pair {
+function blendedPosition(members: Member[], p: LonLat, margin = 0): Pair {
   const pos: Pair = [0, 0];
   for (const m of members) {
-    const [x, y] = positionOn(m, p);
+    const [x, y] = positionOn(m, p, margin);
     pos[0] += m.weight * x;
     pos[1] += m.weight * y;
   }
@@ -293,10 +296,12 @@ function isBehind({ compiled: c }: Member, p: LonLat): boolean {
 function buildIndicatrix(p: LonLat, source: Member[], target: Member | null): SceneIndicatrix | null {
   const behind = source.some((m) => isBehind(m, p)) || (target !== null && isBehind(target, p));
   if (!target && behind) return null;
-  const start = indicatrixEnd(source, p);
+  // A map at rest has no other end for an indicatrix just past a cap to fade towards, so it is drawn there, and the outline clips it.
+  const margin = target ? 0 : CAP_MARGIN;
+  const start = indicatrixEnd(source, p, margin);
   if (!target) {
     if (!start || start.alpha <= 0) return null;
-    const pos = blendedPosition(source, p);
+    const pos = blendedPosition(source, p, margin);
     return { srcPos: pos, dstPos: pos, srcMat: start.mat, dstMat: start.mat, alphaSrc: start.alpha, alphaDst: start.alpha, behind };
   }
   const end = indicatrixEnd([{ ...target, weight: 1 }], p);

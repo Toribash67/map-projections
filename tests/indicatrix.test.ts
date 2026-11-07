@@ -275,6 +275,73 @@ describe('jacobian', () => {
   });
 });
 
+describe('jacobian with a margin past a clip cap', () => {
+  // Gnomonic shows up to 68 degrees from its centre. On the equator of a map centred on (0, 0), longitude is distance from the centre.
+  const edge = 68;
+
+  test('a point past the edge but within the margin has a derivative, and one beyond it is still null', () => {
+    const { c, s } = compiled('gnomonic');
+    expect(jacobian(c, s, [edge + 4, 0])).toBeNull();
+    expect(jacobian(c, s, [edge + 4, 0], { margin: 5 })).not.toBeNull();
+    expect(jacobian(c, s, [edge + 6, 0], { margin: 5 })).toBeNull();
+    expect(jacobian(c, s, [edge + 4, 0], { margin: 0 })).toBeNull();
+  });
+
+  test('past the edge it is the map\'s own derivative: gnomonic stretches by sec^2 along the radius and sec across it', () => {
+    const { c, s } = compiled('gnomonic');
+    for (const distance of [edge + 0.5, edge + 4, edge + 9]) {
+      const m = jacobian(c, s, [distance, 0], { margin: 10 })!;
+      expect(m, `${distance}`).not.toBeNull();
+      const [big, small] = axes(m);
+      const cos = Math.cos(distance * rad);
+      near(big, s.k / (cos * cos), 2e-3);
+      near(small, s.k / Math.abs(cos), 2e-3);
+    }
+  });
+
+  test('where the map covers a point the margin changes nothing', () => {
+    for (const id of ['gnomonic', 'mollweide', 'lambert-conformal', 'globe', 'goode']) {
+      const { c, s } = compiled(id);
+      for (const p of indicatrixCentres()) {
+        if (isCovered(c, p)) expect(jacobian(c, s, p, { margin: 10 }), `${id} ${p}`).toEqual(jacobian(c, s, p));
+      }
+    }
+  });
+
+  test('the far side of a globe is as it was, with or without a margin', () => {
+    const { c, s } = compiled('globe');
+    expect(jacobian(c, s, [110, 20], { margin: 10 })).toEqual(jacobian(c, s, [110, 20]));
+  });
+
+  test('the derivative stays one-sided where the other side is past the margin', () => {
+    const { c, s } = compiled('gnomonic');
+    // A hair inside the margin: the step outwards leaves it, so the derivative is the one from the inside, and still the true one.
+    const inside = edge + 5 - 1e-6;
+    const m = jacobian(c, s, [inside, 0], { margin: 5 })!;
+    expect(m).not.toBeNull();
+    const [big, small] = axes(m);
+    const cos = Math.cos(inside * rad);
+    near(big, s.k / (cos * cos), 5e-3);
+    near(small, s.k / Math.abs(cos), 5e-3);
+    expect(jacobian(c, s, [edge + 5 + 1e-6, 0], { margin: 5 })).toBeNull();
+  });
+
+  test('with a margin every stop gives a matrix of finite numbers or null, never infinity or NaN', () => {
+    const r = rng(41);
+    for (const stop of stops) {
+      const { c, s } = compiled(stop.id);
+      for (let n = 0; n < 150; n++) {
+        const m = jacobian(c, s, randomPoint(r), { margin: 10 });
+        if (m) expect(m.every(Number.isFinite), stop.id).toBe(true);
+      }
+      for (const pole of [[0, 90], [0, -90]] as LonLat[]) {
+        const m = jacobian(c, s, pole, { margin: 10 });
+        if (m) expect(m.every(Number.isFinite), `${stop.id} ${pole}`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('indicatrixCentres', () => {
   test('every 30 degrees from -60 to 60 in latitude, around the whole globe, plus both poles', () => {
     const centres = indicatrixCentres();

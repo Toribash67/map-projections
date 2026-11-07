@@ -28,10 +28,10 @@ const finite = (q: Pair) => Number.isFinite(q[0]) && Number.isFinite(q[1]);
  * `azimuth` (degrees), per radian of true distance. Central difference, or one
  * side only where the other is off the map or has jumped across a seam.
  */
-function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: number | undefined, centre: Pair, azimuth: number): Pair | null {
+function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: number | undefined, centre: Pair, azimuth: number, margin: number): Pair | null {
   const side = (sign: number): Pair | null => {
     const q = destination(p, (sign * STEP) / rad, azimuth);
-    if (isClipped(c, q)) return null;
+    if (isClipped(c, q, margin)) return null;
     const at = projectPoint(c, s, q, lobe);
     return finite(at) ? at : null;
   };
@@ -56,14 +56,19 @@ function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: 
  * The far side of a globe is on the map, with the same orthographic derivative
  * as the near side, as a morph away from a globe needs it to be exact there too.
  * An interrupted map is held to the lobe that holds `p`.
+ *
+ * With `margin` (degrees), the map is taken to cover that far past the edge of a clip cap, where the
+ * projection is finite: a point there has its derivative, one-sided at the new edge as at any other. The
+ * rest of the map is unchanged. It is for an indicatrix whose centre has just left the map, and still
+ * shows its inside part.
  */
-export function jacobian(c: CompiledProjection, s: ScreenTransform, p: LonLat): Mat2 | null {
-  if (isClipped(c, p)) return null;
+export function jacobian(c: CompiledProjection, s: ScreenTransform, p: LonLat, { margin = 0 }: { margin?: number } = {}): Mat2 | null {
+  if (isClipped(c, p, margin)) return null;
   const lobe = lobeOf(c, c.toFrame(p));
   const centre = projectPoint(c, s, p, lobe);
   if (!finite(centre)) return null;
-  const east = derivative(c, s, p, lobe, centre, EAST);
-  const north = derivative(c, s, p, lobe, centre, NORTH);
+  const east = derivative(c, s, p, lobe, centre, EAST, margin);
+  const north = derivative(c, s, p, lobe, centre, NORTH, margin);
   if (!east || !north) return null;
   return [east[0], north[0], east[1], north[1]];
 }
@@ -91,13 +96,13 @@ export function indicatrixCentres(): LonLat[] {
 /**
  * The position and matrix of an indicatrix on a map that is a weighted mix of
  * members. A member that cannot show `p` is left out and the rest are
- * renormalised; null when none can.
+ * renormalised; null when none can. A `margin` is that of `jacobian`.
  */
-export function blendIndicatrix(members: Member[], p: LonLat): { pos: Pair; mat: Mat2 } | null {
+export function blendIndicatrix(members: Member[], p: LonLat, margin = 0): { pos: Pair; mat: Mat2 } | null {
   let total = 0;
   const shown: { weight: number; pos: Pair; mat: Mat2 }[] = [];
   for (const { compiled, screen, weight } of members) {
-    const mat = jacobian(compiled, screen, p);
+    const mat = jacobian(compiled, screen, p, { margin });
     if (!mat) continue;
     shown.push({ weight, pos: projectPoint(compiled, screen, p), mat });
     total += weight;
