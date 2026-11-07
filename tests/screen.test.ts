@@ -1,12 +1,14 @@
 import { expect, test } from 'vitest';
-import { geoTransverseMercator } from 'd3-geo';
+import { geoDistance, geoTransverseMercator } from 'd3-geo';
 import { getDef, stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
 import type { CompiledProjection, LonLat, Orientation } from '../src/projections/types';
 import {
   computeScreen,
+  destination,
   dragTo,
   isCovered,
+  lobeOf,
   projectPoint,
   screenToLonLat,
   type Viewport,
@@ -92,6 +94,99 @@ test('fit: every covered sample lies inside the viewport, and the map touches on
     }
   }
 }, 30_000);
+
+/**
+ * The fit as it was first written: covered frame points on a 3 degree grid, the region edges every
+ * 0.25 degrees and the cap rims every degree, turned by the same tilt compensation. Kept here as
+ * the reference that a faster fit must agree with.
+ */
+function gridFit(c: CompiledProjection, v: Viewport, cos: number, sin: number) {
+  const seam = c.def.seam;
+  const regions = seam.kind === 'lobes' ? seam.lobes : [{ lonMin: -180, lonMax: 180, latMin: -90, latMax: 90, centralLon: undefined }];
+  const steps = (min: number, max: number, step: number) => {
+    const n = Math.max(1, Math.round((max - min) / step));
+    return Array.from({ length: n + 1 }, (_, i) => min + ((max - min) * i) / n);
+  };
+  const covered = (frame: LonLat) => !c.caps.some((cap) => geoDistance(frame, cap.frameCenter) / rad < cap.radius);
+  const points: { frame: LonLat; lobe: number | undefined }[] = [];
+  const add = (frame: LonLat, lobe: number | undefined) => covered(frame) && points.push({ frame, lobe });
+  for (const r of regions) {
+    for (const lat of steps(r.latMin, r.latMax, 3)) for (const lon of steps(r.lonMin, r.lonMax, 3)) add([lon, lat], r.centralLon);
+    for (const lat of steps(r.latMin, r.latMax, 0.25)) {
+      add([r.lonMin, lat], r.centralLon);
+      add([r.lonMax, lat], r.centralLon);
+    }
+  }
+  for (const cap of c.caps) {
+    for (let az = 0; az < 360; az++) {
+      const frame = destination(cap.frameCenter, cap.radius * (1 + 1e-9) + 1e-9, az);
+      add(frame, lobeOf(c, frame));
+    }
+  }
+  const raw = points
+    .map(({ frame, lobe }) => {
+      const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe === undefined ? undefined : lobe * rad);
+      return [cos * x - sin * y, sin * x + cos * y] as [number, number];
+    })
+    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+  const xs = raw.map((p) => p[0]);
+  const ys = raw.map((p) => p[1]);
+  const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const k = Math.min((v.width - 32) / (maxX - minX), (v.height - 32) / (maxY - minY));
+  return { fit: { k, tx: v.width / 2 - (k * (minX + maxX)) / 2, ty: v.height / 2 + (k * (minY + maxY)) / 2 }, raw };
+}
+
+test('the fit agrees with the 3 degree grid fit within 0.5 px, across stops, random tilts and random parameters', () => {
+  const r = rng(26);
+  const views: Viewport[] = [{ width: 1140, height: 900 }, view, { width: 390, height: 388 }];
+  const randomParams: Record<string, () => Record<string, number>> = {
+    perspective: () => ({ x: r() }),
+    cylindrical: () => ({ phi0: 80 * r(), spacing: 2 * r() }),
+    'conic-conformal': () => ({ p1: 179.8 * r() - 89.9, p2: 179.8 * r() - 89.9 }),
+    'conic-equal-area': () => ({ p1: 179.8 * r() - 89.9, p2: 179.8 * r() - 89.9 }),
+  };
+  // A perspective view from inside the globe, at P Earth radii, goes to infinity where cos c = -P. For P
+  // between about 0.62 and 0.94 the catalog's limit lies beyond that circle, so the map has no finite
+  // extent and no sampling can fit it: a fault of the limit, not of the fit, and left out here.
+  const reachesInfinity = (c: CompiledProjection) => {
+    if (c.def.id !== 'perspective') return false;
+    const x = c.state.params.x ?? 0.5;
+    const P = x / (1 - x);
+    return P < 1 && 180 - c.caps[0]!.radius >= Math.acos(-P) / rad;
+  };
+  let worst = 0;
+  let cases = 0;
+  let skipped = 0;
+  for (const s of stops) {
+    const def = getDef(s.defId);
+    const variants: { tilt: number; params?: Record<string, number> }[] = [{ tilt: s.tilt ?? 0 }];
+    for (let i = 0; i < 8; i++) {
+      variants.push({ tilt: def.tiltEnabled ? 90 * r() : 0, params: randomParams[def.id]?.() });
+    }
+    for (const { tilt, params } of variants) {
+      const state = stopState(s.id, { tilt, lon: 360 * r() - 180, lat: def.latEnabled ? 180 * r() - 90 : 0 });
+      const c = compile(params ? { ...state, params } : state);
+      if (reachesInfinity(c)) {
+        skipped++;
+        continue;
+      }
+      for (const v of views) {
+        const t = computeScreen(c, v);
+        const { fit, raw } = gridFit(c, v, t.cos, t.sin);
+        // How far apart the two fits put the map's own points, on screen.
+        for (const [x, y] of raw) {
+          const gap = Math.hypot(t.tx - fit.tx + (t.k - fit.k) * x, t.ty - fit.ty - (t.k - fit.k) * y);
+          worst = Math.max(worst, gap);
+          expect(gap, `${s.id} tilt ${tilt.toFixed(1)} ${JSON.stringify(params)} ${v.width}x${v.height}`).toBeLessThan(0.5);
+        }
+        cases++;
+      }
+    }
+  }
+  expect(cases).toBe((stops.length * 9 - skipped) * 3);
+  expect(skipped).toBeLessThan(6);
+  console.log(`worst gap between the fits: ${worst.toFixed(4)} px over ${cases} cases, ${skipped} perspective maps left out`);
+}, 120_000);
 
 test('fit is independent of centre lon/lat', () => {
   for (const s of stops) {

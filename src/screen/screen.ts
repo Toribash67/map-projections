@@ -13,7 +13,6 @@ export type Viewport = { width: number; height: number };
 export type ScreenTransform = { k: number; tx: number; ty: number; cos: number; sin: number };
 
 const PADDING = 16;
-const FIT_STEP = 3;
 const EDGE_STEP = 0.25;
 const SEED_STEP = 5;
 const SEED_MARGIN = 1; // degrees
@@ -120,22 +119,27 @@ export function destination(from: LonLat, distance: number, azimuth: number): Lo
   return [Math.atan2(v[1]!, v[0]!) / rad, Math.asin(Math.max(-1, Math.min(1, v[2]!))) / rad];
 }
 
-/** Covered frame points on a 3 degree grid, plus the region edges and the rims of the excluded caps, where a map often reaches its extremes. */
-function sampleFrame(c: CompiledProjection): { frame: LonLat; lobe: number | undefined }[] {
-  const out: { frame: LonLat; lobe: number | undefined }[] = [];
+/**
+ * Raw positions (x, y pairs, not yet turned) of the outline of the covered frame: the region
+ * edges (the seam, the lobe sides and the lobe bottoms) and the rims of the excluded caps. A map
+ * that does not fold over itself reaches its extremes on its outline, however it is turned, as
+ * nothing inside can lie beyond it. Tested against a fit that also samples the inside.
+ */
+function sampleOutline(c: CompiledProjection): Float64Array {
+  const out: number[] = [];
   const add = (frame: LonLat, lobe: number | undefined) => {
-    if (frameCovered(c.caps, frame)) out.push({ frame, lobe });
+    if (!frameCovered(c.caps, frame)) return;
+    const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe === undefined ? undefined : lobe * rad);
+    if (Number.isFinite(x) && Number.isFinite(y)) out.push(x, y);
   };
-  for (const r of regions(c)) {
-    for (const lat of range(r.latMin, r.latMax, FIT_STEP)) {
-      for (const lon of range(r.lonMin, r.lonMax, FIT_STEP)) add([lon, lat], r.lobe);
-    }
-  }
-  // The region edges (the seam and the lobe sides) at a finer step: smooth maps often peak there between grid points.
   for (const r of regions(c)) {
     for (const lat of range(r.latMin, r.latMax, EDGE_STEP)) {
       add([r.lonMin, lat], r.lobe);
       add([r.lonMax, lat], r.lobe);
+    }
+    // An edge along a pole is a single point, inside a cap.
+    for (const lat of [r.latMin, r.latMax]) {
+      if (Math.abs(lat) < 90) for (const lon of range(r.lonMin, r.lonMax, EDGE_STEP)) add([lon, lat], r.lobe);
     }
   }
   for (const cap of c.caps) {
@@ -146,8 +150,27 @@ function sampleFrame(c: CompiledProjection): { frame: LonLat; lobe: number | und
       add(frame, lobeOf(c, frame));
     }
   }
-  return out;
+  return Float64Array.from(out);
 }
+
+/** What a map's shape depends on, apart from tilt: the projection and its parameters. Never the centre. */
+const shapeKey = (c: CompiledProjection): string => JSON.stringify([c.def.id, { ...c.def.defaultParams, ...c.state.params }]);
+
+// A slider that changes a parameter makes a new entry each step, so only the latest few are kept.
+const KEPT = 8;
+
+function remembered<T>(cache: Map<string, T>, key: string, make: () => T): T {
+  let value = cache.get(key);
+  if (value === undefined) {
+    value = make();
+    cache.set(key, value);
+    if (cache.size > KEPT) cache.delete(cache.keys().next().value!);
+  }
+  return value;
+}
+
+// Tilt only turns the outline, so it is not part of the key.
+const outlineCache = new Map<string, Float64Array>();
 
 /** Fits the covered map into the viewport with 16 px padding, centred, independent of the centre longitude and latitude. */
 export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransform {
@@ -156,9 +179,12 @@ export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransfo
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
-  for (const { frame, lobe } of sampleFrame(c)) {
-    const [x, y] = rotatedRaw(c, cos, sin, frame, lobe);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+  const outline = remembered(outlineCache, shapeKey(c), () => sampleOutline(c));
+  for (let i = 0; i < outline.length; i += 2) {
+    const rx = outline[i]!;
+    const ry = outline[i + 1]!;
+    const x = cos * rx - sin * ry;
+    const y = sin * rx + cos * ry;
     if (x < minX) minX = x;
     if (x > maxX) maxX = x;
     if (y < minY) minY = y;
@@ -193,16 +219,18 @@ export function projectFrame(c: CompiledProjection, s: ScreenTransform, frame: L
 type Seed = { lon: number; lat: number; x: number; y: number };
 type SeedGroup = { region: Region; seeds: Seed[] };
 
-// Seeds depend only on the projection and the tilt compensation, not on the viewport.
-const seedCache = new WeakMap<CompiledProjection, SeedGroup[]>();
+// Seeds depend on the shape and the tilt compensation, not on the viewport or the centre, so a drag keeps using the same ones.
+const seedCache = new Map<string, SeedGroup[]>();
 
 function seedsFor(c: CompiledProjection): SeedGroup[] {
-  const cached = seedCache.get(c);
-  if (cached) return cached;
+  return remembered(seedCache, `${shapeKey(c)}/${effectiveTilt(c)}`, () => makeSeeds(c));
+}
+
+function makeSeeds(c: CompiledProjection): SeedGroup[] {
   const { cos, sin } = compensation(c);
   // Close to a cap edge a projection can fold back on itself, and a seed there has no usable slope.
   const clear = c.caps.map((cap) => ({ ...cap, radius: cap.radius + SEED_MARGIN }));
-  const groups = regions(c).map((region): SeedGroup => {
+  return regions(c).map((region): SeedGroup => {
     const seeds: Seed[] = [];
     for (const lat of range(region.latMin, region.latMax, SEED_STEP)) {
       // Longitude means nothing at a pole, so a seed there has no slope to follow.
@@ -215,8 +243,6 @@ function seedsFor(c: CompiledProjection): SeedGroup[] {
     }
     return { region, seeds };
   });
-  seedCache.set(c, groups);
-  return groups;
 }
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));

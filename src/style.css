@@ -291,11 +291,48 @@ input {
   accent-color: var(--accent);
 }
 
-/* Note and Tissot */
+/* Note, centre and tilt, and Tissot */
 .note,
+.orientation,
 .tissot {
   padding-top: 10px;
   border-top: 1px solid var(--line);
+}
+
+.orientation {
+  margin-top: 12px;
+}
+
+.orientation-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.orientation h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.reset-all {
+  padding: 1px 8px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.orientation > .hint {
+  margin-top: 6px;
+}
+
+#map {
+  cursor: grab;
+}
+
+#map:active {
+  cursor: grabbing;
 }
 
 .note h3 {

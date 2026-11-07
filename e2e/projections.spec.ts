@@ -5,45 +5,7 @@ import { isCovered, projectPoint } from '../src/screen/screen';
 import type { LonLat, ProjectionState } from '../src/projections/types';
 import { MAP_STYLE } from '../src/render/draw';
 import { similarity } from '../tests/similarity';
-
-const stop = (id: string) => stops.find((s) => s.id === id)!;
-
-const open = async (page: Page) => {
-  await page.goto('/');
-  await page.waitForFunction(() => (window as any).__app !== undefined);
-};
-
-/** Opens the app on a clock that only moves when told to, and leaves it paused. */
-const openPaused = async (page: Page) => {
-  await page.clock.install({ time: 1000 });
-  await page.goto('/');
-  await page.waitForFunction(() => (window as any).__app !== undefined);
-  await page.clock.pauseAt(60_000);
-  await page.clock.runFor(32);
-};
-
-const head = (page: Page, family: string) => page.locator(`[data-family="${family}"] > .family-head`);
-const stopButton = (page: Page, id: string) => page.locator(`[data-stop="${id}"]`);
-const slider = (page: Page, name: string) => page.getByRole('slider', { name, exact: true });
-const settle = (page: Page) => page.waitForFunction(() => !(window as any).__app.isMorphing);
-const isMorphing = (page: Page): Promise<boolean> => page.evaluate(() => (window as any).__app.isMorphing);
-const state = (page: Page): Promise<ProjectionState> => page.evaluate(() => JSON.parse(JSON.stringify((window as any).__app.state)));
-
-/** Clicks a named projection in its family, opening the family first as a person would. */
-async function pick(page: Page, id: string) {
-  const family = stop(id).family;
-  if ((await head(page, family).getAttribute('aria-expanded')) !== 'true') await head(page, family).click();
-  await stopButton(page, id).click();
-}
-
-/** Moves a slider the way the browser does: set a value and fire `input`. */
-const move = (page: Page, name: string, value: number) =>
-  slider(page, name).evaluate((el: HTMLInputElement, v) => {
-    el.value = String(v);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  }, value);
-
-const isCurrent = (page: Page, selector: string) => page.locator(selector).getAttribute('aria-current').then((v) => v === 'true');
+import { head, isCurrent, isMorphing, move, numberBox, open, openPaused, pick, settle, slider, state, stopButton, type } from './support';
 
 /** A moment of the map: its state and the screen fit it is drawn with. */
 const snapshot = (page: Page) => page.evaluate(() => {
@@ -61,11 +23,14 @@ function bothShow(a: Awaited<ReturnType<typeof snapshot>>, b: Awaited<ReturnType
   return { a: shown.map((p) => projectPoint(ca, a.screen, p)), b: shown.map((p) => projectPoint(cb, b.screen, p)), count: shown.length };
 }
 
+/** The sliders in the projection list, not the centre and tilt ones below it. */
+const familySliders = (page: Page) => page.locator('.projection-list').getByRole('slider');
+
 test('clicking a family opens it and shows only its sliders', async ({ page }) => {
   await open(page);
   // The app opens on the globe, with its family open and no sliders.
   await expect(head(page, 'globe')).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('slider')).toHaveCount(0);
+  await expect(familySliders(page)).toHaveCount(0);
 
   await head(page, 'azimuthal').click();
   await expect(head(page, 'azimuthal')).toHaveAttribute('aria-expanded', 'true');
@@ -73,16 +38,16 @@ test('clicking a family opens it and shows only its sliders', async ({ page }) =
   await expect(stopButton(page, 'gnomonic')).toBeVisible();
   await expect(stopButton(page, 'mercator')).toBeHidden();
   await expect(slider(page, 'Viewpoint')).toBeVisible();
-  await expect(page.getByRole('slider')).toHaveCount(1);
+  await expect(familySliders(page)).toHaveCount(1);
 
   await head(page, 'cylindrical').click();
   await expect(slider(page, 'Viewpoint')).toBeHidden();
   await expect(slider(page, 'Standard parallel')).toBeVisible();
   await expect(slider(page, 'Vertical spacing')).toBeVisible();
-  await expect(page.getByRole('slider')).toHaveCount(2);
+  await expect(familySliders(page)).toHaveCount(2);
 
   await head(page, 'conic').click();
-  await expect(page.getByRole('slider')).toHaveCount(2);
+  await expect(familySliders(page)).toHaveCount(2);
   await expect(slider(page, 'First parallel')).toBeVisible();
   await expect(slider(page, 'Second parallel')).toBeVisible();
   await expect(page.getByRole('radio', { name: 'Conformal' })).toBeVisible();
@@ -90,7 +55,7 @@ test('clicking a family opens it and shows only its sliders', async ({ page }) =
   // Opening a family does not change the map.
   expect((await state(page)).defId).toBe('globe');
   await head(page, 'equal-area').click();
-  await expect(page.getByRole('slider')).toHaveCount(0);
+  await expect(familySliders(page)).toHaveCount(0);
 });
 
 test('clicking Mollweide morphs: state changes at once, canvas settles after 1400 ms', async ({ page }) => {
@@ -263,15 +228,6 @@ test('a conic slider reaching a limit gives the same map as selecting what it be
   await viaConic('albers', 100, 100, 'lambert-azimuthal', true);
 });
 
-const numberBox = (page: Page, name: string) => page.getByRole('textbox', { name: `${name}, value`, exact: true });
-
-/** Types into a slider's number box and confirms with Enter. */
-async function type(page: Page, name: string, text: string) {
-  const box = numberBox(page, name);
-  await box.fill(text);
-  await box.press('Enter');
-}
-
 test('arrow keys move a slider off a stop by one step, forward when forward and back when back', async ({ page }) => {
   await open(page);
   // Each starts on a stop it snaps to: Behrmann's 30 degrees, equirectangular's spacing 1, stereographic's 0.5,
@@ -415,7 +371,8 @@ test('each slider is labelled by its visible label, and the viewpoint reads out 
   await pick(page, 'stereographic');
   await settle(page);
   const labelled = await page.evaluate(() => [...document.querySelectorAll<HTMLInputElement>('.slider-range')].map((r) => [r.labels?.[0]?.textContent ?? '', r.labels?.[0]?.classList.contains('slider-label') ?? false]));
-  expect(labelled.length).toBe(5);
+  // Five in the families, and longitude, latitude and tilt.
+  expect(labelled.length).toBe(8);
   for (const [text, isLabel] of labelled) {
     expect(text).not.toBe('');
     expect(isLabel).toBe(true);

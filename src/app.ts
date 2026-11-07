@@ -73,6 +73,13 @@ export class App {
     return this.controller.isMorphing;
   }
 
+  /** The map at rest, with the fit it is drawn with, or null while a morph runs. */
+  get live(): { compiled: CompiledProjection; screen: ScreenTransform } | null {
+    if (this.controller.tick()) return null;
+    const { compiled, screen } = this.controller.source()[0]!;
+    return { compiled, screen };
+  }
+
   /** Calls `fn` whenever the state, the viewport or the drawings change, and when a morph ends. Returns how to stop. */
   subscribe(fn: () => void): () => void {
     this.listeners.push(fn);

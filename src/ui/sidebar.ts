@@ -3,7 +3,8 @@ import { getDef, POLAR_PARALLEL, stops } from '../projections/catalog';
 import { matchStop } from '../projections/compile';
 import { createProjectionList } from './projectionList';
 import { el } from './dom';
-import { createSlider, type SliderOptions } from './slider';
+import { createOrientationControls } from './orientationControls';
+import { createSlider, formatDegrees, parseDegrees, type SliderOptions } from './slider';
 
 const CONIC_DEFS = ['conic-conformal', 'conic-equal-area'];
 // The definitions whose parameters a family's sliders drive. The others in the family leave them off.
@@ -33,14 +34,7 @@ export function parseViewpoint(raw: string): number | null {
   return Math.max(0, distance) === Infinity ? 1 : Math.max(0, distance) / (1 + Math.max(0, distance));
 }
 
-const formatDegrees = (v: number): string => `${Math.round(v * 100) / 100}\u00b0`;
-/** Typed text for an angle: a number, with or without the degree sign. */
-export function parseDegrees(raw: string): number | null {
-  const text = raw.replace('\u00b0', '').trim();
-  return text === '' || !Number.isFinite(Number(text)) ? null : Number(text);
-}
-
-/** The sidebar: projection list with its family sliders, the Tissot toggle and the projection's note. */
+/** The sidebar: projection list with its family sliders, the projection's note, centre and tilt, and the Tissot toggle. */
 export function createSidebar(app: App, root: HTMLElement): void {
   const list = createProjectionList(stops, (stop) => app.select(stop));
   const note = document.createElement('section');
@@ -176,9 +170,12 @@ export function createSidebar(app: App, root: HTMLElement): void {
   tissotNote.textContent = TISSOT_NOTE;
   tissot.append(toggle, tissotNote);
 
+  const orientation = createOrientationControls(app);
+  bound.push(orientation);
+
   const title = document.createElement('h1');
   title.textContent = 'Map projections';
-  root.append(title, list.el, note, tissot);
+  root.append(title, list.el, note, orientation.el, tissot);
 
   function sync(): void {
     const { state } = app;
