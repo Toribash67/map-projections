@@ -1,5 +1,5 @@
 import { COAST, GRATICULE, LAND } from './data/land';
-import { capCells } from './geo/capCells';
+import { capOceanLayer } from './geo/capCells';
 import { shapeToGeoJSON, type Shape } from './drawing/model';
 import { MorphController } from './morph/controller';
 import { buildScene, type Scene } from './morph/scene';
@@ -11,9 +11,6 @@ import { computeScreen, type ScreenTransform, type Viewport } from './screen/scr
 import type { Member } from './tissot/indicatrix';
 
 const OCEAN = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
-// Side of a cell of ocean beyond a map's coverage, in degrees, by kind of cap. Smaller cells fold less within themselves, and cost more
-// to cut and to draw. A globe's far side folds over itself and needs 10; what a clip cap leaves out needs less care, and 15 costs half as much as 10.
-const CAP_CELL = { behind: 10, clip: 15 } as const;
 
 /**
  * The single store: what the map shows, and the canvas it is drawn on. A morph's scene is cut
@@ -153,10 +150,8 @@ export class App {
       const [source, target] = [this.controller.source(), this.controller.target()];
       const layers: Record<string, GeoJSON.GeoJsonObject> = { ocean: OCEAN, land: LAND, graticule: GRATICULE, coast: COAST, drawings: this.drawings };
       // What a map cannot show is only seen in a morph, where it folds over as it moves to its place on the other map: its ocean comes as cells too.
-      const capped = target ? [...source, target].map((m) => capCells(m.compiled, CAP_CELL)).filter((cells) => cells.geometries.length > 0) : [];
-      if (capped.length > 0) {
-        layers.capOcean = { type: 'GeometryCollection', geometries: capped.flatMap((cells) => cells.geometries) } as GeoJSON.GeometryCollection;
-      }
+      const cells = target ? capOceanLayer([...source, target]) : null;
+      if (cells) layers.capOcean = cells;
       this.scene = buildScene(layers, source, target, this.tissot);
       this.sceneIsMorph = morphing;
       this.stale = false;

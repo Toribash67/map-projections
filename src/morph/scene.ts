@@ -159,7 +159,8 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   const alphaSrc = source.reduce((sum, m, i) => (shownBy(i) ? sum + m.weight : sum), 0);
   const alphaDst = target ? (shownBy(source.length) ? 1 : 0) : alphaSrc;
   const behind = piece.behind.some(Boolean);
-  const out = behind || piece.inside.some((inside) => !inside);
+  // Cells stand in for the ocean of a piece past a cap big enough to have them; a smaller cap's piece is ordinary ocean.
+  const out = behind || piece.celled.some(Boolean);
   if (alphaSrc <= 0 && alphaDst <= 0) return null;
   if (!target && behind) return null;
   const hidden = source.filter((_, i) => !shownBy(i)).map((m) => m.weight);

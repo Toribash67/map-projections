@@ -2,6 +2,7 @@ import { geoArea, geoClipAntimeridian, geoClipCircle, geoRotation, geoStream } f
 import type { GeoPermissibleObjects, GeoStream } from 'd3-geo';
 import { geoClipPolygon } from 'd3-geo-polygon';
 import type { CompiledProjection, ExcludedCap, Lobe, LonLat } from '../projections/types';
+import { hasCells } from './capCells';
 import { densify, toVector, type Vector } from './densify';
 
 const rad = Math.PI / 180;
@@ -65,6 +66,8 @@ export type Piece = {
   inside: boolean[];
   /** Per member: inside a 'behind' cap? */
   behind: boolean[];
+  /** Per member: inside a clip cap big enough for cells of ocean (see `hasCells`)? Its ocean is filled from the cells. */
+  celled: boolean[];
   /** Per member: the central longitude (degrees) of the lobe holding the piece. */
   lobes: (number | undefined)[];
 };
@@ -404,10 +407,11 @@ function capKey(m: CompiledProjection, cap: ExcludedCap): string {
 const seamKey = (m: CompiledProjection) => JSON.stringify([frameKey(m), m.def.seam]);
 
 function toPieces(part: Part, members: CompiledProjection[], singular: Vector[]): Piece[] {
-  const inCapOfMode = (m: CompiledProjection, mode: ExcludedCap['mode']) =>
-    m.caps.some((cap) => cap.mode === mode && part.inCap.get(capKey(m, cap)));
+  const inCapOfMode = (m: CompiledProjection, mode: ExcludedCap['mode'], wanted = (_: ExcludedCap) => true) =>
+    m.caps.some((cap) => cap.mode === mode && wanted(cap) && part.inCap.get(capKey(m, cap)));
   const inside = members.map((m) => !inCapOfMode(m, 'clip'));
   const behind = members.map((m) => inCapOfMode(m, 'behind'));
+  const celled = members.map((m) => inCapOfMode(m, 'clip', hasCells));
   const lobes = members.map((m) => part.lobe.get(seamKey(m)));
   const paths: Path[] = [];
   geoStream(part.geom, collector(paths));
@@ -416,6 +420,7 @@ function toPieces(part: Part, members: CompiledProjection[], singular: Vector[])
     coords: path.coords.map((coords) => densify(coords, singular)),
     inside,
     behind,
+    celled,
     lobes,
   }));
 }

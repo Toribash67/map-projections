@@ -22,24 +22,38 @@ const setScene = (page: Page, tissot: boolean, shapes: Shape[]) =>
     [tissot, shapes] as const,
   );
 
-/** Counts the numbers in the scene that was last drawn which are not finite, and the pieces it has. */
+/**
+ * Counts the numbers in the scene that was last drawn which are not finite, and the pieces it has. That includes each
+ * `hidden` list and the alpha that `alphaOf` gives every piece and indicatrix at the morph's progress now, which a canvas
+ * would ignore if it were NaN, so nothing else would show it.
+ */
 const badNumbers = (page: Page) =>
-  page.evaluate(() => {
-    const scene = (window as any).__app.scene;
+  page.evaluate(async () => {
+    // Served by the dev server, which the tests run against.
+    const module = '/src/render/draw.ts';
+    const { alphaOf } = await import(/* @vite-ignore */ module);
+    const app = (window as any).__app;
+    const scene = app.scene;
+    const t = app.controller.t() as number;
     const bad = (values: ArrayLike<number>) => {
       let n = 0;
       for (let i = 0; i < values.length; i++) if (!Number.isFinite(values[i]!)) n++;
       return n;
+    };
+    // An alpha that is a number from 0 to 1, and a list of weights that are numbers.
+    const badAlpha = (a: any) => {
+      const alpha = alphaOf(a, t);
+      return bad([alpha, ...(a.hidden ?? [])]) + (alpha >= 0 && alpha <= 1 ? 0 : 1);
     };
     let count = 0;
     let pieces = 0;
     for (const layer of Object.values(scene.layers) as any[][]) {
       for (const p of layer) {
         pieces++;
-        count += bad(p.src) + bad(p.dst) + bad([p.alphaSrc, p.alphaDst]);
+        count += bad(p.src) + bad(p.dst) + bad([p.alphaSrc, p.alphaDst]) + badAlpha(p);
       }
     }
-    for (const i of scene.indicatrices) count += bad([...i.srcPos, ...i.dstPos, ...i.srcMat, ...i.dstMat, i.alphaSrc, i.alphaDst]);
+    for (const i of scene.indicatrices) count += bad([...i.srcPos, ...i.dstPos, ...i.srcMat, ...i.dstMat, i.alphaSrc, i.alphaDst]) + badAlpha(i);
     return { count, pieces, indicatrices: scene.indicatrices.length };
   });
 
