@@ -1,2 +1,11 @@
-const app = document.getElementById('app');
-if (app) app.textContent = 'Map projections';
+import { App } from './app';
+
+declare global {
+  interface Window {
+    __app: App;
+  }
+}
+
+const app = new App(document.querySelector<HTMLCanvasElement>('#map')!);
+// For tests.
+window.__app = app;
