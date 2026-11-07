@@ -1,3 +1,4 @@
+import { geoDistance } from 'd3-geo';
 import { cutGeometry, type Piece } from '../geo/cut';
 import { toVector, type Vector } from '../geo/densify';
 import { cutFront } from '../geo/frontCut';
@@ -15,6 +16,8 @@ const NO_DIRECTION = 1e-12;
 // An ellipse whose smaller axis is under this share of its larger one is singular, and not shown.
 // On a globe that is within 0.06 degrees of the limb. The numeric derivative on the limb itself gives 5e-5.
 const SINGULAR_RATIO = 1e-3;
+// A point this close (degrees) to the edge of a 'behind' cap lies on the limb, whichever way rounding has it.
+const ON_LIMB = 1e-9;
 
 type Pair = [number, number];
 
@@ -29,7 +32,16 @@ export type ScenePiece = {
   alphaDst: number;
   behind: boolean;
 };
-export type SceneIndicatrix = { srcPos: Pair; dstPos: Pair; srcMat: Mat2; dstMat: Mat2; alphaSrc: number; alphaDst: number };
+export type SceneIndicatrix = {
+  srcPos: Pair;
+  dstPos: Pair;
+  srcMat: Mat2;
+  dstMat: Mat2;
+  alphaSrc: number;
+  alphaDst: number;
+  /** On the far side of a globe at some end: drawn with the far-side pieces, under the near side until the peel opens. */
+  behind: boolean;
+};
 export type Scene = { layers: Record<string, ScenePiece[]>; indicatrices: SceneIndicatrix[] };
 
 const dot = (a: Vector, b: Vector) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -219,8 +231,8 @@ const isSingular = (m: Mat2) => {
 };
 
 /**
- * One end of an indicatrix: the blended matrix, and how far it shows. A member that cannot show
- * the point, or for which it is singular, adds no alpha. Its matrix still counts if it has one,
+ * One end of an indicatrix: the blended matrix, and how far it shows. A member that has it in a clip
+ * cap, or for which it is singular, adds no alpha. A globe's far side counts as shown, like far-side land. Its matrix still counts if it has one,
  * so an ellipse flat on a globe's limb widens as it fades in, and a redirect cannot make it pop.
  */
 function indicatrixEnd(members: Member[], p: LonLat): { mat: Mat2; alpha: number } | null {
@@ -247,12 +259,20 @@ function blendedPosition(members: Member[], p: LonLat): Pair {
   return pos;
 }
 
+/** Past a globe's limb. On the limb itself an ellipse is singular, and fades in on top of what the peel opens. */
+function isBehind({ compiled: c }: Member, p: LonLat): boolean {
+  const frame = c.toFrame(p);
+  return c.caps.some((cap) => cap.mode === 'behind' && geoDistance(frame, cap.frameCenter) / rad < cap.radius - ON_LIMB);
+}
+
 function buildIndicatrix(p: LonLat, source: Member[], target: Member | null): SceneIndicatrix | null {
+  const behind = source.some((m) => isBehind(m, p)) || (target !== null && isBehind(target, p));
+  if (!target && behind) return null;
   const start = indicatrixEnd(source, p);
   if (!target) {
     if (!start || start.alpha <= 0) return null;
     const pos = blendedPosition(source, p);
-    return { srcPos: pos, dstPos: pos, srcMat: start.mat, dstMat: start.mat, alphaSrc: start.alpha, alphaDst: start.alpha };
+    return { srcPos: pos, dstPos: pos, srcMat: start.mat, dstMat: start.mat, alphaSrc: start.alpha, alphaDst: start.alpha, behind };
   }
   const end = indicatrixEnd([{ ...target, weight: 1 }], p);
   const [alphaSrc, alphaDst] = [start?.alpha ?? 0, end?.alpha ?? 0];
@@ -265,13 +285,15 @@ function buildIndicatrix(p: LonLat, source: Member[], target: Member | null): Sc
     dstMat: (end ?? start)!.mat,
     alphaSrc,
     alphaDst,
+    behind,
   };
 }
 
 /**
  * Everything a morph between `source` and `target` draws, as a position per point at each
  * end, so that a frame is only a linear blend. With no target this is a map at rest or being
- * dragged, rebuilt per frame, by a much cheaper cut.
+ * dragged, rebuilt per frame, by a much cheaper cut. That cut keeps what it can reuse by geometry
+ * object, so a shape that changes has to be passed as a new object, never mutated in place.
  */
 export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source: Member[], target: Member | null, withTissot: boolean): Scene {
   const compiled = (target ? [...source, target] : source).map((m) => m.compiled);

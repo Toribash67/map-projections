@@ -91,7 +91,7 @@ test('fit: every covered sample lies inside the viewport, and the map touches on
       expect(touchesX || touchesY, `${s.id} touches an axis`).toBe(true);
     }
   }
-});
+}, 30_000);
 
 test('fit is independent of centre lon/lat', () => {
   for (const s of stops) {

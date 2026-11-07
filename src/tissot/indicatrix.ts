@@ -1,5 +1,5 @@
 import type { CompiledProjection, LonLat } from '../projections/types';
-import { destination, isCovered, lobeOf, projectPoint, type ScreenTransform } from '../screen/screen';
+import { destination, isClipped, lobeOf, projectPoint, type ScreenTransform } from '../screen/screen';
 
 const rad = Math.PI / 180;
 
@@ -31,7 +31,7 @@ const finite = (q: Pair) => Number.isFinite(q[0]) && Number.isFinite(q[1]);
 function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: number | undefined, centre: Pair, azimuth: number): Pair | null {
   const side = (sign: number): Pair | null => {
     const q = destination(p, (sign * STEP) / rad, azimuth);
-    if (!isCovered(c, q)) return null;
+    if (isClipped(c, q)) return null;
     const at = projectPoint(c, s, q, lobe);
     return finite(at) ? at : null;
   };
@@ -53,10 +53,12 @@ function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: 
  * The Jacobian of the map at `p`, in pixels per radian of true distance, with
  * columns for east and north (any basis at a pole: east and north of the
  * longitude given). Null where `p` is off the map or the numbers are not finite.
+ * The far side of a globe is on the map, with the same orthographic derivative
+ * as the near side, as a morph away from a globe needs it to be exact there too.
  * An interrupted map is held to the lobe that holds `p`.
  */
 export function jacobian(c: CompiledProjection, s: ScreenTransform, p: LonLat): Mat2 | null {
-  if (!isCovered(c, p)) return null;
+  if (isClipped(c, p)) return null;
   const lobe = lobeOf(c, c.toFrame(p));
   const centre = projectPoint(c, s, p, lobe);
   if (!finite(centre)) return null;

@@ -183,16 +183,26 @@ describe('jacobian', () => {
     near(big, (s.k * Math.PI) / 2, 1e-3);
   });
 
-  test('a point inside a clip cap, or on the globe far side, gives null', () => {
+  test('a point inside a clip cap gives null', () => {
     const mollweide = compiled('mollweide');
     expect(jacobian(mollweide.c, mollweide.s, [20, 89.95])).toBeNull();
     expect(jacobian(mollweide.c, mollweide.s, [20, 45])).not.toBeNull();
-    const globe = compiled('globe');
-    expect(jacobian(globe.c, globe.s, [180, 0])).toBeNull();
-    expect(jacobian(globe.c, globe.s, [100, 0])).toBeNull();
-    expect(jacobian(globe.c, globe.s, [80, 0])).not.toBeNull();
+    const gnomonic = compiled('gnomonic');
+    expect(jacobian(gnomonic.c, gnomonic.s, [180, 0])).toBeNull();
+    expect(jacobian(gnomonic.c, gnomonic.s, [100, 0])).toBeNull();
+    expect(jacobian(gnomonic.c, gnomonic.s, [60, 0])).not.toBeNull();
+  });
+
+  test('the far side of a globe has the orthographic derivative', () => {
+    const { c, s } = compiled('globe');
+    const [lon, lat] = [110, 20];
+    // x = k cos(lat) sin(lon), and y runs down the screen from -k sin(lat). East is per radian of true distance.
+    const expected = [s.k * Math.cos(lon * rad), -s.k * Math.sin(lat * rad) * Math.sin(lon * rad), 0, -s.k * Math.cos(lat * rad)];
+    const m = jacobian(c, s, [lon, lat])!;
+    expect(m).not.toBeNull();
+    expected.forEach((v, k) => expect(Math.abs(m[k]! - v)).toBeLessThan(1e-3 * s.k));
     const oblique = compiled('globe', { lon: 30, lat: 40 });
-    expect(jacobian(oblique.c, oblique.s, [-150, -40])).toBeNull();
+    expect(jacobian(oblique.c, oblique.s, [-150, -40])).not.toBeNull();
   });
 
   test('poles exist on azimuthal maps and are skipped on Mollweide', () => {
@@ -324,20 +334,20 @@ describe('blendIndicatrix', () => {
   });
 
   test('a member that cannot show the point is left out and the others are renormalised', () => {
-    const globe = member('globe', 0.4);
+    const gnomonic = member('gnomonic', 0.4);
     const mollweide = member('mollweide', 0.6);
     const p: LonLat = [170, 20];
-    expect(jacobian(globe.c, globe.s, p)).toBeNull();
-    const blended = blendIndicatrix([asMember(globe), asMember(mollweide)], p)!;
+    expect(jacobian(gnomonic.c, gnomonic.s, p)).toBeNull();
+    const blended = blendIndicatrix([asMember(gnomonic), asMember(mollweide)], p)!;
     const alone = blendIndicatrix([asMember({ ...mollweide, weight: 1 })], p)!;
     expect(blended.mat).toEqual(alone.mat);
     expect(blended.pos).toEqual(alone.pos);
   });
 
   test('null when every member lacks the point', () => {
-    const globe = member('globe', 0.5);
-    const moon = member('globe', 0.5, { lon: 10 });
-    expect(blendIndicatrix([asMember(globe), asMember(moon)], [180, 0])).toBeNull();
+    const gnomonic = member('gnomonic', 0.5);
+    const shifted = member('gnomonic', 0.5, { lon: 10 });
+    expect(blendIndicatrix([asMember(gnomonic), asMember(shifted)], [180, 0])).toBeNull();
     expect(blendIndicatrix([], [0, 0])).toBeNull();
   });
 

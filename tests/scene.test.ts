@@ -1,74 +1,38 @@
 import { expect, test } from 'vitest';
-import { geoCircle, geoDistance, geoGraticule10 } from 'd3-geo';
-import { feature } from 'topojson-client';
-import landTopology from 'world-atlas/land-110m.json';
-import { cutGeometry, type Piece } from '../src/geo/cut';
+import { geoDistance } from 'd3-geo';
+import { cutGeometry } from '../src/geo/cut';
 import { MorphController } from '../src/morph/controller';
 import { buildScene, type Scene, type ScenePiece } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
-import { compile, stateForStop } from '../src/projections/compile';
-import type { LonLat, Orientation, ProjectionState } from '../src/projections/types';
-import { computeScreen, isCovered, projectPoint } from '../src/screen/screen';
-import { indicatrixCentres, jacobian, singularValues, type Member } from '../src/tissot/indicatrix';
-
-const rad = Math.PI / 180;
-const VIEW = { width: 1000, height: 600 };
-const STREAK = 0.25 * Math.hypot(VIEW.width, VIEW.height);
-
-const topology = landTopology as any;
-const land = feature(topology, topology.objects.land) as unknown as GeoJSON.GeoJsonObject;
-const graticule = geoGraticule10() as GeoJSON.GeoJsonObject;
-const ocean = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
-const world = { land, ocean, graticule };
-
-function memberOf(state: ProjectionState, weight = 1): Member {
-  const compiled = compile(state);
-  return { compiled, screen: computeScreen(compiled, VIEW), weight };
-}
-
-function member(id: string, orientation?: Partial<Orientation>, weight = 1): Member {
-  const state = stateForStop(stops.find((s) => s.id === id)!);
-  return memberOf({ ...state, orientation: { ...state.orientation, ...orientation } }, weight);
-}
-
-const line = (...coordinates: LonLat[]): GeoJSON.LineString => ({ type: 'LineString', coordinates });
-
-/** Deterministic pseudo-random numbers in [0, 1). */
-function rng(seed: number) {
-  let s = seed >>> 0;
-  return () => {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const randomOrientation = (r: () => number): Orientation => ({ lon: r() * 360 - 180, lat: r() * 170 - 85, tilt: r() * 180 - 90 });
-
-/** Each ring of a piece as [start, end) point indices. */
-function ringsOf(piece: ScenePiece): [number, number][] {
-  const count = piece.src.length / 2;
-  return [...piece.ringStarts].map((start, i) => [start, piece.ringStarts[i + 1] ?? count]);
-}
-
-const pointAt = (a: Float32Array, i: number): [number, number] => [a[2 * i]!, a[2 * i + 1]!];
-
-/** Longest segment of a position array, in pixels. */
-function longestSegment(piece: ScenePiece, positions: Float32Array): number {
-  let longest = 0;
-  for (const [start, end] of ringsOf(piece)) {
-    for (let i = start + 1; i < end; i++) {
-      const [ax, ay] = pointAt(positions, i - 1);
-      const [bx, by] = pointAt(positions, i);
-      longest = Math.max(longest, Math.hypot(bx - ax, by - ay));
-    }
-  }
-  return longest;
-}
-
-const isShown = (piece: Piece) => piece.inside.some((inside, i) => inside || piece.behind[i]);
+import { stateForStop } from '../src/projections/compile';
+import type { LonLat } from '../src/projections/types';
+import { isCovered, projectPoint } from '../src/screen/screen';
+import { destination } from '../src/screen/screen';
+import { indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../src/tissot/indicatrix';
+import {
+  aloneArea,
+  aloneRaster,
+  cellsOf,
+  difference,
+  filledArea,
+  frameAt,
+  isShown,
+  land,
+  line,
+  longestSegment,
+  member,
+  memberOf,
+  ocean,
+  pointAt,
+  rad,
+  randomOrientation,
+  raster,
+  ringsOf,
+  rng,
+  STREAK,
+  VIEW,
+  world,
+} from './sceneSupport';
 
 test('at t=0 src equals projectPoint under the source; at t=1 dst under the target', () => {
   const pairs: [Member, Member][] = [
@@ -186,7 +150,7 @@ test('a point at or almost at a cap centre cannot produce NaN, on a map tilted o
   cases[1]![1] = [tilted.compiled.fromFrame([0, 90]), tilted.compiled.fromFrame([77, 90 - 1e-8])];
   const other = member('robinson', { lon: 77, lat: 11, tilt: 7 });
   for (const [capped, points] of cases) {
-    const geometry = (p: LonLat) => line(p, [p[0] + 0.5, p[1] - 0.5]);
+    const geometry = (p: LonLat) => line(p, [p[0] + 0.5, p[1] > 0 ? p[1] - 0.5 : p[1] + 0.5]);
     for (const p of points) {
       for (const [source, target] of [[capped, other], [other, capped]] as const) {
         const pieces = buildScene({ probe: geometry(p) }, [source], target, true).layers.probe!;
@@ -364,12 +328,6 @@ test('indicatrix alpha comes from the weight of the members that can show it', (
   expect(atFar.srcPos[1]).toBeCloseTo(0.75 * moll[1] + 0.25 * edge[1], 3);
 });
 
-/** The frame point `distance` degrees from the frame origin, at compass bearing `bearing` radians. */
-function frameAt(distance: number, bearing: number): LonLat {
-  const d = distance * rad;
-  return [Math.atan2(Math.sin(d) * Math.sin(bearing), Math.cos(d)) / rad, Math.asin(Math.sin(d) * Math.cos(bearing)) / rad];
-}
-
 test('singular ellipses on the opening globe are not shown, and the rest are', () => {
   const globe = member('globe');
   const scene = buildScene({}, [globe], null, true);
@@ -414,6 +372,77 @@ test('an indicatrix singular or off the map at both ends is left out', () => {
   const poles = scene.indicatrices.filter((m) => Math.abs(axisRatio(m.srcMat)) < 1e-3 && Math.abs(axisRatio(m.dstMat)) < 1e-3);
   expect(poles).toEqual([]);
   for (const m of scene.indicatrices) expect(m.alphaSrc + m.alphaDst).toBeGreaterThan(0);
+});
+
+test('far-side ellipses in a globe morph are the derivative of the in-between map, at every moment', () => {
+  const globe = member('globe');
+  const target = member('mollweide');
+  const scene = buildScene({}, [globe], target, true);
+  const inBetween = (p: LonLat, t: number): [number, number] => {
+    const [a, b] = [projectPoint(globe.compiled, globe.screen, p), projectPoint(target.compiled, target.screen, p)];
+    return [(1 - t) * a[0] + t * b[0], (1 - t) * a[1] + t * b[1]];
+  };
+  const h = 1e-4; // radians of true distance
+  let checked = 0;
+  for (const p of indicatrixCentres()) {
+    const [lon, lat] = p;
+    // On the far side, away from the poles, and with the Mollweide seam out of the derivative's reach.
+    if (geoDistance(p, [0, 0]) / rad <= 90 + 1e-6 || Math.abs(lat) === 90 || Math.abs(Math.abs(target.compiled.toFrame(p)[0]) - 180) < 0.1) continue;
+    const expected = projectPoint(target.compiled, target.screen, p);
+    const m = scene.indicatrices.find((x) => x.dstPos.join() === expected.join())!;
+    expect(m, `${lon},${lat}`).toBeDefined();
+    expect(m.behind).toBe(true);
+    expect(m.alphaSrc).toBe(1);
+    expect(m.alphaDst).toBe(1);
+    for (const t of [0, 0.25, 0.5, 0.8, 1]) {
+      const drawn = m.srcMat.map((v, k) => (1 - t) * v + t * m.dstMat[k]!) as Mat2;
+      const along = (azimuth: number) => {
+        const [plus, minus] = [inBetween(destination(p, h / rad, azimuth), t), inBetween(destination(p, -h / rad, azimuth), t)];
+        return [(plus[0] - minus[0]) / (2 * h), (plus[1] - minus[1]) / (2 * h)];
+      };
+      const [east, north] = [along(90), along(0)];
+      const numeric = [east[0]!, north[0]!, east[1]!, north[1]!];
+      const scale = Math.max(...numeric.map(Math.abs));
+      numeric.forEach((v, k) => expect(Math.abs(drawn[k]! - v), `${lon},${lat} at t ${t}`).toBeLessThan(2e-3 * scale));
+    }
+    checked++;
+  }
+  expect(checked).toBeGreaterThanOrEqual(20);
+});
+
+test('only the far side of a globe is marked behind, at either end of a morph', () => {
+  const globe = member('globe');
+  const flat = member('robinson');
+  for (const scene of [buildScene({}, [globe], flat, true), buildScene({}, [flat], globe, true)]) {
+    expect(scene.indicatrices.some((m) => m.behind)).toBe(true);
+    expect(scene.indicatrices.some((m) => !m.behind)).toBe(true);
+  }
+  expect(buildScene({}, [flat], member('hammer'), true).indicatrices.every((m) => !m.behind)).toBe(true);
+  // On a globe at rest, the far side is not drawn at all.
+  const live = buildScene({}, [globe], null, true).indicatrices;
+  expect(live.every((m) => !m.behind)).toBe(true);
+  expect(live.length).toBeLessThanOrEqual(indicatrixCentres().filter((p) => geoDistance(p, [0, 0]) / rad <= 90).length);
+});
+
+test('a clip cap still fades an indicatrix, where a behind cap does not', () => {
+  const scene = buildScene({}, [member('gnomonic')], member('mollweide'), true);
+  expect(scene.indicatrices.some((m) => m.alphaSrc === 0 && m.alphaDst === 1 && !m.behind)).toBe(true);
+  const toGlobe = buildScene({}, [member('mollweide')], member('globe'), true);
+  for (const m of toGlobe.indicatrices.filter((x) => x.behind)) expect(m.alphaDst).toBe(1);
+});
+
+test('an ellipse on the limb is singular and fades, and those just either side of it are thin and shown', () => {
+  // A globe turned so that one centre lies a whisker to either side of the limb, as a far-side ellipse goes through it.
+  const target = member('mollweide');
+  const p: LonLat = [30, 0];
+  for (const [offset, shown] of [[0, false], [1e-3, false], [-1e-3, false], [0.2, true], [-0.2, true]] as const) {
+    const globe = member('globe', { lon: 30 - 90 + offset });
+    const m = buildScene({}, [globe], target, true).indicatrices.find((x) => x.dstPos.join() === projectPoint(target.compiled, target.screen, p).join())!;
+    expect(m, `offset ${offset}`).toBeDefined();
+    expect(m.alphaSrc, `offset ${offset}`).toBe(shown ? 1 : 0);
+    expect(m.alphaDst, `offset ${offset}`).toBe(1);
+    expect(m.srcMat).toEqual(jacobian(globe.compiled, globe.screen, p));
+  }
 });
 
 // Every pair of stops.
@@ -497,79 +526,6 @@ test('no streak and no NaN on a settled or dragged map, for every stop', () => {
 
 // Fills in the plane.
 
-type Filled = { piece: ScenePiece; positions: Float32Array };
-
-/** The cells of a coarse grid whose centres any of `fills` covers, by the non-zero rule as a canvas fills them, as a string of 0s and 1s. */
-function raster(fills: Filled[], step = 10): string {
-  const [columns, rows] = [VIEW.width / step, VIEW.height / step];
-  const cells = new Uint8Array(columns * rows);
-  for (const { piece, positions } of fills) {
-    // Per row, where the piece's edges cross it and which way.
-    const crossings: [number, number][][] = Array.from({ length: rows }, () => []);
-    for (const [start, end] of ringsOf(piece)) {
-      for (let i = start + 1; i < end; i++) {
-        const [ax, ay] = pointAt(positions, i - 1);
-        const [bx, by] = pointAt(positions, i);
-        const [low, high] = [Math.min(ay, by), Math.max(ay, by)];
-        const first = Math.max(0, Math.ceil(low / step - 0.5));
-        const last = Math.min(rows - 1, Math.ceil(high / step - 0.5) - 1);
-        for (let row = first; row <= last; row++) {
-          const y = (row + 0.5) * step;
-          crossings[row]!.push([ax + ((bx - ax) * (y - ay)) / (by - ay), by > ay ? 1 : -1]);
-        }
-      }
-    }
-    crossings.forEach((list, row) => {
-      list.sort((a, b) => a[0] - b[0]);
-      let winding = 0;
-      list.forEach(([x, direction], k) => {
-        winding += direction;
-        if (winding === 0) return;
-        const until = list[k + 1]?.[0] ?? x;
-        const from = Math.max(0, Math.ceil(x / step - 0.5));
-        const to = Math.min(columns - 1, Math.ceil(until / step - 0.5) - 1);
-        for (let c = from; c <= to; c++) cells[row * columns + c] = 1;
-      });
-    });
-  }
-  return cells.join('');
-}
-
-function difference(a: string, b: string): number {
-  let different = 0;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) different++;
-  return different;
-}
-
-/** Raster of what `m` shows by itself, as a full cut has it. The same map at both ends has one set of seams to cut. */
-function aloneRaster(m: Member, geometry: GeoJSON.GeoJsonObject): string {
-  const pieces = buildScene({ geometry }, [m], m, false).layers.geometry!;
-  return raster(pieces.filter((p) => p.alphaDst > 0 && !p.behind).map((piece) => ({ piece, positions: piece.dst })));
-}
-
-const cellsOf = (r: string) => [...r].filter((c) => c === '1').length;
-
-/** Total signed area of a set of pieces in pixels. Unlike a raster, this counts anything filled twice. */
-function filledArea(pieces: ScenePiece[], positions: (p: ScenePiece) => Float32Array): number {
-  let total = 0;
-  for (const piece of pieces) {
-    const at = positions(piece);
-    for (const [start, end] of ringsOf(piece)) {
-      for (let i = start + 1; i < end; i++) {
-        const [ax, ay] = pointAt(at, i - 1);
-        const [bx, by] = pointAt(at, i);
-        total += (ax * by - bx * ay) / 2;
-      }
-    }
-  }
-  return total;
-}
-
-function aloneArea(m: Member, geometry: GeoJSON.GeoJsonObject): number {
-  const pieces = buildScene({ geometry }, [m], m, false).layers.geometry!;
-  return filledArea(pieces.filter((p) => p.alphaDst > 0 && !p.behind), (p) => p.dst);
-}
-
 test('the ocean fills correctly at both ends of globe, Goode, then Transverse Mercator redirected mid-morph', () => {
   // The route behind ruling R13, through the real controller. A wrong cut walks whole lobes here,
   // on top of pieces that are right, so the area has to be checked as well as what gets covered.
@@ -617,194 +573,4 @@ test('the ocean fills correctly at both ends of globe, Goode, then Transverse Me
   expect(difference(atGoode, aloneGoode) / cellsOf(aloneGoode)).toBeLessThan(0.01);
   const goodeEnd = before.filter((p) => p.alphaDst > 0);
   expect(Math.abs(filledArea(goodeEnd, (p) => p.dst) / aloneArea(goode, ocean) - 1)).toBeLessThan(0.01);
-});
-
-// The live path against the morph path.
-
-function pieceLength(pieces: ScenePiece[]): number {
-  let total = 0;
-  for (const piece of pieces) {
-    for (const [start, end] of ringsOf(piece)) {
-      for (let i = start + 1; i < end; i++) {
-        const [ax, ay] = pointAt(piece.src, i - 1);
-        const [bx, by] = pointAt(piece.src, i);
-        total += Math.hypot(bx - ax, by - ay);
-      }
-    }
-  }
-  return total;
-}
-
-/** The cells a set of lines passes through, as a set of grid keys. */
-function lineCells(pieces: ScenePiece[], positions: (p: ScenePiece) => Float32Array, step = 6): Set<string> {
-  const cells = new Set<string>();
-  for (const piece of pieces) {
-    const at = positions(piece);
-    for (const [start, end] of ringsOf(piece)) {
-      for (let i = start + 1; i < end; i++) {
-        const [ax, ay] = pointAt(at, i - 1);
-        const [bx, by] = pointAt(at, i);
-        const n = Math.ceil(Math.hypot(bx - ax, by - ay) / 2) + 1;
-        for (let k = 0; k <= n; k++) {
-          cells.add(`${Math.floor((ax + ((bx - ax) * k) / n) / step)},${Math.floor((ay + ((by - ay) * k) / n) / step)}`);
-        }
-      }
-    }
-  }
-  return cells;
-}
-
-/** How many of `a`'s cells have no cell of `b` touching them. */
-function strayCells(a: Set<string>, b: Set<string>): string[] {
-  const stray: string[] = [];
-  for (const key of a) {
-    const [x, y] = key.split(',').map(Number) as [number, number];
-    let found = false;
-    for (let dx = -1; dx <= 1 && !found; dx++) {
-      for (let dy = -1; dy <= 1 && !found; dy++) found = b.has(`${x + dx},${y + dy}`);
-    }
-    if (!found) stray.push(key);
-  }
-  return stray;
-}
-
-/**
- * The graticule without a line lying exactly along this map's seam. A full cut sends such a line to
- * either side by rounding, point by point, where this cut keeps it on one. The test below looks at it.
- */
-function graticuleOffSeam(m: Member): GeoJSON.MultiLineString {
-  const seamPoint = (p: GeoJSON.Position | undefined) => p !== undefined && Math.abs(Math.abs(m.compiled.toFrame(p as LonLat)[0]) - 180) < 1e-6;
-  const onSeam = (path: GeoJSON.Position[]) => path.some((p, i) => seamPoint(p) && seamPoint(path[i + 1]));
-  return { type: 'MultiLineString', coordinates: (graticule as GeoJSON.MultiLineString).coordinates.filter((path) => !onSeam(path)) };
-}
-
-function expectSamePicture(m: Member, label: string) {
-  const layers = { land, ocean, graticule: graticuleOffSeam(m) };
-  const live = buildScene(layers, [m], null, false);
-  const morph = buildScene(layers, [m], m, false);
-  const front = (pieces: ScenePiece[]) => pieces.filter((p) => p.alphaDst > 0 && !p.behind);
-  for (const name of ['land', 'ocean'] as const) {
-    const a = raster(live.layers[name]!.map((piece) => ({ piece, positions: piece.src })));
-    const b = raster(front(morph.layers[name]!).map((piece) => ({ piece, positions: piece.dst })));
-    // Edge cells can differ by a hair where a cap's edge is pulled by a thousandth of a degree.
-    expect(difference(a, b), `${label} ${name}`).toBeLessThanOrEqual(Math.max(6, 0.004 * Math.max(cellsOf(a), cellsOf(b))));
-  }
-  const liveLines = lineCells(live.layers.graticule!, (p) => p.src);
-  const morphLines = lineCells(front(morph.layers.graticule!), (p) => p.dst);
-  expect(strayCells(liveLines, morphLines), `${label} live graticule`).toEqual([]);
-  expect(strayCells(morphLines, liveLines), `${label} morph graticule`).toEqual([]);
-  const liveLength = pieceLength(live.layers.graticule!);
-  const morphLength = pieceLength(front(morph.layers.graticule!).map((p) => ({ ...p, src: p.dst })));
-  expect(Math.abs(liveLength / morphLength - 1), `${label} graticule length`).toBeLessThan(0.02);
-}
-
-test('a settled or dragged map is the same picture as the end of a morph, for every stop at its default orientation', () => {
-  for (const s of stops) expectSamePicture(memberOf(stateForStop(s)), s.id);
-}, 60_000);
-
-test('a dragged map is the same picture as the end of a morph, at seeded random orientations', () => {
-  const r = rng(77);
-  const ids = ['globe', 'gnomonic', 'orthographic', 'stereographic', 'lambert-azimuthal', 'mercator', 'gall-peters', 'mollweide', 'robinson', 'goode', 'albers', 'lambert-conformal'];
-  for (let i = 0; i < 48; i++) {
-    const id = ids[i % ids.length]!;
-    const o = randomOrientation(r);
-    expectSamePicture(member(id, o), `${id} ${JSON.stringify(o)}`);
-  }
-}, 60_000);
-
-test('a dragged map holds shapes that surround the pole, the seam or the whole map', () => {
-  const circle = (lon: number, lat: number, radius: number) => geoCircle().center([lon, lat]).radius(radius)() as GeoJSON.GeoJsonObject;
-  const shapes: [string, GeoJSON.GeoJsonObject][] = [
-    ['small circle', circle(20, 30, 10)],
-    ['circle round the north pole', circle(40, 80, 25)],
-    ['circle round the south pole', circle(-40, -70, 40)],
-    ['circle across the seam', circle(179, 10, 15)],
-    ['hemisphere', circle(50, 10, 90)],
-    ['nearly everything', circle(-130, -30, 170)],
-    ['box', { type: 'Polygon', coordinates: [[[-20, -10], [-20, 20], [30, 20], [30, -10], [-20, -10]]] } as GeoJSON.Polygon],
-  ];
-  const r = rng(5);
-  const maps: Member[] = [];
-  for (const id of ['globe', 'gnomonic', 'lambert-azimuthal', 'mercator', 'mollweide', 'goode', 'albers']) {
-    maps.push(member(id), member(id, randomOrientation(r)), member(id, randomOrientation(r)));
-  }
-  for (const m of maps) {
-    for (const [name, shape] of shapes) {
-      const label = `${m.compiled.def.id} ${JSON.stringify(m.compiled.state.orientation)} ${name}`;
-      const live = raster(buildScene({ shape }, [m], null, false).layers.shape!.map((piece) => ({ piece, positions: piece.src })));
-      const morph = aloneRaster(m, shape);
-      expect(difference(live, morph), label).toBeLessThanOrEqual(Math.max(6, 0.01 * cellsOf(morph)));
-    }
-  }
-}, 60_000);
-
-test('where a dragged map cuts a shape at its circle, the cut follows the circle closely', () => {
-  for (const [id, limit, lon] of [['gnomonic', 68, 100], ['stereographic', 165, 150]] as const) {
-    const shape = geoCircle().center([lon, 0]).radius(60)() as GeoJSON.GeoJsonObject;
-    const m = member(id);
-    const centre = projectPoint(m.compiled, m.screen, [0, 0]);
-    const rim = Math.hypot(...([0, 1] as const).map((k) => projectPoint(m.compiled, m.screen, frameAt(limit, Math.PI / 2))[k] - centre[k]));
-    const live = buildScene({ shape }, [m], null, false).layers.shape!;
-    let along = 0;
-    for (const piece of live) {
-      for (let i = 1; i < piece.src.length / 2; i++) {
-        const [ax, ay] = pointAt(piece.src, i - 1).map((v, k) => v - centre[k]!) as [number, number];
-        const [bx, by] = pointAt(piece.src, i).map((v, k) => v - centre[k]!) as [number, number];
-        if (Math.abs(Math.hypot(ax, ay) - rim) > 0.5 || Math.abs(Math.hypot(bx, by) - rim) > 0.5) continue;
-        along++;
-        expect(Math.abs(Math.atan2(ax * by - bx * ay, ax * bx + ay * by)) / rad, id).toBeLessThan(2.3);
-      }
-    }
-    expect(along, id).toBeGreaterThan(5);
-  }
-});
-
-test('a line lying along the seam is drawn on one side of it, whole', () => {
-  for (const id of ['mercator', 'mollweide', 'equal-earth']) {
-    const m = member(id);
-    const pieces = buildScene({ shape: line([180, -60], [180, 60]) }, [m], null, false).layers.shape!;
-    expect(pieces.length).toBe(1);
-    const piece = pieces[0]!;
-    expect(piece.src.every(Number.isFinite)).toBe(true);
-    const [first, last] = [pointAt(piece.src, 0), pointAt(piece.src, piece.src.length / 2 - 1)];
-    const expected = [projectPoint(m.compiled, m.screen, [-180, -60]), projectPoint(m.compiled, m.screen, [-180, 60])];
-    const other = [projectPoint(m.compiled, m.screen, [180, -60]), projectPoint(m.compiled, m.screen, [180, 60])];
-    const near = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!) < 0.01;
-    expect((near(first, expected[0]!) && near(last, expected[1]!)) || (near(first, other[0]!) && near(last, other[1]!)), id).toBe(true);
-    expect(longestSegment(piece, piece.src), id).toBeLessThan(STREAK);
-  }
-});
-
-test('a dragged map holds lines along lobe edges, and close by or through the poles', () => {
-  const lines: GeoJSON.LineString[] = [
-    line([-100, -70], [-100, -5]),
-    line([-170, 0], [170, 0]),
-    line([30, 60], [30, 89], [-150, 89], [-150, 60]),
-    line([0, 80], [170, 80]),
-    line([0, 0], [20, 20], [40, 0]),
-  ];
-  for (const id of ['mercator', 'goode', 'mollweide', 'gnomonic', 'globe', 'albers']) {
-    for (const m of [member(id), member(id, { lon: 33, lat: 27, tilt: 41 })]) {
-      for (const shape of lines) {
-        const label = `${id} ${JSON.stringify(m.compiled.state.orientation)} ${JSON.stringify(shape.coordinates)}`;
-        const live = buildScene({ shape }, [m], null, false).layers.shape!;
-        const morph = buildScene({ shape }, [m], m, false).layers.shape!.filter((p) => p.alphaDst > 0 && !p.behind);
-        // A full cut can leave a line of no length on the far side of a seam the shape ends on.
-        const a = lineCells(live, (p) => p.src);
-        const b = lineCells(morph.filter((p) => pieceLength([{ ...p, src: p.dst }]) > 1), (p) => p.dst);
-        expect(strayCells(a, b), `${label}, live`).toEqual([]);
-        expect(strayCells(b, a), `${label}, morph`).toEqual([]);
-      }
-    }
-  }
-});
-
-test('the same geometry object can be shown again after other maps', () => {
-  const m = member('mollweide', { lon: 12 });
-  const first = buildScene(world, [m], null, false);
-  buildScene(world, [member('goode')], null, false);
-  const again = buildScene(world, [m], null, false);
-  for (const name of Object.keys(world)) {
-    expect(again.layers[name]!.map((p) => [...p.src])).toEqual(first.layers[name]!.map((p) => [...p.src]));
-  }
 });
