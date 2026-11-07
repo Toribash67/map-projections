@@ -44,7 +44,7 @@ async function mouseTo(page: Page, xy: Pair) {
 /** Records the clicks the map reports, through a second listener on the same canvas. */
 const recordClicks = (page: Page) =>
   page.evaluate(async () => {
-    const { attachMapPointer } = await import('/map-projections/src/ui/mapPointer.ts' as string);
+    const { attachMapPointer } = await import('/src/ui/mapPointer.ts' as string);
     const w = window as any;
     w.__clicks = [];
     attachMapPointer(document.querySelector('#map'), w.__app, { onClick: (xy: Pair) => w.__clicks.push(xy) });
