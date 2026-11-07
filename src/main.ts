@@ -1,18 +1,20 @@
 import './style.css';
 import { App } from './app';
-import { attachMapPointer } from './ui/mapPointer';
+import type { DrawingModel } from './drawing/model';
+import { createDrawingTools } from './ui/drawingTools';
 import { createSidebar } from './ui/sidebar';
 
 declare global {
   interface Window {
     __app: App;
+    __drawing: DrawingModel;
   }
 }
 
 const canvas = document.querySelector<HTMLCanvasElement>('#map')!;
 const app = new App(canvas);
-createSidebar(app, document.querySelector<HTMLElement>('#sidebar')!);
-// Clicks will place the points of drawn shapes, once there are drawing tools.
-attachMapPointer(canvas, app, { onClick: () => {} });
+const tools = createDrawingTools(app, canvas);
+createSidebar(app, document.querySelector<HTMLElement>('#sidebar')!, tools.el);
 // For tests.
 window.__app = app;
+window.__drawing = tools.model;

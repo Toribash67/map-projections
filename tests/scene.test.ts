@@ -650,3 +650,27 @@ test('the viewpoint slider gives a whole, unstreaked map at every step, live and
   expect(out.streaks).toEqual([]);
   console.log(`smallest facing hemisphere: ${smallest.toFixed(3)} of half the viewport; longest segment ${out.worst.toFixed(0)} px`);
 }, 180_000);
+
+test('a live build reuses what it cut of a layer whose geometry and map are unchanged', () => {
+  const m = member('robinson');
+  const [one, two] = [line([0, 0], [40, 30]), line([-50, 10], [20, -40])];
+  const collection = (...geometries: GeoJSON.Geometry[]) => ({ type: 'GeometryCollection', geometries }) as GeoJSON.GeoJsonObject;
+  const first = buildScene({ land, drawings: collection(one) }, [m], null, true);
+
+  // A new drawings object cuts only the geometry in it that it has not seen.
+  const second = buildScene({ land, drawings: collection(one, two) }, [m], null, true);
+  expect(second.layers.land!.length).toBe(first.layers.land!.length);
+  second.layers.land!.forEach((piece, i) => expect(piece).toBe(first.layers.land![i]));
+  expect(second.layers.drawings![0]).toBe(first.layers.drawings![0]);
+  expect(second.layers.drawings!.length).toBeGreaterThan(first.layers.drawings!.length);
+  expect(second.indicatrices.length).toBe(first.indicatrices.length);
+
+  // The same pieces as a build with nothing to reuse.
+  const fresh = buildScene({ drawings: collection(one, two) }, [member('robinson')], null, false);
+  expect(second.layers.drawings!.map((p) => [...p.src])).toEqual(fresh.layers.drawings!.map((p) => [...p.src]));
+
+  // A map that has changed, or a geometry that has, is cut again.
+  const moved = buildScene({ land, drawings: collection(one, two) }, [member('robinson', { lon: 30 })], null, false);
+  expect(moved.layers.land![0]).not.toBe(first.layers.land![0]);
+  expect(buildScene({ land: { ...land } as GeoJSON.GeoJsonObject }, [m], null, false).layers.land![0]).not.toBe(first.layers.land![0]);
+});

@@ -34,8 +34,8 @@ export function parseViewpoint(raw: string): number | null {
   return Math.max(0, distance) === Infinity ? 1 : Math.max(0, distance) / (1 + Math.max(0, distance));
 }
 
-/** The sidebar: projection list with its family sliders, the projection's note, centre and tilt, and the Tissot toggle. */
-export function createSidebar(app: App, root: HTMLElement): void {
+/** The sidebar: the drawing tools, the projection list with its family sliders, the projection's note, centre and tilt, and the Tissot toggle. */
+export function createSidebar(app: App, root: HTMLElement, drawingTools: HTMLElement): void {
   const list = createProjectionList(stops, (stop) => app.select(stop));
   const note = document.createElement('section');
   note.className = 'note';
@@ -175,7 +175,8 @@ export function createSidebar(app: App, root: HTMLElement): void {
 
   const title = document.createElement('h1');
   title.textContent = 'Map projections';
-  root.append(title, list.el, note, orientation.el, tissot);
+  // The tools come first, where their notice and the hint are in view without scrolling past the list.
+  root.append(title, drawingTools, list.el, note, orientation.el, tissot);
 
   function sync(): void {
     const { state } = app;

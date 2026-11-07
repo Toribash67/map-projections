@@ -98,7 +98,8 @@ test.each(cases)('a clip gone wrong at %s is caught, and the polygon cut the lon
   for (const kind of ['double', 'reverse', 'swallow'] as const) {
     fault.next = kind;
     fault.used = 0;
-    const live = buildScene({ shape }, [m], null, false).layers.shape!;
+    // A copy, as a live build keeps what it cut from a geometry object and would not run the clip again.
+    const live = buildScene({ shape: { ...shape } }, [m], null, false).layers.shape!;
     expect(fault.used, `${name}: the clip ran`).toBe(1);
     const area = Math.abs(filledArea(live, (p) => p.src));
     expect(Math.abs(area / right - 1), `${name}, ${kind}`).toBeLessThan(0.01);

@@ -44,7 +44,9 @@ export function attachMapPointer(canvas: HTMLCanvasElement, app: App, handlers: 
   };
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (press || e.button !== 0) return;
+    if (e.button !== 0) return;
+    // A press whose end never came, as when a context menu opens or focus leaves mid-drag, no longer holds the pointer.
+    if (press && canvas.hasPointerCapture(press.id)) return;
     canvas.setPointerCapture(e.pointerId);
     const xy = at(e);
     press = { id: e.pointerId, start: xy, moved: false, onMap: false, grabbed: null, heldOn: null };

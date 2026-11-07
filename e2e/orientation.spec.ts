@@ -476,3 +476,36 @@ test.describe('on a phone', () => {
     expect(await scrolled()).toEqual(scrollBefore);
   });
 });
+
+test('a press whose end never arrives does not block the drag after it', async ({ page }) => {
+  // The canvas can be made to miss the end of a press, as it does when a context menu opens over it.
+  await page.addInitScript(() => {
+    const add = HTMLCanvasElement.prototype.addEventListener;
+    HTMLCanvasElement.prototype.addEventListener = function (type: string, listener: any, options?: any) {
+      const ends = ['pointerup', 'pointercancel', 'lostpointercapture'];
+      const wrapped = ends.includes(type) ? (e: Event) => (window as any).__dropEnds || listener.call(this, e) : listener;
+      return add.call(this, type, wrapped, options);
+    };
+  });
+  await open(page);
+  await pick(page, 'robinson');
+  await settle(page);
+  const middle = await centreOf(page);
+  const before = await orientation(page);
+
+  // A touch has an id of its own each time, so a press that never ended cannot be mistaken for the next.
+  const cdp = await page.context().newCDPSession(page);
+  const box = await canvasBox(page);
+  const touch = (type: 'touchStart' | 'touchMove' | 'touchEnd', at?: Pair) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: at ? [{ x: box.x + at[0], y: box.y + at[1] }] : [] });
+
+  await page.evaluate(() => ((window as any).__dropEnds = true));
+  await touch('touchStart', middle);
+  await touch('touchEnd');
+  await page.evaluate(() => ((window as any).__dropEnds = false));
+
+  await touch('touchStart', middle);
+  for (let i = 1; i <= 6; i++) await touch('touchMove', [middle[0] + 10 * i, middle[1] + 3 * i]);
+  await touch('touchEnd');
+  expect(await orientation(page)).not.toEqual(before);
+});

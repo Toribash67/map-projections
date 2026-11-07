@@ -1,7 +1,6 @@
-import { geoCircle } from 'd3-geo';
 import { COAST, GRATICULE, LAND } from './data/land';
 import { farSideCells } from './geo/farCells';
-import type { Shape } from './drawing/model';
+import { shapeToGeoJSON, type Shape } from './drawing/model';
 import { MorphController } from './morph/controller';
 import { buildScene, type Scene } from './morph/scene';
 import { getDef, stops } from './projections/catalog';
@@ -14,23 +13,6 @@ import type { Member } from './tissot/indicatrix';
 const OCEAN = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
 // Side of a far-side ocean cell, in degrees. Smaller cells fold less within themselves, and cost more to cut.
 const FAR_CELL = 10;
-
-/**
- * Drawn shapes as one geometry. A polygon's outline is a line of its own, so the fill is never
- * outlined where a seam cuts it.
- */
-function drawingsOf(shapes: Shape[]): GeoJSON.GeometryCollection {
-  const geometries: GeoJSON.Geometry[] = [];
-  for (const shape of shapes) {
-    if (shape.kind === 'line') {
-      geometries.push({ type: 'LineString', coordinates: shape.points });
-      continue;
-    }
-    const ring = shape.kind === 'circle' ? geoCircle().center(shape.center).radius(shape.radiusDeg)().coordinates[0]! : shape.points;
-    geometries.push({ type: 'Polygon', coordinates: [ring] }, { type: 'LineString', coordinates: ring });
-  }
-  return { type: 'GeometryCollection', geometries };
-}
 
 /**
  * The single store: what the map shows, and the canvas it is drawn on. A morph's scene is cut
@@ -49,7 +31,7 @@ export class App {
   private readonly controller = new MorphController(() => performance.now());
   private readonly listeners: (() => void)[] = [];
   // Replaced, never changed in place: the live cut caches what it prepares by geometry object.
-  private drawings: GeoJSON.GeometryCollection = drawingsOf([]);
+  private drawings: GeoJSON.GeometryCollection = { type: 'GeometryCollection', geometries: [] };
   private scene: Scene = { layers: {}, indicatrices: [] };
   private stale = true;
   private sceneIsMorph = false;
@@ -128,7 +110,7 @@ export class App {
 
   /** Call after replacing `shapes`. */
   invalidateGeometry(): void {
-    this.drawings = drawingsOf(this.shapes);
+    this.drawings = { type: 'GeometryCollection', geometries: this.shapes.map(shapeToGeoJSON) };
     this.invalidate();
     this.notify();
   }

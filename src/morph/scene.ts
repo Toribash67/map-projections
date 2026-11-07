@@ -3,7 +3,7 @@ import { cutGeometry, type Piece } from '../geo/cut';
 import { toVector, type Vector } from '../geo/densify';
 import { cutFront } from '../geo/frontCut';
 import type { CompiledProjection, ExcludedCap, LonLat } from '../projections/types';
-import { lobeOf, projectFrame } from '../screen/screen';
+import { lobeOf, projectFrame, type ScreenTransform } from '../screen/screen';
 import { blendIndicatrix, indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../tissot/indicatrix';
 
 const rad = Math.PI / 180;
@@ -189,8 +189,13 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, behind };
 }
 
-/** A map at rest or being dragged: one member, and only what it shows. */
-function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
+/** What a live build cut from a geometry, and the map it cut it for. */
+type Cut = { compiled: CompiledProjection; screen: ScreenTransform; weight: number; pieces: ScenePiece[] };
+// By geometry object. A preview changes the drawings every pointer move and nothing else, so the layers
+// that did not change are not cut again, nor are the shapes in a collection that did not change.
+const liveCache = new WeakMap<object, Cut>();
+
+function cutLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
   const { compiled: c, screen: s } = m;
   return cutFront(geom, c).map((piece) => {
     const ringStarts = new Uint32Array(piece.rings.length);
@@ -210,6 +215,15 @@ function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
     }
     return { closed: piece.closed, src, dst: src, ringStarts, alphaSrc: m.weight, alphaDst: m.weight, behind: false };
   });
+}
+
+/** A map at rest or being dragged: one member, and only what it shows. */
+function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
+  const cached = liveCache.get(geom);
+  if (cached && cached.compiled === m.compiled && cached.screen === m.screen && cached.weight === m.weight) return cached.pieces;
+  const pieces = geom.type === 'GeometryCollection' ? (geom as GeoJSON.GeometryCollection).geometries.flatMap((part) => livePieces(part, m)) : cutLive(geom, m);
+  liveCache.set(geom, { compiled: m.compiled, screen: m.screen, weight: m.weight, pieces });
+  return pieces;
 }
 
 /** Where a member puts a point: projected, or moved to the edge of the clip cap holding it. */
@@ -293,7 +307,8 @@ function buildIndicatrix(p: LonLat, source: Member[], target: Member | null): Sc
  * Everything a morph between `source` and `target` draws, as a position per point at each
  * end, so that a frame is only a linear blend. With no target this is a map at rest or being
  * dragged, rebuilt per frame, by a much cheaper cut. That cut keeps what it can reuse by geometry
- * object, so a shape that changes has to be passed as a new object, never mutated in place.
+ * object, including the parts of a geometry collection, so a shape that changes has to be passed as
+ * a new object, never mutated in place.
  */
 export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source: Member[], target: Member | null, withTissot: boolean): Scene {
   const compiled = (target ? [...source, target] : source).map((m) => m.compiled);

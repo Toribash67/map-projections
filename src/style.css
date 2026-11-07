@@ -335,6 +335,12 @@ input {
   cursor: grabbing;
 }
 
+#map[data-tool='line'],
+#map[data-tool='polygon'],
+#map[data-tool='circle'] {
+  cursor: crosshair;
+}
+
 .note h3 {
   margin: 0 0 3px;
   font-size: 13px;
@@ -348,6 +354,60 @@ input {
 
 .tissot {
   margin-top: 12px;
+}
+
+/* Drawing tools */
+.drawing {
+  margin-bottom: 12px;
+}
+
+.drawing h2 {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.tool-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.tool,
+.draw-action {
+  flex: 1;
+  padding: 3px 6px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.tool[aria-pressed='true'] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.draw-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.draw-notice {
+  margin: 6px 0 0;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.draw-readout {
+  position: fixed;
+  z-index: 10;
+  padding: 1px 6px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 .toggle {
