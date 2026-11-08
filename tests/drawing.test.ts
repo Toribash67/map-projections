@@ -354,3 +354,22 @@ test('fills land on the right side of a seam and a pole, in the live and the ful
     }
   }
 });
+
+test('canFinish: a line from two points and a polygon from three, and never a circle or no draft', () => {
+  const model = new DrawingModel();
+  expect(model.canFinish).toBe(false);
+  model.setTool('line');
+  model.addPoint([0, 0]);
+  expect(model.canFinish).toBe(false);
+  model.addPoint([10, 0]);
+  expect(model.canFinish).toBe(true);
+  model.setTool('polygon');
+  model.addPoint([0, 0]);
+  model.addPoint([10, 0]);
+  expect(model.canFinish).toBe(false);
+  model.addPoint([10, 10]);
+  expect(model.canFinish).toBe(true);
+  model.setTool('circle');
+  model.addPoint([0, 0]);
+  expect(model.canFinish).toBe(false);
+});

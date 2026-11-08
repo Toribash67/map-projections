@@ -84,6 +84,12 @@ export class DrawingModel {
     return radius >= MIN_RADIUS ? radiusKm(Math.min(radius, MAX_RADIUS)) : null;
   }
 
+  /** Whether `finish` would make the draft a shape, as far as its points go: a line of two or more, a polygon of three or more. */
+  get canFinish(): boolean {
+    const d = this.draft;
+    return d !== null && d.kind !== 'circle' && d.points.length >= (d.kind === 'line' ? 2 : 3);
+  }
+
   subscribe(fn: () => void): () => void {
     this.listeners.push(fn);
     return () => {

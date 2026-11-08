@@ -9,8 +9,8 @@ type Pair = [number, number];
 const TOOLS: [Exclude<Tool, 'none'>, string][] = [['line', 'Line'], ['polygon', 'Polygon'], ['circle', 'Circle']];
 const HINTS: Record<Tool, string> = {
   none: 'Choose a tool, then click the map to place points. Dragging still moves the map.',
-  line: 'Click to place points. Double-click or Enter finishes the line, Escape cancels it.',
-  polygon: 'Click to place points. Double-click or Enter closes the polygon, Escape cancels it.',
+  line: 'Click to place points. Finish, Enter or a double-click ends the line, Escape cancels it.',
+  polygon: 'Click to place points. Finish, Enter or a double-click closes the polygon, Escape cancels it.',
   circle: 'Click for the centre, then click again for the radius. Escape cancels.',
 };
 // The second click of a double-click, within this long (ms) and this far (CSS pixels) of the first, places no point of its own.
@@ -40,15 +40,19 @@ export function createDrawingTools(app: App, canvas: HTMLCanvasElement): { el: H
   });
   const toolRow = el('div', 'tool-row');
   toolRow.append(...buttons.map((b) => b.button));
+  // A phone has no Enter, and a double tap is no surer than two taps: Finish does what Enter does.
+  const finish = el('button', 'draw-action', 'Finish');
   const undo = el('button', 'draw-action', 'Undo');
   const clear = el('button', 'draw-action', 'Clear');
-  for (const button of [undo, clear]) button.type = 'button';
+  for (const button of [finish, undo, clear]) button.type = 'button';
+  finish.title = 'End the line, or close the polygon';
   undo.title = 'Take back the last point, then the last shape';
   clear.title = 'Remove every shape';
+  finish.addEventListener('click', () => model.finish());
   undo.addEventListener('click', () => model.undo());
   clear.addEventListener('click', () => model.clear());
   const actionRow = el('div', 'tool-row');
-  actionRow.append(undo, clear);
+  actionRow.append(finish, undo, clear);
   const hint = el('p', 'hint');
   const notice = el('p', 'draw-notice');
   notice.setAttribute('role', 'status');
@@ -118,6 +122,7 @@ export function createDrawingTools(app: App, canvas: HTMLCanvasElement): { el: H
     const km = model.radiusKm;
     readout.hidden = km === null;
     if (km !== null) readout.textContent = formatKm(km);
+    finish.disabled = !model.canFinish;
     undo.disabled = model.shapes.length === 0 && model.draft === null;
     clear.disabled = undo.disabled;
   }
