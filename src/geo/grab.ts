@@ -3,6 +3,12 @@ import type { LonLat } from '../projections/types';
 type Pair = [number, number];
 const rad = Math.PI / 180;
 
+/**
+ * A pointer moves the centre by a small step at a time, so a solution farther than this (degrees) from the current centre is not
+ * the land following the pointer: it is the other side of a pole, where no centre with north up keeps the land under the pointer.
+ */
+export const MAX_STEP = 15;
+
 const wrap = (a: number): number => ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI;
 
 /**
@@ -10,7 +16,9 @@ const wrap = (a: number): number => ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math
  * d the longitude of the land east of the centre, x = cos(lat) sin(d) fixes d up to a half turn (two ways), and
  * y = cos(lat0) sin(lat) - sin(lat0) cos(lat) cos(d), a cosine of lat0 plus a shift, fixes the latitude (two ways). Of the four,
  * only those that leave the land on the visible side are centres, and the nearest to `current` is taken. Null where there is
- * none: the land cannot be at that place from any centre. With `latFree` false only longitude is solved.
+ * none: the land cannot be at that place from any centre. Null too where the nearest is more than `MAX_STEP` away, as when a drag
+ * runs over a pole: the globe then stays where it was, rather than jumping, until the pointer comes back to where the land can follow.
+ * With `latFree` false only longitude is solved.
  */
 export function centreFor([lon, lat]: LonLat, [x, y]: Pair, current: LonLat, latFree: boolean): LonLat | null {
   const cosLat = Math.cos(lat * rad);
@@ -36,5 +44,5 @@ export function centreFor([lon, lat]: LonLat, [x, y]: Pair, current: LonLat, lat
       if (closeness > bestCloseness) [best, bestCloseness] = [[lon0, phi / rad], closeness];
     }
   }
-  return best;
+  return bestCloseness >= Math.cos(MAX_STEP * rad) ? best : null;
 }
