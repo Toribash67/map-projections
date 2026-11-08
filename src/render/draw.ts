@@ -1,38 +1,6 @@
 import type { Scene, SceneIndicatrix, ScenePiece } from '../morph/scene';
 import { INDICATRIX_RADIUS } from '../tissot/indicatrix';
-
-/** Colours, and line widths in CSS pixels. */
-export type Style = {
-  background: string;
-  ocean: string;
-  land: string;
-  graticule: string;
-  coast: string;
-  accent: string;
-  accentFill: string;
-  seamWidth: number;
-  graticuleWidth: number;
-  coastWidth: number;
-  drawingWidth: number;
-  indicatrixWidth: number;
-};
-
-/** A quiet base map, so that drawings and indicatrices stand out in the accent. */
-export const MAP_STYLE: Style = {
-  background: '#eceae4',
-  ocean: '#d3dfe5',
-  land: '#f7f5ef',
-  graticule: 'rgba(62, 84, 98, 0.16)',
-  coast: '#97a3a9',
-  accent: '#d9472b',
-  accentFill: 'rgba(217, 71, 43, 0.16)',
-  // Fills of neighbouring pieces meet at a seam; a stroke this wide in their own colour hides the hairline between them.
-  seamWidth: 0.5,
-  graticuleWidth: 0.75,
-  coastWidth: 0.6,
-  drawingWidth: 2,
-  indicatrixWidth: 1.25,
-};
+import type { Style } from './style';
 
 /** How far a weight `w` of the maps that cannot show something hides it: slow to start, so what arrives or leaves is faint for long. */
 const hiding = (w: number) => 1 - (1 - w) ** 3;

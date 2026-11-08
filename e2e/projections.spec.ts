@@ -3,9 +3,12 @@ import { stops } from '../src/projections/catalog';
 import { compile } from '../src/projections/compile';
 import { isCovered, projectPoint } from '../src/screen/screen';
 import type { LonLat, ProjectionState } from '../src/projections/types';
-import { MAP_STYLE } from '../src/render/draw';
+import { mapStyle } from '../src/render/style';
 import { similarity } from '../tests/similarity';
 import { head, isCurrent, isMorphing, move, numberBox, open, openPaused, pick, settle, slider, state, stopButton, type } from './support';
+
+// The tests run in light mode, as the browser is told to, unless one says otherwise.
+const LIGHT_STYLE = mapStyle('light');
 
 /** A moment of the map: its state and the screen fit it is drawn with. */
 const snapshot = (page: Page) => page.evaluate(() => {
@@ -65,7 +68,7 @@ test('clicking Mollweide morphs: state changes at once, canvas settles after 140
     const ratio = canvas.width / canvas.clientWidth;
     return [...canvas.getContext('2d')!.getImageData(Math.round(x! * ratio), Math.round(y! * ratio), 1, 1).data.slice(0, 3)];
   }, [x, y]);
-  const background = [1, 3, 5].map((i) => parseInt(MAP_STYLE.background.slice(i, i + 2), 16));
+  const background = [1, 3, 5].map((i) => parseInt(LIGHT_STYLE.background.slice(i, i + 2), 16));
   expect(await pixelAt(20, 300)).toEqual(background);
 
   await pick(page, 'mollweide');

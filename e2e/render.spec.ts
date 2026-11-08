@@ -1,7 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import { stops } from '../src/projections/catalog';
-import { MAP_STYLE } from '../src/render/draw';
+import { mapStyle } from '../src/render/style';
 import type { Shape } from '../src/drawing/model';
+
+// The tests run in light mode, as the browser is told to, unless one says otherwise.
+const LIGHT_STYLE = mapStyle('light');
 
 type Rgb = [number, number, number];
 
@@ -9,8 +12,8 @@ const stop = (id: string) => stops.find((s) => s.id === id)!;
 const rgb = (hex: string): Rgb => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb;
 const near = (a: readonly number[], b: readonly number[], tolerance = 3) => a.slice(0, 3).every((v, i) => Math.abs(v - b[i]!) <= tolerance);
 
-const BACKGROUND = rgb(MAP_STYLE.background);
-const ACCENT = rgb(MAP_STYLE.accent);
+const BACKGROUND = rgb(LIGHT_STYLE.background);
+const ACCENT = rgb(LIGHT_STYLE.accent);
 
 /** A canvas pixel at CSS coordinates. */
 const pixel = (page: Page, x: number, y: number): Promise<number[]> =>
@@ -88,7 +91,7 @@ test('opens on the globe with no console errors', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).__app.state.defId)).toBe('globe');
   // Off the centre, which has the graticule's 0, 0 on it.
   const middle = await pixel(page, 524, 324);
-  expect(near(middle, rgb(MAP_STYLE.land)) || near(middle, rgb(MAP_STYLE.ocean))).toBe(true);
+  expect(near(middle, rgb(LIGHT_STYLE.land)) || near(middle, rgb(LIGHT_STYLE.ocean))).toBe(true);
   for (const [x, y] of [[2, 2], [997, 2], [2, 597], [997, 597]] as const) {
     expect(near(await pixel(page, x, y), BACKGROUND)).toBe(true);
   }

@@ -3,8 +3,11 @@ import type { Shape } from '../src/drawing/model';
 import { compile } from '../src/projections/compile';
 import type { LonLat, ProjectionState } from '../src/projections/types';
 import { isClipped, projectPoint, type ScreenTransform } from '../src/screen/screen';
-import { MAP_STYLE } from '../src/render/draw';
+import { mapStyle } from '../src/render/style';
 import { isMorphing, numberBox, open, pick, settle, state } from './support';
+
+// The tests run in light mode, as the browser is told to, unless one says otherwise.
+const LIGHT_STYLE = mapStyle('light');
 
 type Pair = [number, number];
 
@@ -71,7 +74,7 @@ const countOf = (page: Page, colour: number[]) =>
     }
     return count;
   }, colour);
-const ACCENT = [1, 3, 5].map((i) => parseInt(MAP_STYLE.accent.slice(i, i + 2), 16));
+const ACCENT = [1, 3, 5].map((i) => parseInt(LIGHT_STYLE.accent.slice(i, i + 2), 16));
 
 const setShapes = (page: Page, shapes: Shape[]) =>
   page.evaluate((shapes) => {

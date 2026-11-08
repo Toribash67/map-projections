@@ -1,8 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import { stops } from '../src/projections/catalog';
-import { MAP_STYLE } from '../src/render/draw';
+import { mapStyle } from '../src/render/style';
 import type { Shape } from '../src/drawing/model';
 import { isMorphing, open, openPaused, pick, settle, state } from './support';
+
+// The tests run in light mode, as the browser is told to, unless one says otherwise.
+const LIGHT_STYLE = mapStyle('light');
 
 /** Three drawings of the three kinds, spread over the world. */
 const SHAPES: Shape[] = [
@@ -137,7 +140,7 @@ test('gnomonic to Albers: the ocean that unfolds from gnomonic\'s rim leaves no 
   await openPaused(page);
   await pick(page, 'gnomonic');
   await page.clock.runFor(1600);
-  const background = [1, 3, 5].map((i) => parseInt(MAP_STYLE.background.slice(i, i + 2), 16));
+  const background = [1, 3, 5].map((i) => parseInt(LIGHT_STYLE.background.slice(i, i + 2), 16));
   // Canvas pixels (the map is 1000 x 600) inside the cone's upper right, where the far side of gnomonic
   // arrives. Before the fix the ocean was missing there from about t = 0.5 to 0.8, down to the bare background.
   const spots = [[700, 110], [680, 100], [720, 130], [740, 100]];

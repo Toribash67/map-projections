@@ -1,9 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { MAP_STYLE } from '../src/render/draw';
+import { mapStyle } from '../src/render/style';
 import { open, pick, settle } from './support';
 
+// The tests run in light mode, as the browser is told to, unless one says otherwise.
+const LIGHT_STYLE = mapStyle('light');
+
 const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
-const BACKGROUND = rgb(MAP_STYLE.background);
+const BACKGROUND = rgb(LIGHT_STYLE.background);
 
 const frames = (page: Page, count = 2) =>
   page.evaluate(

@@ -1,15 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 import { geoOrthographic } from 'd3-geo';
 import type { Shape } from '../src/drawing/model';
-import { MAP_STYLE } from '../src/render/draw';
+import { mapStyle } from '../src/render/style';
 import { move, open, pick, settle, state } from './support';
+
+// The tests run in light mode, as the browser is told to, unless one says otherwise.
+const LIGHT_STYLE = mapStyle('light');
 
 type Pair = [number, number];
 type LonLat = [number, number];
 type Rgb = [number, number, number];
 
 const hex = (c: string): Rgb => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) as Rgb;
-const OCEAN = hex(MAP_STYLE.ocean);
+const OCEAN = hex(LIGHT_STYLE.ocean);
 const apart = (a: Rgb, b: Rgb) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
 
 const frames = (page: Page, count = 3) =>

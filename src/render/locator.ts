@@ -6,13 +6,13 @@ import { compile } from '../projections/compile';
 import type { LonLat, ProjectionState } from '../projections/types';
 import { centreFor } from '../geo/grab';
 import { clampLat, normaliseLon } from '../geo/angles';
-import { MAP_STYLE } from './draw';
+import { currentScheme, watchScheme } from '../theme/scheme';
+import { mapStyle } from './style';
 
 // Space left round the globe for its outline, in CSS pixels.
 const PAD = 2;
-// The area the map covers is tinted in the coast's slate, lightly enough for land and sea to show through.
+// The area the map covers is tinted in slate, lightly enough for land and sea to show through.
 const TINT_ALPHA = 0.32;
-const INK = '#2b3a44';
 const MERIDIAN_STEP = 30;
 // Least time between two redraws of the globe. While the map is dragged this halves them; the last change is always drawn.
 const REDRAW_GAP = 30;
@@ -63,6 +63,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
     ctx.clearRect(0, 0, size, size);
 
+    const style = mapStyle(currentScheme());
     const compiled = compile(app.state);
     // What the map uses: a conic's centre latitude is zero whatever the state says.
     const centre = compiled.fromFrame([0, 0]);
@@ -72,20 +73,20 @@ export function createLocator(container: HTMLElement, app: App): void {
 
     ctx.beginPath();
     path(sphere);
-    ctx.fillStyle = MAP_STYLE.ocean;
+    ctx.fillStyle = style.ocean;
     ctx.fill();
     ctx.beginPath();
     path(graticule);
-    ctx.strokeStyle = MAP_STYLE.graticule;
-    ctx.lineWidth = MAP_STYLE.graticuleWidth;
+    ctx.strokeStyle = style.graticule;
+    ctx.lineWidth = style.graticuleWidth;
     ctx.stroke();
     // The coast is the outline of the land, so one path does for both.
     ctx.beginPath();
     path(land);
-    ctx.fillStyle = MAP_STYLE.land;
+    ctx.fillStyle = style.land;
     ctx.fill();
-    ctx.strokeStyle = MAP_STYLE.coast;
-    ctx.lineWidth = MAP_STYLE.coastWidth;
+    ctx.strokeStyle = style.coast;
+    ctx.lineWidth = style.coastWidth;
     ctx.stroke();
 
     // The covered area is the sphere less the excluded caps, which are circles in the projection's frame.
@@ -93,7 +94,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     path(sphere);
     for (const cap of compiled.caps) path(geoCircle().center(compiled.fromFrame(cap.frameCenter)).radius(cap.radius)());
     ctx.globalAlpha = TINT_ALPHA;
-    ctx.fillStyle = MAP_STYLE.coast;
+    ctx.fillStyle = style.tint;
     ctx.fill('evenodd');
     ctx.globalAlpha = 1;
 
@@ -101,7 +102,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     const [north, south] = [compiled.fromFrame([0, 90]), compiled.fromFrame([0, -90])];
     ctx.beginPath();
     path(geoCircle().center(north).radius(90)());
-    ctx.strokeStyle = INK;
+    ctx.strokeStyle = style.ink;
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 2]);
     ctx.stroke();
@@ -112,8 +113,8 @@ export function createLocator(container: HTMLElement, app: App): void {
       const g = shapeToGeoJSON(s);
       return g.type === 'GeometryCollection' ? g.geometries : [g];
     });
-    ctx.fillStyle = MAP_STYLE.accentFill;
-    ctx.strokeStyle = MAP_STYLE.accent;
+    ctx.fillStyle = style.accentFill;
+    ctx.strokeStyle = style.accent;
     ctx.lineWidth = 1.5;
     for (const g of parts) {
       ctx.beginPath();
@@ -125,7 +126,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     ctx.font = '600 9px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = INK;
+    ctx.fillStyle = style.ink;
     for (const [pole, letter] of [[north, 'N'], [south, 'S']] as const) {
       // A pole on the far side of the globe is not drawn. A tilted map's lie on the rim, so a hair of slack.
       if (geoDistance(pole, centre) > Math.PI / 2 + 1e-3) continue;
@@ -143,19 +144,19 @@ export function createLocator(container: HTMLElement, app: App): void {
     const [mx, my] = [size / 2, size / 2];
     ctx.beginPath();
     ctx.arc(mx, my, 4.5, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(247, 245, 239, 0.85)';
+    ctx.fillStyle = style.halo;
     ctx.fill();
-    ctx.strokeStyle = MAP_STYLE.accent;
+    ctx.strokeStyle = style.accent;
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.beginPath();
     ctx.arc(mx, my, 1.5, 0, 2 * Math.PI);
-    ctx.fillStyle = MAP_STYLE.accent;
+    ctx.fillStyle = style.accent;
     ctx.fill();
 
     ctx.beginPath();
     path(sphere);
-    ctx.strokeStyle = MAP_STYLE.coast;
+    ctx.strokeStyle = style.coast;
     ctx.lineWidth = 1;
     ctx.stroke();
   };
@@ -177,6 +178,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     schedule();
   };
   app.subscribe(update);
+  watchScheme(schedule);
   new ResizeObserver(schedule).observe(container);
 
   /** The pointer's place on the globe, as fractions of its radius with north up, or null off the globe. */

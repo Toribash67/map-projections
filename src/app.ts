@@ -6,9 +6,11 @@ import { buildScene, type Scene } from './morph/scene';
 import { getDef, stops } from './projections/catalog';
 import { compile, stateForStop } from './projections/compile';
 import type { CompiledProjection, LonLat, ProjectionState, Stop } from './projections/types';
-import { drawScene, MAP_STYLE } from './render/draw';
+import { drawScene } from './render/draw';
+import { mapStyle } from './render/style';
 import { computeScreen, type ScreenTransform, type Viewport } from './screen/screen';
 import type { Member } from './tissot/indicatrix';
+import { currentScheme, watchScheme } from './theme/scheme';
 
 const OCEAN = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
 
@@ -31,6 +33,8 @@ export class App {
   // Replaced, never changed in place: the live cut caches what it prepares by geometry object.
   private drawings: GeoJSON.GeometryCollection = { type: 'GeometryCollection', geometries: [] };
   private scene: Scene = { layers: {}, indicatrices: [] };
+  // The map's colours, for the scheme the system is in now.
+  private style = mapStyle(currentScheme());
   private stale = true;
   private sceneIsMorph = false;
   private frameId = 0;
@@ -49,6 +53,11 @@ export class App {
     this.controller.jumpTo(this.memberOf(this.state));
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.watchPixelRatio();
+    // The scene holds no colours, so a change of scheme only repaints it.
+    watchScheme((scheme) => {
+      this.style = mapStyle(scheme);
+      this.request();
+    });
     this.resize();
   }
 
@@ -156,7 +165,7 @@ export class App {
       this.sceneIsMorph = morphing;
       this.stale = false;
     }
-    drawScene(this.ctx, this.scene, this.controller.t(), MAP_STYLE);
+    drawScene(this.ctx, this.scene, this.controller.t(), this.style);
     if (morphing) this.request();
     if (settled) this.notify();
   };
