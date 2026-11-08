@@ -1,5 +1,5 @@
 import type { CompiledProjection, LonLat } from '../projections/types';
-import { destination, isClipped, lobeOf, projectPoint, type ScreenTransform } from '../screen/screen';
+import { destination, isClipped, lobeOf, projectFrame, projectPoint, type Margin, type ScreenTransform } from '../screen/screen';
 
 const rad = Math.PI / 180;
 
@@ -28,11 +28,11 @@ const finite = (q: Pair) => Number.isFinite(q[0]) && Number.isFinite(q[1]);
  * `azimuth` (degrees), per radian of true distance. Central difference, or one
  * side only where the other is off the map or has jumped across a seam.
  */
-function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: number | undefined, centre: Pair, azimuth: number, margin: number): Pair | null {
+function derivative(c: CompiledProjection, place: (q: LonLat) => Pair, p: LonLat, centre: Pair, azimuth: number, margin: Margin): Pair | null {
   const side = (sign: number): Pair | null => {
     const q = destination(p, (sign * STEP) / rad, azimuth);
     if (isClipped(c, q, margin)) return null;
-    const at = projectPoint(c, s, q, lobe);
+    const at = place(q);
     return finite(at) ? at : null;
   };
   const plus = side(1);
@@ -49,6 +49,11 @@ function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: 
   return [(plus[0] - minus[0]) / (2 * STEP), (plus[1] - minus[1]) / (2 * STEP)];
 }
 
+/** Where the map would put a point carried on past a seam: frame longitudes taken within 180 degrees of `near`, on the lobe `lobe`. */
+export type Continued = { near: number; lobe: number | undefined };
+
+const unwrap = (lon: number, near: number) => lon + 360 * Math.round((near - lon) / 360);
+
 /**
  * The Jacobian of the map at `p`, in pixels per radian of true distance, with
  * columns for east and north (any basis at a pole: east and north of the
@@ -57,18 +62,29 @@ function derivative(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe: 
  * as the near side, as a morph away from a globe needs it to be exact there too.
  * An interrupted map is held to the lobe that holds `p`.
  *
- * With `margin` (degrees), the map is taken to cover that far past the edge of a clip cap, where the
+ * With `margin` (degrees, or a function of the cap), the map is taken to cover that far past the edge of a clip cap, where the
  * projection is finite: a point there has its derivative, one-sided at the new edge as at any other. The
  * rest of the map is unchanged. It is for an indicatrix whose centre has just left the map, and still
  * shows its inside part.
+ *
+ * With `continued`, the map is carried on across a seam, as the copy of an indicatrix on the far side of the seam needs it.
  */
-export function jacobian(c: CompiledProjection, s: ScreenTransform, p: LonLat, { margin = 0 }: { margin?: number } = {}): Mat2 | null {
+export function jacobian(c: CompiledProjection, s: ScreenTransform, p: LonLat, { margin = 0, continued }: { margin?: Margin; continued?: Continued } = {}): Mat2 | null {
   if (isClipped(c, p, margin)) return null;
-  const lobe = lobeOf(c, c.toFrame(p));
-  const centre = projectPoint(c, s, p, lobe);
+  let place: (q: LonLat) => Pair;
+  if (continued) {
+    place = (q) => {
+      const frame = c.toFrame(q);
+      return projectFrame(c, s, [unwrap(frame[0], continued.near), frame[1]], continued.lobe);
+    };
+  } else {
+    const lobe = lobeOf(c, c.toFrame(p));
+    place = (q) => projectPoint(c, s, q, lobe);
+  }
+  const centre = place(p);
   if (!finite(centre)) return null;
-  const east = derivative(c, s, p, lobe, centre, EAST, margin);
-  const north = derivative(c, s, p, lobe, centre, NORTH, margin);
+  const east = derivative(c, place, p, centre, EAST, margin);
+  const north = derivative(c, place, p, centre, NORTH, margin);
   if (!east || !north) return null;
   return [east[0], north[0], east[1], north[1]];
 }
@@ -98,7 +114,7 @@ export function indicatrixCentres(): LonLat[] {
  * members. A member that cannot show `p` is left out and the rest are
  * renormalised; null when none can. A `margin` is that of `jacobian`.
  */
-export function blendIndicatrix(members: Member[], p: LonLat, margin = 0): { pos: Pair; mat: Mat2 } | null {
+export function blendIndicatrix(members: Member[], p: LonLat, margin: Margin = 0): { pos: Pair; mat: Mat2 } | null {
   let total = 0;
   const shown: { weight: number; pos: Pair; mat: Mat2 }[] = [];
   for (const { compiled, screen, weight } of members) {

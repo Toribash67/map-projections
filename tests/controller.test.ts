@@ -113,7 +113,9 @@ function expectUnmoved(before: Scene, after: Scene, tBefore: number, label: stri
     expect(gap, `${label}, probe ${name}`).toBeLessThan(1);
   }
   // An indicatrix hidden at both ends of the old morph may appear in the new one, at alpha 0, so go by what was there.
+  // One that has faded out entirely may go with a source whose weight is dropped, and so may not be there.
   for (const m of before.indicatrices) {
+    if (alphaOf(m, tBefore) < 1e-3) continue;
     const [x, y] = [mix(m.srcPos[0], m.dstPos[0], tBefore), mix(m.srcPos[1], m.dstPos[1], tBefore)];
     const gap = Math.min(...after.indicatrices.map((a) => Math.hypot(a.srcPos[0] - x, a.srcPos[1] - y)));
     expect(gap, `${label}, indicatrix at ${x}, ${y}`).toBeLessThan(1);

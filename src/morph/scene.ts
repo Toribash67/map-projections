@@ -1,11 +1,11 @@
-import { geoDistance } from 'd3-geo';
 import { cutGeometry, type Piece } from '../geo/cut';
 import { toVector, type Vector } from '../geo/densify';
 import { cutFront } from '../geo/frontCut';
 import type { CompiledProjection, ExcludedCap, LonLat } from '../projections/types';
-import { isClipped, lobeOf, projectFrame, type ScreenTransform } from '../screen/screen';
-import { blendIndicatrix, indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../tissot/indicatrix';
-import { CAP_MARGIN, continuesOutward, isHuge, isPastCap } from '../tissot/pastCap';
+import { lobeOf, projectFrame, type ScreenTransform } from '../screen/screen';
+import { blendIndicatrix, indicatrixCentres, jacobian, type Mat2, type Member } from '../tissot/indicatrix';
+import { boundaryFade } from '../tissot/pastCap';
+import { isBehind, isSingular, restImages, type Cut } from '../tissot/rest';
 
 const rad = Math.PI / 180;
 const TAU = 2 * Math.PI;
@@ -14,11 +14,6 @@ const TAU = 2 * Math.PI;
 const ARC_STEP = 10 * rad;
 // Closer than this (radians) to a cap's centre, a point's direction from it is only rounding noise.
 const NO_DIRECTION = 1e-12;
-// An ellipse whose smaller axis is under this share of its larger one is singular, and not shown.
-// On a globe that is within 0.06 degrees of the limb. The numeric derivative on the limb itself gives 5e-5.
-const SINGULAR_RATIO = 1e-3;
-// A point this close (degrees) to the edge of a 'behind' cap lies on the limb, whichever way rounding has it.
-const ON_LIMB = 1e-9;
 
 type Pair = [number, number];
 
@@ -36,6 +31,8 @@ export type ScenePiece = {
   behind: boolean;
   /** Beyond what a map can show at one end or the other: past a clip cap, or behind a globe's limb. Its ocean is filled from cells. */
   out: boolean;
+  /** Which members show it, a bit for each of the sources and then the target. A map at rest's own pieces leave it out: its one member shows them. */
+  shownBy?: number;
 };
 export type SceneIndicatrix = {
   srcPos: Pair;
@@ -46,8 +43,17 @@ export type SceneIndicatrix = {
   alphaDst: number;
   /** As for a piece. */
   hidden?: number[];
+  /** How much each weight in `hidden` hides it, 1 if not given: a map that shows it faded, near a boundary, hides the rest. See `alphaOf`. */
+  fade?: number[];
   /** On the far side of a globe at some end: drawn with the far-side pieces, under the near side until the peel opens. */
   behind: boolean;
+  /** The part drawn at each end, where it is cut at the edge of a lobe; null at an end where it is whole. See `Cut`. */
+  cut?: { src: Cut | null; dst: Cut | null };
+  /**
+   * A copy that one member shows at rest (past a cap's edge, or across a seam), by its index among the sources and then the target. It
+   * stays where that map has it, fades on that map's curve, and is cut to what that map shows. Others are cut to the whole outline.
+   */
+  clip?: number;
 };
 export type Scene = { layers: Record<string, ScenePiece[]>; indicatrices: SceneIndicatrix[] };
 
@@ -165,6 +171,7 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   if (alphaSrc <= 0 && alphaDst <= 0) return null;
   if (!target && behind) return null;
   const hidden = source.filter((_, i) => !shownBy(i)).map((m) => m.weight);
+  const shown = members.reduce((bits, _, i) => (shownBy(i) ? bits | (1 << i) : bits), 0);
 
   const axes = members.map((m, i) => (piece.inside[i] ? null : capHolding(m.compiled, m.compiled.toFrame(piece.coords[0]![0]!))));
   const views = piece.coords.map((ring) => members.map((m, i) => (axes[i] ? viewFromCap(m.compiled, axes[i]!, ring) : null)));
@@ -196,14 +203,14 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   };
   const src = fill(source, 0);
   const dst = target ? fill([{ ...target, weight: 1 }], source.length) : src;
-  return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, hidden, behind, out };
+  return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, hidden, behind, out, shownBy: shown };
 }
 
 /** What a live build cut from a geometry, and the map it cut it for. */
-type Cut = { compiled: CompiledProjection; screen: ScreenTransform; weight: number; pieces: ScenePiece[] };
+type LiveCut = { compiled: CompiledProjection; screen: ScreenTransform; weight: number; pieces: ScenePiece[] };
 // By geometry object. A preview changes the drawings every pointer move and nothing else, so the layers
 // that did not change are not cut again, nor are the shapes in a collection that did not change.
-const liveCache = new WeakMap<object, Cut>();
+const liveCache = new WeakMap<object, LiveCut>();
 
 function cutLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
   const { compiled: c, screen: s } = m;
@@ -237,87 +244,121 @@ function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
 }
 
 /** Where a member puts a point: projected, or moved to the edge of the clip cap holding it. */
-function positionOn({ compiled: c, screen: s }: Member, p: LonLat, margin = 0): Pair {
+function positionOn({ compiled: c, screen: s }: Member, p: LonLat): Pair {
   const frame = c.toFrame(p);
   const v = toVector(frame);
   for (const cap of clipCaps(c)) {
     const axes = capAxes(cap);
-    // Within the margin of the edge a point stays where the map puts it.
-    if (dot(v, axes.centre) <= Math.cos(Math.max(0, cap.radius - margin) * rad)) continue;
+    if (dot(v, axes.centre) <= axes.cosRadius) continue;
     const edge = edgePoint(axes, directionsOf(axes, [v])[0]!);
     return projectFrame(c, s, edge, lobeOf(c, edge));
   }
   return projectFrame(c, s, frame, lobeOf(c, frame));
 }
 
-const isSingular = (m: Mat2) => {
-  const [big, small] = singularValues(m);
-  return !(small > SINGULAR_RATIO * big);
-};
-
 /**
- * One end of an indicatrix: the blended matrix, and how far it shows. A member that has it in a clip
- * cap, or for which it is singular, adds no alpha. A globe's far side counts as shown, like far-side land. Its matrix still counts if it has one,
+ * One end of an indicatrix: the blended matrix, and how far it shows. A member that has it in a clip cap, or for which it is singular,
+ * adds no alpha; one that has it near a clip cap's edge adds the share `boundaryFade` gives, and hides the rest of its weight, so that the
+ * end looks as that map does at rest. A globe's far side counts as shown, like far-side land. Its matrix still counts if it has one,
  * so an ellipse flat on a globe's limb widens as it fades in, and a redirect cannot make it pop.
  */
-function indicatrixEnd(members: Member[], p: LonLat, margin = 0): { mat: Mat2; alpha: number; hidden: number[] } | null {
-  const blend = blendIndicatrix(members, p, margin);
+function indicatrixEnd(members: Member[], p: LonLat): { mat: Mat2; alpha: number; hidden: number[]; fade: number[] } | null {
+  const blend = blendIndicatrix(members, p);
   if (!blend) return null;
-  if (margin > 0 && isPastCap(members, p) && (isHuge(blend.mat, members) || !members.every((m) => !isClipped(m.compiled, p) || continuesOutward(m, p)))) return null;
-  if (isSingular(blend.mat)) return { mat: blend.mat, alpha: 0, hidden: members.map((m) => m.weight) };
-  if (members.length === 1) return { mat: blend.mat, alpha: members[0]!.weight, hidden: [] };
+  if (isSingular(blend.mat)) return { mat: blend.mat, alpha: 0, hidden: members.map((m) => m.weight), fade: members.map(() => 1) };
   let alpha = 0;
-  const hidden: number[] = [];
+  const [hidden, fade]: [number[], number[]] = [[], []];
   for (const m of members) {
     const mat = jacobian(m.compiled, m.screen, p);
-    if (mat && !isSingular(mat)) alpha += m.weight;
-    else hidden.push(m.weight);
+    const shown = mat && !isSingular(mat) ? boundaryFade(m, p, mat) : 0;
+    alpha += m.weight * shown;
+    if (shown < 1) {
+      hidden.push(m.weight);
+      fade.push(1 - shown);
+    }
   }
-  return { mat: blend.mat, alpha, hidden };
+  return { mat: blend.mat, alpha, hidden, fade };
 }
 
 /** An indicatrix follows the land beneath it, through a cap's edge like everything else. Only its alpha and matrix depend on what can show it. */
-function blendedPosition(members: Member[], p: LonLat, margin = 0): Pair {
+function blendedPosition(members: Member[], p: LonLat): Pair {
   const pos: Pair = [0, 0];
   for (const m of members) {
-    const [x, y] = positionOn(m, p, margin);
+    const [x, y] = positionOn(m, p);
     pos[0] += m.weight * x;
     pos[1] += m.weight * y;
   }
   return pos;
 }
 
-/** Past a globe's limb. On the limb itself an ellipse is singular, and fades in on top of what the peel opens. */
-function isBehind({ compiled: c }: Member, p: LonLat): boolean {
-  const frame = c.toFrame(p);
-  return c.caps.some((cap) => cap.mode === 'behind' && geoDistance(frame, cap.frameCenter) / rad < cap.radius - ON_LIMB);
+/** The cut of an indicatrix at one end, from those of the members there: their weighted mix, or null where it is whole. */
+function blendCut(members: Member[], cuts: (Cut | undefined)[]): Cut | null {
+  if (!cuts.some(Boolean)) return null;
+  const [mx, my, total] = members.reduce(([x, y, c], m, i) => [x + m.weight * (cuts[i]?.[0] ?? 0), y + m.weight * (cuts[i]?.[1] ?? 0), c + m.weight * Math.min(1, cuts[i]?.[2] ?? 1)], [0, 0, 0]);
+  const length = Math.hypot(mx, my);
+  return length > 0 && total < 1 ? [mx / length, my / length, total] : null;
 }
 
-function buildIndicatrix(p: LonLat, source: Member[], target: Member | null): SceneIndicatrix | null {
-  const behind = source.some((m) => isBehind(m, p)) || (target !== null && isBehind(target, p));
-  if (!target && behind) return null;
-  // A map at rest has no other end for an indicatrix just past a cap to fade towards, so it is drawn there, and the outline clips it.
-  const margin = target ? 0 : CAP_MARGIN;
-  const start = indicatrixEnd(source, p, margin);
+/**
+ * The indicatrices at `p`. A map at rest shows what `restImages` gives. A morph moves the indicatrix from its place on the sources to
+ * its place on the target, and fades it on `alphaOf`'s curves; each map's copies besides (past a cap's edge, or across a seam) stay
+ * where that map has them, at the alpha it shows them with, and fade on its curve: so the first and last frames are the maps at rest.
+ */
+function buildIndicatrices(p: LonLat, source: Member[], target: Member | null): SceneIndicatrix[] {
   if (!target) {
-    if (!start || start.alpha <= 0) return null;
-    const pos = blendedPosition(source, p, margin);
-    return { srcPos: pos, dstPos: pos, srcMat: start.mat, dstMat: start.mat, alphaSrc: start.alpha, alphaDst: start.alpha, behind };
+    return source.flatMap((m) =>
+      restImages(m, p).map((image): SceneIndicatrix => {
+        const alpha = image.alpha * m.weight;
+        const cut = image.cut ? { cut: { src: image.cut, dst: image.cut } } : {};
+        return { srcPos: image.pos, dstPos: image.pos, srcMat: image.mat, dstMat: image.mat, alphaSrc: alpha, alphaDst: alpha, behind: false, ...cut };
+      }),
+    );
   }
+  const members = [...source, target];
+  const behind = members.some((m) => isBehind(m, p));
+  const images = members.map((m) => restImages({ ...m, weight: 1 }, p));
+  const out: SceneIndicatrix[] = [];
+  const start = indicatrixEnd(source, p);
   const end = indicatrixEnd([{ ...target, weight: 1 }], p);
   const [alphaSrc, alphaDst] = [start?.alpha ?? 0, end?.alpha ?? 0];
-  if (alphaSrc <= 0 && alphaDst <= 0) return null;
-  return {
-    srcPos: blendedPosition(source, p),
-    dstPos: positionOn(target, p),
-    // An end that cannot show it at all keeps the other end's shape while it fades.
-    srcMat: (start ?? end)!.mat,
-    dstMat: (end ?? start)!.mat,
-    alphaSrc,
-    alphaDst,
-    hidden: start ? start.hidden : source.map((m) => m.weight),
-    behind,
-  };
+  if (alphaSrc > 0 || alphaDst > 0) {
+    const ownCut = (i: number) => images[i]!.find((image) => image.own)?.cut;
+    const [srcCut, dstCut] = [blendCut(source, source.map((_, i) => ownCut(i))), ownCut(source.length) ?? null];
+    out.push({
+      srcPos: blendedPosition(source, p),
+      dstPos: positionOn(target, p),
+      // An end that cannot show it at all keeps the other end's shape while it fades.
+      srcMat: (start ?? end)!.mat,
+      dstMat: (end ?? start)!.mat,
+      alphaSrc,
+      alphaDst,
+      hidden: start ? start.hidden : source.map((m) => m.weight),
+      fade: start ? start.fade : source.map(() => 1),
+      behind,
+      ...(srcCut || dstCut ? { cut: { src: srcCut, dst: dstCut } } : {}),
+    });
+  }
+  members.forEach((m, i) => {
+    const isTarget = i === source.length;
+    for (const image of images[i]!) {
+      if (image.own) continue;
+      out.push({
+        srcPos: image.pos,
+        dstPos: image.pos,
+        srcMat: image.mat,
+        dstMat: image.mat,
+        alphaSrc: isTarget ? 0 : m.weight * image.alpha,
+        alphaDst: isTarget ? image.alpha : 0,
+        // Every map but this one does not show it; this one shows it at its alpha.
+        hidden: source.map((x) => x.weight),
+        fade: source.map((_, j) => (j === i ? 1 - image.alpha : 1)),
+        behind,
+        clip: i,
+        ...(image.cut ? { cut: { src: image.cut, dst: image.cut } } : {}),
+      });
+    }
+  });
+  return out;
 }
 
 /**
@@ -339,10 +380,7 @@ export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source
     scene.layers[name] = name === 'capOcean' ? pieces.filter((piece) => piece.out) : pieces;
   }
   if (withTissot) {
-    for (const p of indicatrixCentres()) {
-      const m = buildIndicatrix(p, source, target);
-      if (m) scene.indicatrices.push(m);
-    }
+    for (const p of indicatrixCentres()) scene.indicatrices.push(...buildIndicatrices(p, source, target));
   }
   return scene;
 }

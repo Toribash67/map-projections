@@ -42,13 +42,16 @@ export function isCovered(c: CompiledProjection, p: LonLat): boolean {
   return frameCovered(c.caps, c.toFrame(p));
 }
 
+/** How far (degrees) past each cap's edge a map is taken to reach: one number for every cap, or one for each. */
+export type Margin = number | ((cap: ExcludedCap) => number);
+
 /**
  * Whether a point lies in a cap that takes it off the map altogether. The far side of a globe does not: it is on the map, behind the near side.
  * With a `margin` (degrees), the point has to be that far inside the cap's edge to count: the band just past the edge is not clipped.
  */
-export function isClipped(c: CompiledProjection, p: LonLat, margin = 0): boolean {
+export function isClipped(c: CompiledProjection, p: LonLat, margin: Margin = 0): boolean {
   const frame = c.toFrame(p);
-  return c.caps.some((cap) => cap.mode === 'clip' && geoDistance(frame, cap.frameCenter) / rad < cap.radius - margin);
+  return c.caps.some((cap) => cap.mode === 'clip' && geoDistance(frame, cap.frameCenter) / rad < cap.radius - (typeof margin === 'number' ? margin : margin(cap)));
 }
 
 /** The central longitude (degrees) of the lobe that holds a frame point, or undefined for a projection without lobes. */

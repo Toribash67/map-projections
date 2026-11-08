@@ -9,6 +9,7 @@ import type { LonLat, ProjectionState } from '../src/projections/types';
 import { isCovered, projectPoint } from '../src/screen/screen';
 import { destination } from '../src/screen/screen';
 import { indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../src/tissot/indicatrix';
+import { restImages } from '../src/tissot/rest';
 import {
   aloneArea,
   aloneRaster,
@@ -265,8 +266,11 @@ test('no indicatrices unless asked for', () => {
 
 test('an indicatrix covered at both ends has the projected position and the Jacobian at both ends', () => {
   const [a, b] = [member('mercator'), member('mollweide', { lon: 30, lat: 10, tilt: 20 })];
-  const shown = buildScene({}, [a], b, true).indicatrices.filter((m) => m.alphaSrc > 0 && m.alphaDst > 0);
+  // Copies that one map shows besides (across its seam) stay where that map has them; see the tests in indicatrixMargin.test.ts.
+  const shown = buildScene({}, [a], b, true).indicatrices.filter((m) => m.alphaSrc > 0 && m.alphaDst > 0 && m.clip === undefined);
   const both = indicatrixCentres().filter((p) => isCovered(a.compiled, p) && isCovered(b.compiled, p));
+  // Near the edge of a map's coverage it fades, as at rest; elsewhere it is shown in full.
+  const atRest = (m: Member, p: LonLat) => restImages(m, p).find((image) => image.own)?.alpha ?? 0;
   expect(shown.length).toBe(both.length);
   shown.forEach((m, i) => {
     const p = both[i]!;
@@ -274,16 +278,20 @@ test('an indicatrix covered at both ends has the projected position and the Jaco
     expect(m.dstPos).toEqual(projectPoint(b.compiled, b.screen, p));
     expect(m.srcMat).toEqual(jacobian(a.compiled, a.screen, p));
     expect(m.dstMat).toEqual(jacobian(b.compiled, b.screen, p));
-    expect([m.alphaSrc, m.alphaDst]).toEqual([1, 1]);
+    expect([m.alphaSrc, m.alphaDst]).toEqual([atRest(a, p), atRest(b, p)]);
   });
+  expect(shown.filter((m) => m.alphaSrc === 1 && m.alphaDst === 1).length).toBeGreaterThan(both.length / 2);
 });
 
 test('live, an indicatrix shows the same at both ends, and only where covered', () => {
   const m = member('mollweide', { lon: 30 });
   const scene = buildScene({}, [m], null, true);
   const covered = indicatrixCentres().filter((p) => isCovered(m.compiled, p));
-  expect(scene.indicatrices.length).toBe(covered.length);
-  scene.indicatrices.forEach((x, i) => {
+  // Those on or near the seam have a copy at the other edge, which is past the outline but for the half that crossed it.
+  const own = scene.indicatrices.filter((x) => covered.some((p) => x.srcPos.join() === projectPoint(m.compiled, m.screen, p).join()));
+  expect(own.length).toBe(covered.length);
+  expect(scene.indicatrices.length).toBeGreaterThan(covered.length);
+  own.forEach((x, i) => {
     expect(x.srcPos).toEqual(projectPoint(m.compiled, m.screen, covered[i]!));
     expect(x.dstPos).toEqual(x.srcPos);
     expect(x.dstMat).toEqual(x.srcMat);
@@ -298,7 +306,7 @@ test('an indicatrix off the map at one end fades, moves to the cap edge, and kee
   const centre = projectPoint(target.compiled, target.screen, [0, 0]);
   const rim = projectPoint(target.compiled, target.screen, [68, 0]);
   const limit = Math.hypot(rim[0] - centre[0], rim[1] - centre[1]);
-  const fading = scene.indicatrices.filter((m) => m.alphaDst === 0);
+  const fading = scene.indicatrices.filter((m) => m.alphaDst === 0 && m.clip === undefined);
   expect(fading.length).toBeGreaterThan(10);
   for (const m of fading) {
     expect(m.alphaSrc).toBe(1);
@@ -428,7 +436,7 @@ test('a clip cap still fades an indicatrix, where a behind cap does not', () => 
   const scene = buildScene({}, [member('gnomonic')], member('mollweide'), true);
   expect(scene.indicatrices.some((m) => m.alphaSrc === 0 && m.alphaDst === 1 && !m.behind)).toBe(true);
   const toGlobe = buildScene({}, [member('mollweide')], member('globe'), true);
-  for (const m of toGlobe.indicatrices.filter((x) => x.behind)) expect(m.alphaDst).toBe(1);
+  for (const m of toGlobe.indicatrices.filter((x) => x.behind && x.clip === undefined)) expect(m.alphaDst).toBe(1);
 });
 
 test('an ellipse on the limb is singular and fades, and those just either side of it are thin and shown', () => {
