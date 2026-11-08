@@ -234,11 +234,23 @@ function cutLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
   });
 }
 
+/**
+ * What the full cut gives for one member at rest: the slower way, for a geometry the live cut could not cut. It throws only where a
+ * clip of d3's meets a case it cannot read, and a frame must still be drawn.
+ */
+function safeLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
+  try {
+    return cutLive(geom, m);
+  } catch {
+    return cutGeometry(geom, [m.compiled]).flatMap((piece) => morphPiece(piece, [m], null) ?? []);
+  }
+}
+
 /** A map at rest or being dragged: one member, and only what it shows. */
 function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
   const cached = liveCache.get(geom);
   if (cached && cached.compiled === m.compiled && cached.screen === m.screen && cached.weight === m.weight) return cached.pieces;
-  const pieces = geom.type === 'GeometryCollection' ? (geom as GeoJSON.GeometryCollection).geometries.flatMap((part) => livePieces(part, m)) : cutLive(geom, m);
+  const pieces = geom.type === 'GeometryCollection' ? (geom as GeoJSON.GeometryCollection).geometries.flatMap((part) => livePieces(part, m)) : safeLive(geom, m);
   liveCache.set(geom, { compiled: m.compiled, screen: m.screen, weight: m.weight, pieces });
   return pieces;
 }

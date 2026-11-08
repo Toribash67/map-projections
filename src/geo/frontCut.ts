@@ -400,10 +400,10 @@ function cutToCircle(paths: LonLat[][], closed: boolean, visible: number): LonLa
   return ringsIn(out);
 }
 
-/** A ring with any vertex by the circle moved just inside it, along its bearing from the centre. */
-function clearOfRim(ring: LonLat[], visible: number): LonLat[] {
+/** A ring or path with any vertex by the circle moved just inside it (`side` -1) or just outside (1), along its bearing from the centre. */
+function clearOfRim(ring: LonLat[], visible: number, side: -1 | 1 = -1): LonLat[] {
   const [low, high] = [Math.cos((visible + RIM_BAND) * rad), Math.cos((visible - RIM_BAND) * rad)];
-  const moved = (visible - RIM_BAND) * rad;
+  const moved = (visible + side * RIM_BAND) * rad;
   let out: LonLat[] | null = null;
   ring.forEach(([lon, lat], i) => {
     const cosLat = Math.cos(lat * rad);
@@ -438,7 +438,11 @@ function polygonInCircle(rings: Turned[], visible: number, item: PolygonItem, m:
 
 function lineInCircle(line: Turned, visible: number, out: FramePiece[]): void {
   if (line.maxCos < Math.cos(visible * rad + CIRCLE_MARGIN)) return;
-  const paths = line.minCos > Math.cos(visible * rad - CIRCLE_MARGIN) ? [line.points] : cutToCircle([line.points], false, visible);
+  // A line can touch the circle, as a meridian does that passes exactly `visible` degrees from the centre. A vertex on the rim is then
+  // read as inside, and d3's clip looks for where the line crosses the circle, finds nothing, and throws. So a vertex on the rim is moved
+  // just outside it first: a line that only touches the circle, or runs along it as a globe's limb meridian does, is not shown, as the full
+  // cut has it, and one that crosses there crosses a hair further on.
+  const paths = line.minCos > Math.cos(visible * rad - CIRCLE_MARGIN) ? [line.points] : cutToCircle([clearOfRim(line.points, visible, 1)], false, visible);
   for (const path of paths) out.push({ closed: false, rings: [path], lobe: undefined });
 }
 
