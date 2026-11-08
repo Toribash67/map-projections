@@ -373,3 +373,48 @@ test('canFinish: a line from two points and a polygon from three, and never a ci
   model.addPoint([0, 0]);
   expect(model.canFinish).toBe(false);
 });
+
+/** Whether any two neighbours of a path, the last and first too if it is closed, are within 1e-3 degrees of antipodal. */
+const nearlyAntipodal = (path: LonLat[], closed: boolean) =>
+  path.some((p, i) => {
+    const q = path[i + 1] ?? (closed ? path[0] : undefined);
+    return q !== undefined && geoDistance(p, q) / rad > 180 - 1e-3;
+  });
+
+test('a polygon with an edge between antipodes gets a vertex on the edge, and draws finite and the right size on every map', () => {
+  // The closing edge, from (180, 0) back to (0, 0), runs between antipodes: it goes over the north pole.
+  const polygon: Shape = { kind: 'polygon', points: [[0, 0], [90, -20], [180, 0]] };
+  // A fill and its outline as a line of its own.
+  const geometry = (shapeToGeoJSON(polygon) as GeoJSON.GeometryCollection).geometries[0] as GeoJSON.Polygon;
+  const ring = geometry.coordinates[0] as LonLat[];
+  expect(nearlyAntipodal(ring, true)).toBe(false);
+  expect(ring.some(([, lat]) => lat === 90)).toBe(true);
+  // Bounded by the equator's half, the meridian over the pole and the path south: under a hemisphere.
+  expect(geoArea(geometry)).toBeLessThan(2 * Math.PI);
+  expect(geoArea(geometry)).toBeGreaterThan(0);
+  for (const id of ['globe', 'mercator', 'goode', 'gnomonic', 'mollweide']) {
+    const m = member(id);
+    expect(finiteEverywhere(cutGeometry(geometry, [m.compiled]).map((p) => p.coords)), `full cut, ${id}`).toBe(true);
+    expect(finiteEverywhere(cutFront(geometry, m.compiled).map((p) => p.rings)), `front cut, ${id}`).toBe(true);
+  }
+});
+
+test('a line with an end at a pole, or from one pole to the other, draws finite, and no edge left between antipodes', () => {
+  const lines: LonLat[][] = [
+    [[0, 90], [30, 20]],
+    [[10, -90], [0, 0], [40, 10]],
+    [[0, 90], [0, -90]],
+    // Near the poles, but not quite at them, and within 1e-3 degrees of antipodal.
+    [[0, 89.9985], [180, -89.9993]],
+    [[20, -89.9993], [-160, 89.9985]],
+  ];
+  for (const points of lines) {
+    const geometry = shapeToGeoJSON({ kind: 'line', points }) as GeoJSON.LineString;
+    expect(nearlyAntipodal(geometry.coordinates as LonLat[], false), JSON.stringify(points)).toBe(false);
+    for (const id of ['globe', 'mercator', 'goode', 'lambert-conformal']) {
+      const m = member(id);
+      expect(finiteEverywhere(cutGeometry(geometry, [m.compiled]).map((p) => p.coords)), `${JSON.stringify(points)} full cut, ${id}`).toBe(true);
+      expect(finiteEverywhere(cutFront(geometry, m.compiled).map((p) => p.rings)), `${JSON.stringify(points)} front cut, ${id}`).toBe(true);
+    }
+  }
+});

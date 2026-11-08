@@ -16,7 +16,6 @@ const TINT_ALPHA = 0.32;
 const MERIDIAN_STEP = 30;
 // Least time between two redraws of the globe. While the map is dragged this halves them; the last change is always drawn.
 const REDRAW_GAP = 30;
-const rad = Math.PI / 180;
 type Pair = [number, number];
 
 const sphere: GeoSphere = { type: 'Sphere' };

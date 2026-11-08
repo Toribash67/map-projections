@@ -7,8 +7,8 @@ declare module 'd3-geo-projection' {
   export const geoSinusoidalRaw: Raw;
   export const geoHomolosineRaw: Raw;
   export function geoHammerRaw(a: number, b?: number): Raw;
+  // Used by tests only, as oracles: for the cylindrical equal-area stops and for the Goode lobes.
   export function geoCylindricalEqualAreaRaw(phi0: number): Raw;
-  // Used by tests only, as an oracle for the Goode lobes.
   export function geoInterruptedHomolosine(): {
     scale(k: number): any;
     translate(t: [number, number]): any;

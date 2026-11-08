@@ -43,8 +43,10 @@ const LIGHT_BEFORE = {
 };
 
 describe('the palette', () => {
-  test('light mode has the colours it had before there was a dark mode', () => {
-    expect(LIGHT).toEqual(LIGHT_BEFORE);
+  test('light mode has the colours it had before there was a dark mode, and a darker red for text', () => {
+    const { accentText, ...rest } = LIGHT;
+    expect(rest).toEqual(LIGHT_BEFORE);
+    expect(accentText).not.toBe(LIGHT.accent);
     expect(mapStyle('light')).toMatchObject({ background: '#eceae4', ocean: '#d3dfe5', land: '#f7f5ef', graticule: 'rgba(62, 84, 98, 0.16)', coast: '#97a3a9', accent: '#d9472b', accentFill: 'rgba(217, 71, 43, 0.16)' });
   });
 
@@ -87,6 +89,21 @@ describe('the palette', () => {
   );
 });
 
+describe('the light palette\'s accent as text', () => {
+  test('a notice in the accent meets WCAG AA for body text (4.5:1) on the sidebar and the page, where the accent itself is 3.9', () => {
+    expect(ratio(solid(LIGHT.accentText), solid(LIGHT.panel))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(LIGHT.accentText), solid(LIGHT.paper))).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(LIGHT.accent), solid(LIGHT.panel))).toBeLessThan(4.5);
+  });
+});
+
+test('the accent as text is only text: the notices use it, and nothing else does', () => {
+  const uses = (token: string) => [...styleCss.matchAll(new RegExp(`([^{}]+)\\{[^}]*var\\(--${token}\\)`, 'g'))].map((m) => m[1]!.trim());
+  expect(uses('accent-text').sort()).toEqual(['.draw-notice', '.limits-reached']);
+  expect(uses('accent')).not.toContain('.draw-notice');
+  expect(uses('accent')).not.toContain('.limits-reached');
+});
+
 describe('the dark palette is legible', () => {
   const p: Palette = DARK;
   const page = solid(p.panel);
@@ -94,7 +111,7 @@ describe('the dark palette is legible', () => {
   test('sidebar text meets WCAG AA for body text (4.5:1): ink, muted and hint text, and the accent used as text', () => {
     expect(ratio(solid(p.ink), page)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(solid(p.muted), page)).toBeGreaterThanOrEqual(4.5);
-    expect(ratio(solid(p.accent), page)).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(p.accentText), page)).toBeGreaterThanOrEqual(4.5);
     // The number boxes sit on the page's own background.
     expect(ratio(solid(p.ink), solid(p.paper))).toBeGreaterThanOrEqual(4.5);
     expect(ratio(solid(p.muted), solid(p.paper))).toBeGreaterThanOrEqual(4.5);
@@ -117,7 +134,10 @@ describe('the dark palette is legible', () => {
     const [sea, land, back] = [solid(p.ocean), solid(p.land), solid(p.paper)];
     expect(luminance(sea)).toBeLessThan(luminance(land));
     expect(luminance(sea)).toBeLessThan(0.05);
-    expect(ratio(land, sea)).toBeGreaterThanOrEqual(1.2);
+    // Land and sea told apart at a glance, by lightness and a little warmth: the land is less blue than the sea.
+    expect(ratio(land, sea)).toBeGreaterThanOrEqual(1.5);
+    const warmth = ([r, , b]: number[]) => r! - b!;
+    expect(warmth(land)).toBeGreaterThan(warmth(sea));
     expect(ratio(sea, back)).toBeGreaterThanOrEqual(1.1);
     expect(ratio(solid(p.accent), land)).toBeGreaterThanOrEqual(3);
     expect(ratio(solid(p.accent), sea)).toBeGreaterThanOrEqual(3);

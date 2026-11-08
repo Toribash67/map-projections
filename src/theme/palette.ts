@@ -4,13 +4,15 @@
  * neither has a list of its own. This file imports nothing, as the build config reads it too.
  */
 export type Palette = {
-  // The page: the map's surround and the number boxes, the sidebar, its text, a hairline, and the one accent.
+  // The page: the map's surround and the number boxes, the sidebar, its text, a hairline, and the one accent, with a deeper shade of it
+  // for text, such as a refused point's notice, where small letters need more contrast than a line or a fill.
   paper: string;
   panel: string;
   ink: string;
   muted: string;
   line: string;
   accent: string;
+  accentText: string;
   accentWash: string;
   shadow: string;
   // The map: sea, land, the graticule, the coast, a drawing's fill, and the locator's tint of the area the map covers and halo of its marker.
@@ -24,7 +26,7 @@ export type Palette = {
 };
 export type Scheme = 'light' | 'dark';
 
-/** Paper, slate and one red accent, as the app has always been. */
+/** Paper, slate and one red accent, as the app has always been. The accent as text is darker, 5.5:1 on the sidebar where the accent is 3.9. */
 export const LIGHT: Palette = {
   paper: '#eceae4',
   panel: '#f7f5ef',
@@ -32,6 +34,7 @@ export const LIGHT: Palette = {
   muted: '#5d6e78',
   line: 'rgba(62, 84, 98, 0.18)',
   accent: '#d9472b',
+  accentText: '#b23a20',
   accentWash: 'rgba(217, 71, 43, 0.1)',
   shadow: 'rgba(43, 58, 68, 0.25)',
   ocean: '#d3dfe5',
@@ -44,9 +47,10 @@ export const LIGHT: Palette = {
 };
 
 /**
- * The same, by night: a dark sea and land a step lighter, so the map stays the brightest thing on the page; the coast and the graticule
- * in slate, quiet but seen; and a lighter red for the accent, which stays clear on both land and sea (contrast 4.4 and 5.7, of 3 needed),
- * and as text on the sidebar (5.9, of 4.5 for body text). The ratios are held by tests/palette.test.ts.
+ * The same, by night: a dark blue sea and land well lighter and a little warmer, a grey with less blue in it, so the two are told apart
+ * at a glance (1.6:1) and the map stays the brightest thing on the page; the coast and the graticule in slate, quiet but seen; and a
+ * lighter red for the accent, which stays clear on both land and sea (contrast 3.6 and 5.8, of 3 needed), and as text on the sidebar
+ * (5.9, of 4.5 for body text). The ratios are held by tests/palette.test.ts.
  */
 export const DARK: Palette = {
   paper: '#12171b',
@@ -55,10 +59,11 @@ export const DARK: Palette = {
   muted: '#9fb0ba',
   line: 'rgba(160, 185, 200, 0.2)',
   accent: '#ff7052',
+  accentText: '#ff7052',
   accentWash: 'rgba(255, 112, 82, 0.16)',
   shadow: 'rgba(0, 0, 0, 0.55)',
-  ocean: '#172630',
-  land: '#2a3841',
+  ocean: '#152430',
+  land: '#3c4542',
   graticule: 'rgba(150, 180, 200, 0.14)',
   coast: '#62798a',
   accentFill: 'rgba(255, 112, 82, 0.24)',

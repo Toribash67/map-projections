@@ -21,5 +21,7 @@ export default defineConfig({
   plugins: [palette()],
   test: {
     include: ['tests/**/*.test.ts'],
+    // So that a test can read the stylesheet as text: without it a stylesheet imported with ?raw is empty.
+    css: { include: [/\.css/] },
   },
 });

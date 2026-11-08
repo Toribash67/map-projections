@@ -397,8 +397,10 @@ function cutSeam(part: Part, m: CompiledProjection, key: string, pulls: Pulls): 
 const frameKey = (m: CompiledProjection) => [m.toFrame([0, 0]), m.toFrame([90, 0])];
 /**
  * Two caps with the same key are one circle on the sphere, whichever members and modes they
- * belong to. Rounded to 1e-5 radians, or about 60 m: circles closer than that cross at too shallow
- * an angle for the clips, and a flag that far off a cap's edge makes no difference on a map.
+ * belong to. Each component of the centre's unit vector is rounded to 1e-5, so two centres with one
+ * key can be up to the diagonal of that bin apart, 1.7e-5 radians or about 110 m: circles closer
+ * than that cross at too shallow an angle for the clips, and a flag that far off a cap's edge
+ * makes no difference on a map.
  */
 function capKey(m: CompiledProjection, cap: ExcludedCap): string {
   const centre = toVector(m.fromFrame(cap.frameCenter));

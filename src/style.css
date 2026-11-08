@@ -188,7 +188,7 @@ input {
 .limits-reached {
   display: none;
   margin-top: 5px !important;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .reached .limits-reached {
@@ -394,7 +394,7 @@ input {
 
 .draw-notice {
   margin: 6px 0 0;
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
 }
 

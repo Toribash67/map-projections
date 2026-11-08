@@ -25,6 +25,11 @@ const isAntipodal = (a: LonLat, b: LonLat) => Math.abs(dot(toVector(a), toVector
  * The path with a vertex added wherever an edge runs between antipodes, since such an edge has
  * no great circle of its own. The vertex is the north pole, so that the edge is the meridian
  * circle through both ends. A closed ring is returned without its first point repeated.
+ *
+ * Ends within `ANTIPODAL` (1e-3 degrees) of antipodal count as antipodes: such an edge takes this
+ * route over the pole, not its own true arc, which may run anywhere round the sphere and which the
+ * clips cannot place. Where either end is that near a pole, the pole would leave the other edge as
+ * nearly antipodal again, and a point on the equator is used instead.
  */
 export function withoutAntipodalEdges(points: LonLat[], closed = false): LonLat[] {
   const out: LonLat[] = [];
@@ -35,7 +40,7 @@ export function withoutAntipodalEdges(points: LonLat[], closed = false): LonLat[
     const b = i + 1 < n ? points[i + 1]! : closed && n > 1 ? points[0]! : null;
     if (b && isAntipodal(a, b)) {
       // Between a pole and the other pole, a point on the equator will do.
-      const polar = Math.abs(a[1]) > 90 - ANTIPODAL;
+      const polar = Math.max(Math.abs(a[1]), Math.abs(b[1])) > 90 - 2 * ANTIPODAL;
       out.push(polar ? [0, 0] : [a[0], 90]);
     }
   }
