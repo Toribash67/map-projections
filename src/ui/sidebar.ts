@@ -56,6 +56,10 @@ export function createSidebar(app: App, root: HTMLElement, drawingTools: HTMLEle
         // A change during a morph is ignored, and the slider shows the map again.
         sync();
       },
+      onSet: (v) => {
+        app.setAnimated({ params: { ...app.state.params, [key]: v } });
+        sync();
+      },
     });
     list.slotFor(family).append(slider.el);
     bound.push({
@@ -127,7 +131,8 @@ export function createSidebar(app: App, root: HTMLElement, drawingTools: HTMLEle
     input.name = 'conic-kind';
     input.value = defId;
     input.addEventListener('change', () => {
-      app.setLive({ defId });
+      // Conformal and equal-area are two formulas, so this is a morph, not a slide.
+      app.setAnimated({ defId });
       sync();
     });
     label.append(input, document.createTextNode(defId === 'conic-conformal' ? 'Conformal' : 'Equal-area'));

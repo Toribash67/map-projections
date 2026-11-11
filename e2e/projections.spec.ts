@@ -112,8 +112,10 @@ test('moving the spacing slider to 0 highlights Mercator; 0.5 shows Custom', asy
   const number = page.getByRole('textbox', { name: 'Standard parallel, value' });
   await number.fill('30');
   await number.press('Enter');
+  await settle(page);
   expect(await isCurrent(page, '[data-stop="behrmann"]')).toBe(true);
   await page.getByRole('button', { name: 'Reset standard parallel' }).click();
+  await settle(page);
   expect((await state(page)).params.phi0).toBe(0);
   expect(await isCurrent(page, '[data-stop="lambert-cylindrical"]')).toBe(true);
 });
@@ -159,6 +161,9 @@ test('moving Albers parallels to 45/-45 highlights Gall-Peters with the conic in
   // The switch keeps the parallels and gives the conformal conic, which is Mercator here.
   await page.getByRole('radio', { name: 'Conformal' }).check();
   expect((await state(page)).defId).toBe('conic-conformal');
+  // Two formulas, so the map morphs from one to the other.
+  expect(await isMorphing(page)).toBe(true);
+  await settle(page);
   expect(await isCurrent(page, '[data-limit="mercator"]')).toBe(true);
 
   // Both parallels to the pole make a disc, and the slider stops there.
@@ -167,13 +172,16 @@ test('moving Albers parallels to 45/-45 highlights Gall-Peters with the conic in
   expect((await state(page)).params).toEqual({ p1: 89.9, p2: 89.9 });
   expect(await isCurrent(page, '[data-limit="stereographic"]')).toBe(true);
   await page.getByRole('radio', { name: 'Equal-area' }).check();
+  await settle(page);
   expect(await isCurrent(page, '[data-limit="lambert-azimuthal"]')).toBe(true);
 
   // Anything between is custom; reset returns to the conic's own parallels.
   await move(page, 'First parallel', 60);
   await expect(page.locator('[data-family="conic"] [data-custom]')).toBeVisible();
   await page.getByRole('button', { name: 'Reset first parallel' }).click();
+  await settle(page);
   await page.getByRole('button', { name: 'Reset second parallel' }).click();
+  await settle(page);
   expect(await isCurrent(page, '[data-stop="albers"]')).toBe(true);
 });
 
@@ -408,7 +416,8 @@ test('rapid clicks across 5 projections settle on the last with no console error
 
 test('slider input during a morph is ignored, the slider shows the map again, and the morph completes', async ({ page }) => {
   await openPaused(page);
-  await pick(page, 'equirectangular');
+  // From another definition, so that it is a morph and not a slide, which a slider takes over.
+  await pick(page, 'mollweide');
   await page.clock.runFor(1500);
   expect(await isMorphing(page)).toBe(false);
 
@@ -492,6 +501,7 @@ test('a tilt set by hand carries over; the 90 degrees of Transverse Mercator doe
   await settle(page);
   expect(await isCurrent(page, '[data-stop="transverse-mercator"]')).toBe(true);
   await pick(page, 'mercator');
+  await settle(page);
   expect(await tilt()).toBe(0);
 });
 

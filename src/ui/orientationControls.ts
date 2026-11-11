@@ -38,9 +38,14 @@ export function createOrientationControls(app: App): { el: HTMLElement; set(stat
     // A change during a morph is ignored, and the controls show the map again.
     set(app.state);
   };
+  // A reset or a typed value moves the map there, and the controls follow it.
+  const go = (patch: Partial<Orientation>) => {
+    app.setAnimated({ orientation: { ...app.state.orientation, ...patch } });
+    set(app.state);
+  };
   const common = { step: 1, format: formatDegrees, parse: parseDegrees, value: 0 };
-  const lon = createSlider({ ...common, label: 'Longitude', min: -180, max: 180, parse: parseLongitude, defaultValue: () => defaults().lon, onInput: (v) => change({ lon: v }) });
-  const lat = createSlider({ ...common, label: 'Latitude', min: -90, max: 90, defaultValue: () => defaults().lat, onInput: (v) => change({ lat: clampLat(v) }) });
+  const lon = createSlider({ ...common, label: 'Longitude', min: -180, max: 180, parse: parseLongitude, defaultValue: () => defaults().lon, onInput: (v) => change({ lon: v }), onSet: (v) => go({ lon: v }) });
+  const lat = createSlider({ ...common, label: 'Latitude', min: -90, max: 90, defaultValue: () => defaults().lat, onInput: (v) => change({ lat: clampLat(v) }), onSet: (v) => go({ lat: clampLat(v) }) });
   const tilt = createSlider({
     ...common,
     label: 'Tilt',
@@ -50,8 +55,9 @@ export function createOrientationControls(app: App): { el: HTMLElement; set(stat
     snap: 2,
     defaultValue: () => defaults().tilt,
     onInput: (v) => change({ tilt: clampTilt(v) }),
+    onSet: (v) => go({ tilt: clampTilt(v) }),
   });
-  resetAll.addEventListener('click', () => change({ ...defaults() }));
+  resetAll.addEventListener('click', () => go({ ...defaults() }));
   root.append(heading, lon.el, lat.el, tilt.el, hint);
 
   function set(state: ProjectionState): void {

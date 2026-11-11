@@ -22,8 +22,10 @@ export const head = (page: Page, family: string) => page.locator(`[data-family="
 export const stopButton = (page: Page, id: string) => page.locator(`[data-stop="${id}"]`);
 export const slider = (page: Page, name: string) => page.getByRole('slider', { name, exact: true });
 export const numberBox = (page: Page, name: string) => page.getByRole('textbox', { name: `${name}, value`, exact: true });
-export const settle = (page: Page) => page.waitForFunction(() => !(window as any).__app.isMorphing);
+/** Waits for the map to be at rest: no morph and no slide under way. */
+export const settle = (page: Page) => page.waitForFunction(() => !(window as any).__app.isMorphing && !(window as any).__app.isSliding);
 export const isMorphing = (page: Page): Promise<boolean> => page.evaluate(() => (window as any).__app.isMorphing);
+export const isSliding = (page: Page): Promise<boolean> => page.evaluate(() => (window as any).__app.isSliding);
 export const state = (page: Page): Promise<ProjectionState> => page.evaluate(() => JSON.parse(JSON.stringify((window as any).__app.state)));
 export const isCurrent = (page: Page, selector: string) => page.locator(selector).getAttribute('aria-current').then((v) => v === 'true');
 
@@ -46,4 +48,6 @@ export async function type(page: Page, name: string, text: string) {
   const box = numberBox(page, name);
   await box.fill(text);
   await box.press('Enter');
+  // A typed value moves the map there by a slide. A morph under way ignores it, and is not waited for.
+  await page.waitForFunction(() => !(window as any).__app.isSliding);
 }

@@ -107,21 +107,24 @@ test('every ordered pair of stops morphs with no console error or NaN', async ({
     const [from, to] = [walk[i - 1]!, walk[i]!];
     seen.add(`${from}>${to}`);
     await pick(page, to);
-    expect(await isMorphing(page)).toBe(true);
+    // Two stops of one definition slide, and the rest morph.
+    const sliding = await page.evaluate(() => (window as any).__app.isSliding as boolean);
+    expect((await isMorphing(page)) || sliding).toBe(true);
     await page.clock.runFor(16);
     let last = -1;
     for (const step of [300, 300, 300, 300, 300]) {
       const bad = await badNumbers(page);
       frames++;
       // The frame is the morph's own: it advances, and has something in it.
-      const t = await page.evaluate(() => (window as any).__app.controller.t() as number);
+      // A slide has no blend to read progress from: its frames are counted instead.
+      const t = sliding ? frames : await page.evaluate(() => (window as any).__app.controller.t() as number);
       if (!(t > last && bad.pieces > 0)) problems.push(`${from} to ${to}: t ${t} after ${last}, ${bad.pieces} pieces`);
       last = t;
       if (bad.count > 0) problems.push(`${from} to ${to}: ${bad.count} non-finite numbers in ${bad.pieces} pieces`);
       await page.clock.fastForward(step);
       await page.clock.runFor(16);
     }
-    if (await isMorphing(page)) problems.push(`${from} to ${to}: still morphing after 1.6 s`);
+    if ((await isMorphing(page)) || (await page.evaluate(() => (window as any).__app.isSliding as boolean))) problems.push(`${from} to ${to}: still moving after 1.6 s`);
     const rest = await badNumbers(page);
     if (rest.count > 0) problems.push(`${from} to ${to} at rest: ${rest.count} non-finite numbers`);
     if (problems.length > 5) break;

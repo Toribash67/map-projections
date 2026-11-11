@@ -115,7 +115,11 @@ test('each reset restores its default; reset-all restores all three', async ({ p
   await open(page);
   await pick(page, 'robinson');
   await settle(page);
-  const reset = (name: string) => page.getByRole('button', { name, exact: true }).click();
+  // A reset moves the map back by a slide.
+  const reset = async (name: string) => {
+    await page.getByRole('button', { name, exact: true }).click();
+    await settle(page);
+  };
 
   await setOrientation(page, { lon: 40, lat: 20, tilt: 30 });
   await reset('Reset longitude');
@@ -296,7 +300,11 @@ test('a tilted map keeps its name: Mercator and Mollweide at tilt 45', async ({ 
 
 test('resets return to the projection last chosen from the list, not the one highlighted', async ({ page }) => {
   await open(page);
-  const reset = (name: string) => page.getByRole('button', { name, exact: true }).click();
+  // A reset moves the map back by a slide.
+  const reset = async (name: string) => {
+    await page.getByRole('button', { name, exact: true }).click();
+    await settle(page);
+  };
   // Transverse Mercator chosen: its tilt is 90.
   await pick(page, 'transverse-mercator');
   await settle(page);
@@ -326,9 +334,10 @@ test('selecting Mercator from Transverse Mercator returns tilt to 0', async ({ p
   await pick(page, 'transverse-mercator');
   await settle(page);
   await expect(slider(page, 'Tilt')).toHaveValue('90');
+  // A slide: the tilt comes down through every angle between.
   await pick(page, 'mercator');
-  expect((await orientation(page)).tilt).toBe(0);
   await settle(page);
+  expect((await orientation(page)).tilt).toBe(0);
   await expect(slider(page, 'Tilt')).toHaveValue('0');
   await expect(numberBox(page, 'Tilt')).toHaveValue('0°');
 });

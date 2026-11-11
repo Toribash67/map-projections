@@ -37,7 +37,10 @@ export interface SliderOptions {
   valueText?: (v: number) => string;
   /** What reset returns to; a function if it depends on something that changes. */
   defaultValue: number | (() => number);
+  /** A value while the slider is dragged or stepped: the map follows at once. */
   onInput(v: number): void;
+  /** A value set outright, by the reset or the number box: the map moves to it. `onInput` where not given. */
+  onSet?(v: number): void;
 }
 
 export interface Slider {
@@ -54,6 +57,8 @@ export function createSlider(opts: SliderOptions): Slider {
   const { min, max } = opts;
   const format = opts.format ?? ((v: number) => String(Math.round(v * 100) / 100));
   const parse = opts.parse ?? ((raw: string) => (raw.trim() === '' || !Number.isFinite(Number(raw)) ? null : Number(raw)));
+
+  const onSet = opts.onSet ?? opts.onInput;
 
   const root = el('div', 'slider');
   const head = el('div', 'slider-head');
@@ -92,9 +97,9 @@ export function createSlider(opts: SliderOptions): Slider {
     // Not under the caret of someone typing.
     if (document.activeElement !== number) number.value = format(v);
   };
-  const commit = (v: number) => {
+  const commit = (v: number, notify: (v: number) => void = opts.onInput) => {
     set(v);
-    opts.onInput(v);
+    notify(v);
     // As the caret leaves: what the slider shows now, which is not what was typed if the map did not take it.
     number.value = format(current);
   };
@@ -112,12 +117,12 @@ export function createSlider(opts: SliderOptions): Slider {
   number.addEventListener('change', () => {
     const typed = parse(number.value);
     if (typed === null) number.value = format(current);
-    else commit(Math.min(max, Math.max(min, typed)));
+    else commit(Math.min(max, Math.max(min, typed)), onSet);
   });
   number.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') number.blur();
   });
-  reset.addEventListener('click', () => commit(typeof opts.defaultValue === 'function' ? opts.defaultValue() : opts.defaultValue));
+  reset.addEventListener('click', () => commit(typeof opts.defaultValue === 'function' ? opts.defaultValue() : opts.defaultValue, onSet));
 
   set(opts.value);
   return {
