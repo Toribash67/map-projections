@@ -471,7 +471,7 @@ function regionPieces(region: Region, out: FramePiece[]): void {
 export function cutFront(geom: GeoJSON.GeoJsonObject, m: CompiledProjection): FramePiece[] {
   const region = regionOf(m);
   const matrix = frameMatrix(m);
-  const singular = m.caps.map((cap) => toVector(cap.frameCenter));
+  const singular = [...m.caps.map((cap) => cap.frameCenter), ...(m.def.singular ?? [])].map(toVector);
   const seam = m.def.seam;
   const offEdges = seam.kind === 'lobes' ? offLobeEdges(seam.lobes, 2 * LOBE_PULL) : null;
   const out: FramePiece[] = [];

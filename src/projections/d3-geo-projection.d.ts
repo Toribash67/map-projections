@@ -10,6 +10,8 @@ declare module 'd3-geo-projection' {
   export const geoMillerRaw: Raw;
   export const geoEckert4Raw: Raw;
   export const geoNicolosiRaw: Raw;
+  /** Guyou's conformal map of the hemisphere within a quarter turn of the centre into a square. */
+  export const geoGuyouRaw: Raw;
   /** Bonne's pseudoconic, with its standard parallel at `phi0` radians. At 0 it is the sinusoidal projection itself. */
   export function geoBonneRaw(phi0: number): Raw;
   export function geoHammerRaw(a: number, b?: number): Raw;

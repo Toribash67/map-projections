@@ -39,25 +39,34 @@ const stepAt = (distance: number) => Math.min(MAX_SEGMENT, Math.max(MIN_SEGMENT,
 export function densify(path: LonLat[], singular: Vector[]): LonLat[] {
   const out: LonLat[] = [];
   path.forEach((point, i) => {
-    if (i > 0) {
-      const previous = path[i - 1]!;
-      const length = geoDistance(previous, point) / rad;
-      const near = distanceToNearest(previous, singular);
-      if (length > stepAt(near)) {
-        const along = geoInterpolate(previous, point);
-        if (stepAt(near - length) >= MAX_SEGMENT) {
-          const steps = Math.ceil(length / MAX_SEGMENT);
-          for (let s = 1; s < steps; s++) out.push(along(s / steps));
-        } else {
-          for (let walked = stepAt(near); walked < length; ) {
-            const next = along(walked / length);
-            out.push(next);
-            walked += stepAt(distanceToNearest(next, singular));
-          }
-        }
-      }
-    }
+    if (i > 0) out.push(...between(path[i - 1]!, point, singular));
     out.push(point);
   });
   return out;
+}
+
+/**
+ * The points added between two ends of a segment, in order from `from`. They are the same whichever end the segment is given from:
+ * two pieces that share an edge, as neighbouring cells do, go along it opposite ways, and have to meet all along it, not only at its ends.
+ * So the walk always starts at the end nearer a singular point, and at the western end if they are as near.
+ */
+function between(from: LonLat, to: LonLat, singular: Vector[]): LonLat[] {
+  const length = geoDistance(from, to) / rad;
+  const [nearFrom, nearTo] = [distanceToNearest(from, singular), distanceToNearest(to, singular)];
+  if (!(length > stepAt(Math.min(nearFrom, nearTo)))) return [];
+  const backwards = nearTo < nearFrom || (nearTo === nearFrom && (to[0] < from[0] || (to[0] === from[0] && to[1] < from[1])));
+  const [start, end, near] = backwards ? [to, from, nearTo] : [from, to, nearFrom];
+  const along = geoInterpolate(start, end);
+  const added: LonLat[] = [];
+  if (stepAt(near - length) >= MAX_SEGMENT) {
+    const steps = Math.ceil(length / MAX_SEGMENT);
+    for (let s = 1; s < steps; s++) added.push(along(s / steps));
+  } else {
+    for (let walked = stepAt(near); walked < length; ) {
+      const next = along(walked / length);
+      added.push(next);
+      walked += stepAt(distanceToNearest(next, singular));
+    }
+  }
+  return backwards ? added.reverse() : added;
 }

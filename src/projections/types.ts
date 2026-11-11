@@ -26,8 +26,12 @@ export interface ProjectionDef {
   defaultOrientation: Orientation;
   tiltEnabled: boolean;
   latEnabled: boolean;
+  /** A turn of the screen (degrees, anticlockwise) on top of the one that puts north up at the centre: for a map that is not drawn that way. */
+  turn?: number;
   raw(p: Params): RawFn;
   caps(p: Params): ExcludedCap[];
+  /** Points of the frame, besides the centres of the caps, round which the map is so steep that a path by them needs finer steps. */
+  singular?: LonLat[];
   seam: Seam;
 }
 

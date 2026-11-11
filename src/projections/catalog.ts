@@ -19,6 +19,7 @@ import {
   geoWinkel3Raw,
 } from 'd3-geo-projection';
 import { hemispheresDef } from './hemispheres';
+import { peirceCorners, peirceLobes, peirceRaw } from './peirce';
 import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from './raws';
 import type { ExcludedCap, Lobe, Orientation, Params, Preserves, ProjectionDef, Seam, Stop } from './types';
 
@@ -236,7 +237,25 @@ const defList: ProjectionDef[] = [
   { ...plain('bonne', 'equal-area', (p) => geoBonneRaw(p.phi1! * rad)), defaultParams: { phi1: 45 } },
   plain('eckert4', 'equal-area', () => geoEckert4Raw),
   plain('hammer', 'equal-area', () => geoHammerRaw(2)),
-  plain('goode', 'equal-area', () => goodeRaw, { kind: 'lobes', lobes: goodeLobes, smoothEquator: true }),
+  plain('goode', 'polyhedral', () => goodeRaw, { kind: 'lobes', lobes: goodeLobes, smoothEquator: true }),
+  {
+    id: 'peirce',
+    family: 'polyhedral',
+    defaultParams: {},
+    // The meridian 45 degrees west of the centre runs straight down from the pole: 20 degrees west, as Peirce had it, which puts the
+    // four corners of the equator, where the map is not conformal, in the oceans.
+    defaultOrientation: { lon: 25, lat: 0, tilt: 0 },
+    tiltEnabled: true,
+    latEnabled: true,
+    // North at the frame's origin, which is the middle of a side of the equator's square, points along a diagonal of the map: the
+    // map is drawn with its sides upright, not with that diagonal.
+    turn: 45,
+    raw: () => peirceRaw,
+    // The north pole is the middle of the map, and an ordinary point of it.
+    caps: () => [cap(SOUTH_POLE, 0.1)],
+    singular: peirceCorners,
+    seam: { kind: 'lobes', lobes: peirceLobes, smoothEquator: true },
+  },
   hemispheresDef('hemispheres-nicolosi', geoNicolosiRaw),
   hemispheresDef('hemispheres-stereographic', geoStereographicRaw),
   hemispheresDef('hemispheres-equal-area', geoAzimuthalEqualAreaRaw),
@@ -292,7 +311,9 @@ export const stops: Stop[] = [
   stop('werner', 'Werner', 'equal-area', 'bonne', { phi1: 90 }, 'equal-area', 'Keeps areas true in a heart with the pole at its cleft, and distances from the pole, but shears shapes badly away from the central meridian.'),
   stop('eckert4', 'Eckert IV', 'equal-area', 'eckert4', {}, 'equal-area', 'Keeps areas true between rounded sides, with each pole a line half the length of the equator, but stretches the tropics tall.'),
   stop('hammer', 'Hammer', 'equal-area', 'hammer', {}, 'equal-area', 'Keeps areas true in a smooth ellipse, but bends shapes toward the edges.'),
-  stop('goode', 'Goode homolosine', 'equal-area', 'goode', {}, 'equal-area', 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
+
+  stop('goode', 'Goode homolosine', 'polyhedral', 'goode', {}, 'equal-area', 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
+  stop('peirce', 'Peirce quincuncial', 'polyhedral', 'peirce', {}, 'conformal', 'Keeps angles and small shapes true over the whole world in a square that tiles the plane, but for four points on the equator, and cuts the southern oceans to do it.'),
 
   stop('nicolosi', 'Nicolosi globular', 'hemispheres', 'hemispheres-nicolosi', {}, 'compromise', 'Draws each hemisphere in a circle, with every meridian and parallel an arc of a circle, as atlases long did, but keeps nothing exactly.'),
   stop('stereographic-hemispheres', 'Stereographic hemispheres', 'hemispheres', 'hemispheres-stereographic', {}, 'conformal', 'Keeps angles and small shapes true in two circles, one for each hemisphere, but inflates areas toward their rims.'),

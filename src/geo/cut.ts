@@ -520,6 +520,9 @@ function crossesSeam(parts: Part[], m: CompiledProjection): boolean {
  * the last clip, and nothing can undo it.
  */
 export function cutGeometry(input: GeoJSON.GeoJsonObject, members: CompiledProjection[]): Piece[] {
+  // The parts of a collection are cut one by one. A cut is judged, and redone, as a whole: taken together, one way would go wrong
+  // for one cell of a layer and another way for another, and no way would be right for them all.
+  if (input.type === 'GeometryCollection') return (input as GeoJSON.GeometryCollection).geometries.flatMap((part) => cutGeometry(part, members));
   const geom = linesOffSeams(input, members);
   const expected = geoArea(geom as GeoPermissibleObjects);
   const seams = new Set(members.filter((m) => m.def.seam.kind !== 'none').map(seamKey));
@@ -539,7 +542,7 @@ export function cutGeometry(input: GeoJSON.GeoJsonObject, members: CompiledProje
     }
     if (bestScore <= 1) break;
   }
-  // Every singular point of a map in this catalog is the centre of one of its caps.
-  const singular = members.flatMap((m) => m.caps.map((cap) => toVector(m.fromFrame(cap.frameCenter))));
+  // A map is singular at the centre of each of its caps, and wherever else its definition says.
+  const singular = members.flatMap((m) => [...m.caps.map((cap) => cap.frameCenter), ...(m.def.singular ?? [])].map((p) => toVector(m.fromFrame(p))));
   return best.flatMap((part) => toPieces(part, members, singular));
 }

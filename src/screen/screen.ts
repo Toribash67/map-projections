@@ -92,8 +92,10 @@ function compensation(c: CompiledProjection): { cos: number; sin: number } {
   const vy = (dx * (ey1 - ey0) + dy * (ny1 - ny0)) / (2 * h);
   const length = Math.hypot(vx, vy);
   if (!(length > 0)) return { cos: 1, sin: 0 };
-  // Turning (vx, vy) to point along +y.
-  return { cos: vy / length, sin: vx / length };
+  // Turning (vx, vy) to point along +y, and then by the definition's own turn, if it has one.
+  const [cos, sin] = [vy / length, vx / length];
+  const turn = (c.def.turn ?? 0) * rad;
+  return turn === 0 ? { cos, sin } : { cos: cos * Math.cos(turn) - sin * Math.sin(turn), sin: sin * Math.cos(turn) + cos * Math.sin(turn) };
 }
 
 /** A region of the frame that one raw call covers: the whole sphere, or one lobe. */

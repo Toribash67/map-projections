@@ -10,6 +10,7 @@ const FAMILY_NAMES: Record<string, string> = {
   compromise: 'Compromise',
   'equal-area': 'Equal-area',
   hemispheres: 'Double hemisphere',
+  polyhedral: 'Interrupted and polyhedral',
 };
 
 export interface ProjectionList {

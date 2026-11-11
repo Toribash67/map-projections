@@ -52,7 +52,7 @@ function expectLandArea(pieces: Piece[], label?: string) {
 const allPoints = (pieces: Piece[]) => pieces.flatMap((p) => p.coords.flat());
 
 test('land area is preserved at 3.62789 sr ±1e-3 for one member, each stop, default orientation', () => {
-  expect(stops.length).toBe(29);
+  expect(stops.length).toBe(30);
   for (const s of stops) expectLandArea(cutGeometry(land, [member(s.id)]), s.id);
 });
 

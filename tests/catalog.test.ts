@@ -53,7 +53,7 @@ function expectPair(actual: [number, number], expected: [number, number], eps = 
 }
 
 test('every stop compiles to finite positions at 200 random frame points outside its caps', () => {
-  expect(stops.length).toBe(29);
+  expect(stops.length).toBe(30);
   for (const s of stops) {
     const c = compile(stateForStop(s));
     const r = rng(7);

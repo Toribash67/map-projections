@@ -269,7 +269,10 @@ test('near the rim, land is the same picture as a full cut', () => {
   }
 }, 60_000);
 
-function expectSamePicture(m: Member, label: string) {
+function expectSamePicture(fitted: Member, label: string) {
+  // Off the fit by a fraction of a pixel: a map as regular as Peirce's has the join of two pieces run exactly through the middles of
+  // the cells the pictures are compared by, where which side a cell falls is rounding.
+  const m: Member = { ...fitted, screen: { ...fitted.screen, tx: fitted.screen.tx + 0.37, ty: fitted.screen.ty + 0.21 } };
   const live = buildScene(world, [m], null, false);
   const morph = buildScene(world, [m], m, false);
   const front = (pieces: ScenePiece[]) => pieces.filter((p) => p.alphaDst > 0 && !p.behind);
