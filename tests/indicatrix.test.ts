@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { buildIndicatrices } from '../src/morph/scene';
+import { restImages } from '../src/tissot/rest';
 import { stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
 import type { CompiledProjection, LonLat, Orientation } from '../src/projections/types';
@@ -7,6 +8,8 @@ import { computeScreen, isCovered, lobeOf, projectPoint, type ScreenTransform } 
 import {
   INDICATRIX_RADIUS,
   indicatrixCentres,
+  indicatrixRadius,
+  indicatrixStep,
   jacobian,
   singularValues,
   type Mat2,
@@ -356,6 +359,36 @@ describe('indicatrixCentres', () => {
 });
 
 let checked = 0;
+
+describe('indicatrices at a zoom', () => {
+  test('they are spaced more closely as the map is zoomed in, and each is a sixth of the spacing in radius', () => {
+    expect([1, 1.9, 2, 3.9, 4, 7.9, 8, 32].map(indicatrixStep)).toEqual([30, 30, 15, 15, 10, 10, 5, 5]);
+    expect(indicatrixRadius(30)).toBeCloseTo(INDICATRIX_RADIUS, 12);
+    expect(indicatrixRadius(5)).toBeCloseTo(INDICATRIX_RADIUS / 6, 12);
+  });
+
+  test('centres at a step run round the globe and from pole to pole, with each pole once', () => {
+    for (const step of [30, 15, 10, 5]) {
+      const centres = indicatrixCentres(step);
+      expect(centres).toHaveLength((360 / step) * (180 / step - 1) + 2);
+      expect(new Set(centres.map((p) => p.join())).size).toBe(centres.length);
+      expect(centres.filter((p) => Math.abs(p[1]) === 90)).toEqual([[0, 90], [0, -90]]);
+    }
+    expect(indicatrixCentres(30)).toEqual(indicatrixCentres());
+  });
+
+  test('a smaller indicatrix by a seam is cut where the seam crosses it, in its own radius', () => {
+    const { c, s } = compiled('mollweide');
+    const m = { compiled: c, screen: s, weight: 1 };
+    // Half a degree from the seam: half a radius of one of 1 degree, a tenth of one of 5.
+    const p: LonLat = [179.5, 0];
+    expect(restImages(m, p, indicatrixRadius(30))[0]!.cuts[0]![2]).toBeCloseTo(0.1, 3);
+    expect(restImages(m, p, indicatrixRadius(6))[0]!.cuts[0]![2]).toBeCloseTo(0.5, 3);
+    // Three degrees away the seam is beyond a disc of 1 degree, and its copy across the seam is not made at all.
+    expect(restImages(m, [177, 0], indicatrixRadius(6))).toHaveLength(1);
+    expect(restImages(m, [177, 0], indicatrixRadius(30))).toHaveLength(2);
+  });
+});
 
 describe('an indicatrix in a morph', () => {
   const member = (id: string, weight: number, o?: Partial<Orientation>) => ({ ...compiled(id, o), weight });

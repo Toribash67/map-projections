@@ -9,11 +9,21 @@ import { compile, stateForStop } from './projections/compile';
 import type { CompiledProjection, LonLat, ProjectionState, Stop } from './projections/types';
 import { drawScene } from './render/draw';
 import { mapStyle } from './render/style';
-import { computeScreen, type ScreenTransform, type Viewport } from './screen/screen';
-import type { Member } from './tissot/indicatrix';
+import { loadDetail } from './data/detail';
+import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
+import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
+import { indicatrixStep, type Member } from './tissot/indicatrix';
 import { currentScheme, watchScheme } from './theme/scheme';
 
 const OCEAN = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
+
+type Pair = [number, number];
+
+// How long (ms) a zoom from a button or a key takes.
+const ZOOM_TIME = 150;
+// Zoomed in this far and left alone this long (ms), the map is drawn again with finer coastlines. They are too many to cut on every frame of a drag.
+const FINE_FROM = 3;
+const FINE_AFTER = 250;
 
 /** Whether two states are the same map, number for number. */
 const sameState = (a: ProjectionState, b: ProjectionState): boolean => {
@@ -32,6 +42,8 @@ const sameState = (a: ProjectionState, b: ProjectionState): boolean => {
 export class App {
   state: ProjectionState;
   viewport: Viewport;
+  /** How the fitted map is looked at: zoomed and panned. */
+  view: View = FIT;
   tissot = false;
   shapes: Shape[] = [];
   /** The projection last chosen from the list, whose defaults the resets return to. */
@@ -53,6 +65,13 @@ export class App {
   // The last fit, by everything it depends on. Moving the centre does not change it.
   private fitKey = '';
   private fit: ScreenTransform | null = null;
+  // The fit under the view, kept so that a map that has not changed keeps the very same screen.
+  private viewed: { fit: ScreenTransform; view: View; screen: ScreenTransform } | null = null;
+  private zoomTween: { from: View; at: Pair; factor: number; startedAt: number } | null = null;
+  // The finer coastlines, once fetched, and whether the scene on screen is drawn with them.
+  private fine: { land: GeoJSON.GeoJsonObject; coast: GeoJSON.GeoJsonObject } | null = null;
+  private useFine = false;
+  private fineTimer = 0;
   // What choosing a projection needs to know that the state does not say. See stateForStop.
   private centreBeforeConic: LonLat | undefined;
   private tiltByHand = false;
@@ -137,6 +156,52 @@ export class App {
     this.invalidate();
   }
 
+  /**
+   * Looks at the map another way, at once. Ignored while a morph runs, whose scene is cut for the views it began with. A slide keeps
+   * going under the new view.
+   */
+  setView(view: View): void {
+    if (this.controller.tick()) return;
+    this.zoomTween = null;
+    this.applyView(view);
+  }
+
+  /** Zooms by a factor about a place on the map, the middle if none is given, over a moment: for a button or a key, which have no cursor to follow. */
+  zoomBy(factor: number, at: Pair = [this.viewport.width / 2, this.viewport.height / 2]): void {
+    if (this.controller.tick()) return;
+    // From where a zoom under way is going, so that two presses in a row are two steps.
+    const from = this.zoomTween ? zoomAbout(this.zoomTween.from, this.viewport, this.zoomTween.at, this.zoomTween.factor) : this.view;
+    this.applyView(from);
+    this.zoomTween = { from, at, factor, startedAt: this.now() };
+    this.request();
+  }
+
+  private applyView(next: View): void {
+    const view = clampView(next, this.viewport);
+    if (view.zoom === this.view.zoom && view.panX === this.view.panX && view.panY === this.view.panY) return;
+    this.view = view;
+    this.controller.resize((m) => ({ ...m, screen: this.screenFor(m.compiled) }));
+    this.invalidate();
+    this.notify();
+  }
+
+  /**
+   * The view for a map about to be morphed to: the same zoom, with the place now in the middle of the window still in the middle, so
+   * that what was being looked at stays in sight. The fit, if the new map cannot show that place, or there is no map at rest to read it from.
+   */
+  private viewOnto(next: ProjectionState): View {
+    if (this.view.zoom === 1) return FIT;
+    const live = this.live;
+    const [cx, cy] = [this.viewport.width / 2, this.viewport.height / 2];
+    const focus = live ? screenToLonLat(live.compiled, live.screen, [cx, cy]) : null;
+    const compiled = compile(next);
+    if (!focus || !isCovered(compiled, focus)) return live ? FIT : this.view;
+    const [x, y] = projectPoint(compiled, this.fitFor(compiled), focus);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return FIT;
+    const { zoom } = this.view;
+    return clampView({ zoom, panX: -zoom * (x - cx), panY: -zoom * (y - cy) }, this.viewport);
+  }
+
   private goTo(next: ProjectionState): void {
     const morphing = this.controller.tick();
     if (!morphing && canSlide(this.state, next)) {
@@ -148,6 +213,9 @@ export class App {
     }
     // The controller holds the map in between of a slide cut short, so the morph starts from there.
     this.slide = null;
+    this.zoomTween = null;
+    // The maps on screen keep the view they have; the one arrived at has its own.
+    this.view = this.viewOnto(next);
     this.state = next;
     const before = this.controller.target();
     this.controller.morphTo(this.memberOf(next));
@@ -179,7 +247,7 @@ export class App {
   }
 
   /** The fit depends on the projection's shape and the viewport, never on its centre longitude and latitude. */
-  private screenFor(c: CompiledProjection): ScreenTransform {
+  private fitFor(c: CompiledProjection): ScreenTransform {
     const tilt = c.def.tiltEnabled ? c.state.orientation.tilt : 0;
     const key = JSON.stringify([c.def.id, { ...c.def.defaultParams, ...c.state.params }, tilt, this.viewport]);
     if (key !== this.fitKey || !this.fit) {
@@ -189,7 +257,28 @@ export class App {
     return this.fit;
   }
 
+  /** Where a map is drawn: its fit, under the view. */
+  private screenFor(c: CompiledProjection): ScreenTransform {
+    const fit = this.fitFor(c);
+    if (this.viewed?.fit !== fit || this.viewed.view !== this.view) this.viewed = { fit, view: this.view, screen: applyView(fit, this.view, this.viewport) };
+    return this.viewed.screen;
+  }
+
   private invalidate(): void {
+    this.stale = true;
+    // Whatever has changed, the next frame is drawn with the coarse coastlines, and the finer ones wait for the map to be left alone.
+    this.useFine = false;
+    window.clearTimeout(this.fineTimer);
+    this.fineTimer = this.view.zoom >= FINE_FROM ? window.setTimeout(() => void this.refine(), FINE_AFTER) : 0;
+    this.request();
+  }
+
+  /** Draws the map at rest again with the finer coastlines, unless it has changed, or begun to, while they were fetched. */
+  private async refine(): Promise<void> {
+    const timer = this.fineTimer;
+    this.fine ??= await loadDetail('50m');
+    if (timer !== this.fineTimer || this.controller.tick() || this.slide || this.zoomTween) return;
+    this.useFine = true;
     this.stale = true;
     this.request();
   }
@@ -206,20 +295,29 @@ export class App {
       if (done) this.slide = null;
       this.show(state);
     }
+    const zooming = this.zoomTween;
+    if (zooming) {
+      const u = Math.min(1, (this.now() - zooming.startedAt) / ZOOM_TIME);
+      if (u >= 1) this.zoomTween = null;
+      // Eased out, and even in the zoom's own terms: each moment multiplies by the same.
+      this.applyView(zoomAbout(zooming.from, this.viewport, zooming.at, zooming.factor ** (1 - (1 - u) ** 2)));
+    }
     const morphing = this.controller.tick();
     const settled = this.sceneIsMorph && !morphing;
     if (this.stale || settled) {
       const [source, target] = [this.controller.source(), this.controller.target()];
-      const layers: Record<string, GeoJSON.GeoJsonObject> = { ocean: OCEAN, land: LAND, graticule: GRATICULE, coast: COAST, drawings: this.drawings };
+      const { land, coast } = this.useFine && this.fine && !target ? this.fine : { land: LAND, coast: COAST };
+      const layers: Record<string, GeoJSON.GeoJsonObject> = { ocean: OCEAN, land, graticule: GRATICULE, coast, drawings: this.drawings };
       // What a map cannot show is only seen in a morph, where it folds over as it moves to its place on the other map: its ocean comes as cells too.
       const cells = target ? capOceanLayer([...source, target]) : null;
       if (cells) layers.capOcean = cells;
-      this.scene = buildScene(layers, source, target, this.tissot);
+      // Zoomed in, the indicatrices are closer together and smaller, and only those in or near the window are worked out.
+      this.scene = buildScene(layers, source, target, this.tissot && { step: indicatrixStep(this.view.zoom), viewport: this.viewport });
       this.sceneIsMorph = morphing;
       this.stale = false;
     }
     drawScene(this.ctx, this.scene, this.controller.t(), this.style);
-    if (morphing || this.slide) this.request();
+    if (morphing || this.slide || this.zoomTween) this.request();
     if (settled || slide) this.notify();
   };
 
@@ -234,6 +332,8 @@ export class App {
     this.ctx.setTransform(storeWidth / width, 0, 0, storeHeight / height, 0, 0);
     if (width !== this.viewport.width || height !== this.viewport.height) {
       this.viewport = { width, height };
+      // A view at its limit in the old window may be past it in the new one.
+      this.view = clampView(this.view, this.viewport);
       this.controller.resize((m) => ({ ...m, screen: this.screenFor(m.compiled) }));
       this.stale = true;
       this.notify();

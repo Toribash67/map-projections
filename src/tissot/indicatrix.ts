@@ -99,11 +99,17 @@ export function singularValues([a, b, c, d]: Mat2): [number, number] {
   return [Math.sqrt(mid + spread), Math.sqrt(Math.max(0, mid - spread))];
 }
 
-/** Where indicatrices sit: every 30 degrees of longitude and, from -60 to 60, of latitude, plus both poles. */
-export function indicatrixCentres(): LonLat[] {
+/** The spacing of indicatrices, in degrees, on a map zoomed this many times: closer as it is zoomed in, so that several are always in view. */
+export const indicatrixStep = (zoom: number): 30 | 15 | 10 | 5 => (zoom < 2 ? 30 : zoom < 4 ? 15 : zoom < 8 ? 10 : 5);
+
+/** The radius (radians) of an undistorted indicatrix at a spacing: a sixth of it, which is 5 degrees at 30. */
+export const indicatrixRadius = (step: number): number => (step / 6) * rad;
+
+/** Where indicatrices sit: every `step` degrees of longitude and of latitude, 30 if not given, with each pole once. */
+export function indicatrixCentres(step = 30): LonLat[] {
   const centres: LonLat[] = [];
-  for (let lat = -60; lat <= 60; lat += 30) {
-    for (let lon = -180; lon < 180; lon += 30) centres.push([lon, lat]);
+  for (let lat = -90 + step; lat < 90 - step / 2; lat += step) {
+    for (let lon = -180; lon < 180; lon += step) centres.push([lon, lat]);
   }
   centres.push([0, 90], [0, -90]);
   return centres;

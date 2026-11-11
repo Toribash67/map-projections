@@ -106,8 +106,8 @@ function distanceTo(frame: LonLat, edge: Edge): number {
   return onEdge && footLat >= edge.latMin && footLat <= edge.latMax ? Math.asin(Math.min(1, Math.abs(off))) / rad : Infinity;
 }
 
-/** The part of an indicatrix at `p` on its own side of a seam, as a `Cut` in its east and north. Null at a frame pole. */
-function cutAt(c: CompiledProjection, p: LonLat, edge: Edge): Cut | null {
+/** The part of an indicatrix at `p`, of `radius` radians, on its own side of a seam, as a `Cut` in its east and north. Null at a frame pole. */
+function cutAt(c: CompiledProjection, p: LonLat, edge: Edge, radius: number): Cut | null {
   const n = toVector(c.fromFrame([edge.lon + 90, 0]));
   const [lon, lat] = [p[0] * rad, p[1] * rad];
   const centre = toVector(p);
@@ -118,14 +118,16 @@ function cutAt(c: CompiledProjection, p: LonLat, edge: Edge): Cut | null {
   const q = Math.hypot(ne, nn);
   if (!(q > 1e-9)) return null;
   // A point at x (in units of the indicatrix's radius) east and north of the centre is on the lobe's side where inside * (n . point) > 0.
-  return [(-edge.inside * ne) / q, (-edge.inside * nn) / q, (edge.inside * np) / (INDICATRIX_RADIUS * q)];
+  return [(-edge.inside * ne) / q, (-edge.inside * nn) / q, (edge.inside * np) / (radius * q)];
 }
 
 /** Adds to an image at `frame` its copies across the seams near it, each cut to its side of the seam, and cuts the image to its own. */
-function acrossSeams(c: CompiledProjection, s: Member['screen'], p: LonLat, frame: LonLat, lobe: number | undefined, image: MorphImage, margin: Margin): MorphImage[] {
+function acrossSeams(c: CompiledProjection, s: Member['screen'], p: LonLat, frame: LonLat, lobe: number | undefined, image: MorphImage, margin: Margin, radius: number): MorphImage[] {
+  // As far as an indicatrix of this radius can reach across a seam: see `MIRROR_REACH`.
+  const reach = (MIRROR_REACH * radius) / INDICATRIX_RADIUS;
   const copies: { copy: MorphImage; own: Cut | null }[] = [];
   for (const edge of edgesOf(c, frame, lobe)) {
-    if (distanceTo(frame, edge) >= MIRROR_REACH) continue;
+    if (distanceTo(frame, edge) >= reach) continue;
     const far: LonLat = [frame[0] + edge.shift, frame[1]];
     const farPos = projectFrame(c, s, far, edge.lobe);
     const farMat = jacobian(c, s, p, { margin, continued: { near: far[0], lobe: edge.lobe } });
@@ -133,7 +135,7 @@ function acrossSeams(c: CompiledProjection, s: Member['screen'], p: LonLat, fram
     // The same alpha as the indicatrix itself: they are parts of one disc, and change places as it crosses.
     const copy: MorphImage = { pos: farPos, mat: farMat, alpha: image.alpha, own: false, cuts: [] };
     // The two parts are the two sides of one chord, so between them they are the disc once, wherever the seam crosses it.
-    const cut = cutAt(c, p, edge);
+    const cut = cutAt(c, p, edge, radius);
     let own: Cut | null = null;
     if (cut) {
       if (cut[2] < 1) own = cut;
@@ -205,7 +207,7 @@ function unshown(m: Member, p: LonLat): MorphImage[] {
  * its side. Where the map shows it at rest, this is what it shows. The far side of a globe counts as shown, like far-side land, with
  * the same derivative as the near side. Where the map cannot show it, it is the map folded onto its edge there.
  */
-export function morphImages(m: Member, p: LonLat): MorphImage[] {
+export function morphImages(m: Member, p: LonLat, radius = INDICATRIX_RADIUS): MorphImage[] {
   const { compiled: c, screen: s } = m;
   if (isBehind(m, p)) {
     const [pos, mat] = [projectPoint(c, s, p), jacobian(c, s, p)];
@@ -224,14 +226,14 @@ export function morphImages(m: Member, p: LonLat): MorphImage[] {
   // Flat, as on a globe's limb, it has no strength of its own; nor has one that the map does not show at all.
   const alpha = isSingular(mat) ? null : boundaryFade(m, p, mat);
   if (!own && !(alpha !== null && alpha > 0)) return unshown(m, p);
-  return acrossSeams(c, s, p, frame, lobe, { pos, mat, alpha, own, cuts: [] }, margin);
+  return acrossSeams(c, s, p, frame, lobe, { pos, mat, alpha, own, cuts: [] }, margin, radius);
 }
 
 /**
  * What a map at rest shows of the indicatrix at `p`: its own place, if any, and the copies. None on a globe's far side, which a map at
  * rest does not show, and none where it is flat or has faded out.
  */
-export function restImages(m: Member, p: LonLat): RestImage[] {
+export function restImages(m: Member, p: LonLat, radius = INDICATRIX_RADIUS): RestImage[] {
   if (isBehind(m, p)) return [];
-  return morphImages(m, p).filter((image): image is RestImage => image.mat !== null && image.alpha !== null && image.alpha > 0);
+  return morphImages(m, p, radius).filter((image): image is RestImage => image.mat !== null && image.alpha !== null && image.alpha > 0);
 }

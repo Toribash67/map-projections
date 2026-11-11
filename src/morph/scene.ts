@@ -1,10 +1,11 @@
 import { cutGeometry, type Piece } from '../geo/cut';
-import { capAxes, clipCaps, directionsOf, dot, edgePoint, wrapAngle, type CapAxes } from '../geo/capEdge';
+import { capAxes, clipCaps, directionsOf, dot, edgePoint, positionOn, wrapAngle, type CapAxes } from '../geo/capEdge';
 import { toVector } from '../geo/densify';
 import { cutFront } from '../geo/frontCut';
 import type { CompiledProjection, LonLat } from '../projections/types';
 import { projectFrame, type ScreenTransform } from '../screen/screen';
-import { indicatrixCentres, type Mat2, type Member } from '../tissot/indicatrix';
+import type { Viewport } from '../screen/screen';
+import { INDICATRIX_RADIUS, indicatrixCentres, indicatrixRadius, type Mat2, type Member } from '../tissot/indicatrix';
 import { isBehind, morphImages, restImages, type Cut, type MorphImage } from '../tissot/rest';
 
 const rad = Math.PI / 180;
@@ -45,7 +46,18 @@ export type SceneIndicatrix = {
   behind: boolean;
   cuts: Cut[];
 };
-export type Scene = { layers: Record<string, ScenePiece[]>; indicatrices: SceneIndicatrix[] };
+export type Scene = {
+  layers: Record<string, ScenePiece[]>;
+  indicatrices: SceneIndicatrix[];
+  /** The radius (radians) of an undistorted indicatrix in this scene, where it is not the usual 5 degrees. */
+  indicatrixRadius?: number;
+};
+
+/** Which indicatrices a scene has: how far apart (degrees), and the window they are wanted in, beyond which none is worked out. */
+export type TissotOptions = { step: number; viewport?: Viewport };
+
+// How far (CSS pixels) outside the window an indicatrix's centre can be and still reach into it, or come into it in a morph.
+const VIEW_MARGIN = 200;
 
 /** A ring seen from the clip cap holding it: each point in the frame, whether it is past the edge, and its direction from the centre. */
 type CapView = { axes: CapAxes; frames: LonLat[]; inCap: boolean[]; directions: Float64Array };
@@ -249,10 +261,10 @@ function mixImages(members: Member[], images: MorphImage[]): { pos: Pair; mat: M
  * it, each part carried by the mix of what each map does with that side: one part for every choice of a side on each map. The matrix of
  * a part is then the true derivative of the map on screen, at every moment, and at the ends the parts add up to what the maps at rest draw.
  */
-export function buildIndicatrices(p: LonLat, source: Member[], target: Member | null): SceneIndicatrix[] {
+export function buildIndicatrices(p: LonLat, source: Member[], target: Member | null, radius = INDICATRIX_RADIUS): SceneIndicatrix[] {
   if (!target) {
     return source.flatMap((m) =>
-      restImages(m, p).map((image): SceneIndicatrix => {
+      restImages(m, p, radius).map((image): SceneIndicatrix => {
         const alpha = image.alpha * m.weight;
         return { srcPos: image.pos, dstPos: image.pos, srcMat: image.mat, dstMat: image.mat, alphaSrc: alpha, alphaDst: alpha, behind: false, cuts: image.cuts };
       }),
@@ -260,7 +272,7 @@ export function buildIndicatrices(p: LonLat, source: Member[], target: Member | 
   }
   const members = [...source, target];
   const behind = members.some((m) => isBehind(m, p));
-  const sides = members.map((m) => morphImages(m, p));
+  const sides = members.map((m) => morphImages(m, p, radius));
   if (sides.some((images) => images.length === 0)) return [];
   const out: SceneIndicatrix[] = [];
   const chosen: MorphImage[] = [];
@@ -288,6 +300,18 @@ export function buildIndicatrices(p: LonLat, source: Member[], target: Member | 
   return out;
 }
 
+/** Whether some map of the scene puts a point in or near the window: a cheap look before working out its indicatrix. */
+function nearView(p: LonLat, source: Member[], target: Member | null, v: Viewport): boolean {
+  // Generous, as a copy across a seam is elsewhere on the map: the whole of the map's width in a seamed map, so only those are let through unseen.
+  const reach = 2 * VIEW_MARGIN;
+  for (const m of target ? [...source, target] : source) {
+    if (m.compiled.def.seam.kind !== 'none') return true;
+    const [x, y] = positionOn(m.compiled, m.screen, p);
+    if (x > -reach && y > -reach && x < v.width + reach && y < v.height + reach) return true;
+  }
+  return false;
+}
+
 /**
  * Everything a morph between `source` and `target` draws, as a position per point at each
  * end, so that a frame is only a linear blend. With no target this is a map at rest or being
@@ -295,7 +319,7 @@ export function buildIndicatrices(p: LonLat, source: Member[], target: Member | 
  * object, including the parts of a geometry collection, so a shape that changes has to be passed as
  * a new object, never mutated in place.
  */
-export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source: Member[], target: Member | null, withTissot: boolean): Scene {
+export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source: Member[], target: Member | null, tissot: boolean | TissotOptions): Scene {
   const compiled = (target ? [...source, target] : source).map((m) => m.compiled);
   const scene: Scene = { layers: {}, indicatrices: [] };
   for (const [name, geom] of Object.entries(layers)) {
@@ -306,8 +330,17 @@ export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source
     // Cells of ocean are only for what some map cannot show; the rest of them are drawn by the ocean itself.
     scene.layers[name] = name === 'capOcean' ? pieces.filter((piece) => piece.out) : pieces;
   }
-  if (withTissot) {
-    for (const p of indicatrixCentres()) scene.indicatrices.push(...buildIndicatrices(p, source, target));
+  if (tissot) {
+    const { step, viewport } = tissot === true ? { step: 30, viewport: undefined } : tissot;
+    const radius = indicatrixRadius(step);
+    scene.indicatrixRadius = radius;
+    // Zoomed in there are many more of them, nearly all out of sight: one is kept if it is in or near the window at either end.
+    const inView = ({ srcPos, dstPos }: SceneIndicatrix) =>
+      !viewport || [srcPos, dstPos].some(([x, y]) => x > -VIEW_MARGIN && y > -VIEW_MARGIN && x < viewport.width + VIEW_MARGIN && y < viewport.height + VIEW_MARGIN);
+    for (const p of indicatrixCentres(step)) {
+      if (viewport && !nearView(p, source, target, viewport)) continue;
+      for (const part of buildIndicatrices(p, source, target, radius)) if (inView(part)) scene.indicatrices.push(part);
+    }
   }
   return scene;
 }

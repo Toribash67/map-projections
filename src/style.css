@@ -529,3 +529,51 @@ input {
   display: block;
   flex: none;
 }
+
+/* Zoom: in the corner of the map's cell, over the map. */
+#zoom {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  justify-self: start;
+  z-index: 1;
+  margin: 10px;
+}
+
+.zoom-control {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 5px var(--shadow);
+  overflow: hidden;
+}
+
+.map-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.map-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .map-button:hover:not(:disabled) {
+    background: var(--line);
+  }
+}
+
+@media (max-width: 720px) {
+  #zoom {
+    grid-column: 1;
+    margin: 6px;
+  }
+}

@@ -143,9 +143,8 @@ function traceHalfPlane(ctx: CanvasPath, [mx, my, c]: Cut): void {
  * transform, and filled: a translucent ellipse with no outline. One with cuts is the part of the disc within every one of them: with
  * one cut, the disc on its side of the chord; with more, the disc clipped by each in turn. Its strength goes evenly between its ends.
  */
-function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndicatrix[], t: number, style: Style, base: DOMMatrix): void {
+function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndicatrix[], r: number, t: number, style: Style, base: DOMMatrix): void {
   ctx.fillStyle = style.indicatrix;
-  const r = INDICATRIX_RADIUS;
   for (const m of indicatrices) {
     const alpha = indicatrixAlpha(m, t);
     if (alpha <= 0 || m.cuts.some((cut) => cut[2] <= -1)) continue;
@@ -245,7 +244,7 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
   if (shown.length > 0) {
     ctx.save();
     clipToOutline(ctx, scene, frame);
-    drawIndicatrices(ctx, shown, t, style, base);
+    drawIndicatrices(ctx, shown, scene.indicatrixRadius ?? INDICATRIX_RADIUS, t, style, base);
     ctx.restore();
   }
 }
