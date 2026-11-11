@@ -1,10 +1,10 @@
 import type { Member } from '../tissot/indicatrix';
 
-const DURATION = 1400; // ms
+export const DURATION = 1400; // ms
 const MIN_WEIGHT = 0.01;
 const MAX_SOURCES = 4;
 
-const easeInOutCubic = (u: number) => (u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2);
+export const easeInOutCubic = (u: number) => (u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2);
 
 /** Whether two members draw the same map. Angles a projection does not use do not count. */
 function sameMap(a: Member, b: Member): boolean {
