@@ -1,7 +1,7 @@
 import { geoArea, geoClipAntimeridian, geoClipCircle, geoClipRectangle, geoRotation } from 'd3-geo';
 import type { GeoStream } from 'd3-geo';
 import type { CompiledProjection, LonLat } from '../projections/types';
-import { CLIP_SPIN, collector, cutGeometry, LOBE_PULL, mapPoints, offLobeEdges, offSeamSide, type Path } from './cut';
+import { CLIP_SPIN, collector, cutGeometry, LOBE_PULL, mapPoints, OFF_EDGE, offLobeEdges, offSeamSide, type Path } from './cut';
 import { densify, SINGULAR_REACH, toVector, type Vector } from './densify';
 
 const rad = Math.PI / 180;
@@ -369,8 +369,7 @@ function lineInRects(line: Turned, rects: Rect[], offEdges: ((p: LonLat) => LonL
   let path = offSeamSide(line.points);
   if (offEdges) {
     // A line along a lobe's edge goes to one side of it, as in a full cut.
-    const b = boundsOf([path]);
-    if (b.x1 - b.x0 < THIN_LINE || b.y1 - b.y0 < THIN_LINE) path = path.map(offEdges);
+    if (isThin(path)) path = path.map(offEdges);
   }
   for (const part of crossesSeam(path) ? cutAtSeam([path], false) : [path]) {
     const bounds = boundsOf([part]);
@@ -384,6 +383,12 @@ function lineInRects(line: Turned, rects: Rect[], offEdges: ((p: LonLat) => LonL
       for (const kept of cutToRect([part], false, rect)) out.push({ closed: false, rings: [kept], lobe: rect.lobe });
     }
   }
+}
+
+/** Whether a path runs along one meridian or one parallel, to within `THIN_LINE` true degrees: near a pole a longitude is all rounding. */
+function isThin(path: LonLat[]): boolean {
+  const [lon0, lat0] = path[Math.floor(path.length / 2)]!;
+  return path.every(([lon, lat]) => Math.abs(lon - lon0) * Math.cos(lat * rad) < THIN_LINE) || path.every(([, lat]) => Math.abs(lat - lat0) < THIN_LINE);
 }
 
 /** Clips paths to the circle `visible` degrees round the frame's centre. */
@@ -473,7 +478,7 @@ export function cutFront(geom: GeoJSON.GeoJsonObject, m: CompiledProjection): Fr
   const matrix = frameMatrix(m);
   const singular = [...m.caps.map((cap) => cap.frameCenter), ...(m.def.singular ?? [])].map(toVector);
   const seam = m.def.seam;
-  const offEdges = seam.kind === 'lobes' ? offLobeEdges(seam.lobes, 2 * LOBE_PULL) : null;
+  const offEdges = seam.kind === 'lobes' ? offLobeEdges(seam.lobes, OFF_EDGE) : null;
   const out: FramePiece[] = [];
   for (const item of prepared(geom)) {
     if (item.kind === 'sphere') {

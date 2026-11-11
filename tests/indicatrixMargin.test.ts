@@ -302,12 +302,12 @@ describe('across a seam', () => {
     expect(restImages(creased(true), [10, 2])[0]!.cuts).toEqual([]);
   });
 
-  test('one whose disc the seam does not reach is whole, and its copy is cut away altogether', () => {
+  test('one whose disc the seam does not reach is whole, and has no part across it', () => {
     const m = member('mollweide');
-    // Eight degrees from the seam: within reach of a copy, and beyond the five degrees of the disc.
-    const [own, copy] = restImages(m, [172, 0]);
-    expect(own!.cuts).toEqual([]);
-    expect(copy!.cuts[0]![2]).toBeLessThanOrEqual(-1);
+    // Eight degrees from the seam: beyond the five degrees of the disc.
+    const images = restImages(m, [172, 0]);
+    expect(images).toHaveLength(1);
+    expect(images[0]!.cuts).toEqual([]);
   });
 });
 

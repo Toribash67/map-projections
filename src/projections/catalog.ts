@@ -18,6 +18,7 @@ import {
   geoVanDerGrintenRaw,
   geoWinkel3Raw,
 } from 'd3-geo-projection';
+import { butterflyLobes, butterflyRaw } from './butterfly';
 import { hemispheresDef } from './hemispheres';
 import { peirceCorners, peirceLobes, peirceRaw } from './peirce';
 import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from './raws';
@@ -251,10 +252,27 @@ const defList: ProjectionDef[] = [
     // map is drawn with its sides upright, not with that diagonal.
     turn: 45,
     raw: () => peirceRaw,
-    // The north pole is the middle of the map, and an ordinary point of it.
-    caps: () => [cap(SOUTH_POLE, 0.1)],
+    // The north pole is the middle of the map, and an ordinary point of it, where the rectangles of the northern lobe have a corner.
+    caps: () => [{ ...cap(NORTH_POLE, 0.1), regular: true }, cap(SOUTH_POLE, 0.1)],
     singular: peirceCorners,
     seam: { kind: 'lobes', lobes: peirceLobes, smoothEquator: true },
+  },
+  {
+    id: 'butterfly',
+    family: 'polyhedral',
+    defaultParams: {},
+    // The gaps between the wings are along the meridians 90 degrees east and west of the centre: 157.5 degrees east, in the Pacific,
+    // and 22.5 degrees west, in the Atlantic, which are two of the meridians Cahill cut along. Asia is in the middle of the right wing.
+    defaultOrientation: { lon: 67.5, lat: 0, tilt: 0 },
+    tiltEnabled: true,
+    latEnabled: true,
+    // North at the frame's origin, which is at the middle of the right wing's edge, points to the pole in the middle of the map: to
+    // the left. The map is drawn with its wings to the sides, not with that direction up.
+    turn: 90,
+    raw: () => butterflyRaw,
+    // Every point of the globe is an ordinary point of some face, the poles too, where four faces have a corner.
+    caps: () => [NORTH_POLE, SOUTH_POLE].map((pole) => ({ ...cap(pole, 0.1), regular: true })),
+    seam: { kind: 'lobes', lobes: butterflyLobes, smoothEquator: false },
   },
   hemispheresDef('hemispheres-nicolosi', geoNicolosiRaw),
   hemispheresDef('hemispheres-stereographic', geoStereographicRaw),
@@ -314,6 +332,7 @@ export const stops: Stop[] = [
 
   stop('goode', 'Goode homolosine', 'polyhedral', 'goode', {}, 'equal-area', 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
   stop('peirce', 'Peirce quincuncial', 'polyhedral', 'peirce', {}, 'conformal', 'Keeps angles and small shapes true over the whole world in a square that tiles the plane, but for four points on the equator, and cuts the southern oceans to do it.'),
+  stop('butterfly', 'Cahill butterfly', 'polyhedral', 'butterfly', {}, 'none', 'Unfolds the globe as the eight faces of an octahedron, on each of which a straight line is a great circle and little is distorted, but creases the map along their edges and cuts the oceans between its wings.'),
 
   stop('nicolosi', 'Nicolosi globular', 'hemispheres', 'hemispheres-nicolosi', {}, 'compromise', 'Draws each hemisphere in a circle, with every meridian and parallel an arc of a circle, as atlases long did, but keeps nothing exactly.'),
   stop('stereographic-hemispheres', 'Stereographic hemispheres', 'hemispheres', 'hemispheres-stereographic', {}, 'conformal', 'Keeps angles and small shapes true in two circles, one for each hemisphere, but inflates areas toward their rims.'),

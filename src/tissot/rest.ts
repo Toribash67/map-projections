@@ -167,39 +167,69 @@ function cutAt(c: CompiledProjection, p: LonLat, edge: Edge, radius: number): Cu
   return [-ne / q, -nn / q, np / (radius * q)];
 }
 
-/** Adds to an image at `frame` its copies across the seams near it, each cut to its side of the seam, and cuts the image to its own. */
+/** The lobe that holds a frame point, as a rectangle of the seam, or undefined. */
+const rectangleAt = (lobes: Lobe[], [lon, lat]: LonLat) => lobes.find((l) => lon >= l.lonMin && lon <= l.lonMax && lat >= l.latMin && lat <= l.latMax);
+
+// How far (degrees) past each of two edges a point is put, to find the lobe that lies across both from a corner.
+const PAST_CORNER = 0.5;
+
+/**
+ * Adds to an image at `frame` its copies across the seams near it, each cut to its side of the seam, and cuts the image to its own.
+ * By a corner where two seams meet, as at a pole of an interrupted map or at a corner of a polyhedral one, there is a part across
+ * each of the two and one more, across both, in the lobe that lies diagonally over the corner.
+ */
 function acrossSeams(c: CompiledProjection, s: Member['screen'], p: LonLat, frame: LonLat, lobe: number | undefined, image: MorphImage, margin: Margin, radius: number): MorphImage[] {
   // As far as an indicatrix of this radius can reach across a seam: see `MIRROR_REACH`.
   const reach = (MIRROR_REACH * radius) / INDICATRIX_RADIUS;
-  const copies: { copy: MorphImage; own: Cut | null }[] = [];
+  const copies: { copy: MorphImage; own: Cut | null; edge: Edge }[] = [];
+  const continued = (lon: number, onLobe: number | undefined): MorphImage | null => {
+    const pos = projectFrame(c, s, [lon, frame[1]], onLobe);
+    const mat = jacobian(c, s, p, { margin, continued: { near: lon, lobe: onLobe } });
+    // The same alpha as the indicatrix itself: they are parts of one disc, and change places as it crosses.
+    return mat && finite(pos) ? { pos, mat, alpha: image.alpha, own: false, cuts: [] } : null;
+  };
   for (const edge of edgesOf(c, frame, lobe)) {
     if (distanceTo(frame, edge) >= reach) continue;
-    const far: LonLat = [frame[0] + edge.shift, frame[1]];
-    const farPos = projectFrame(c, s, far, edge.lobe);
-    const farMat = jacobian(c, s, p, { margin, continued: { near: far[0], lobe: edge.lobe } });
-    if (!farMat || !finite(farPos)) continue;
-    // The same alpha as the indicatrix itself: they are parts of one disc, and change places as it crosses.
-    const copy: MorphImage = { pos: farPos, mat: farMat, alpha: image.alpha, own: false, cuts: [] };
-    // The two parts are the two sides of one chord, so between them they are the disc once, wherever the seam crosses it.
+    // The two parts are the two sides of one chord, so between them they are the disc once, wherever the seam crosses it. Where it
+    // does not cross the disc at all there is no part across it.
     const cut = cutAt(c, p, edge, radius);
-    let own: Cut | null = null;
-    if (cut) {
-      if (cut[2] < 1) own = cut;
-      copy.cuts.push([-cut[0], -cut[1], -cut[2]]);
-    }
-    copies.push({ copy, own });
+    if (cut && cut[2] >= 1) continue;
+    const copy = continued(frame[0] + edge.shift, edge.lobe);
+    if (!copy) continue;
+    if (cut) copy.cuts.push([-cut[0], -cut[1], -cut[2]]);
+    copies.push({ copy, own: cut, edge });
   }
-  // Where two seams are near, at a lobe's corner, a copy across one is on the image's own side of the other.
+  const extra: MorphImage[] = [];
+  const seam = c.def.seam;
+  if (seam.kind === 'lobes') {
+    for (let i = 0; i < copies.length; i++) {
+      for (let j = i + 1; j < copies.length; j++) {
+        const [a, b] = [copies[i]!, copies[j]!];
+        if (!a.own || !b.own) continue;
+        // The lobe over the corner: where a point is that lies just past both edges.
+        const [na, nb] = [a.edge.normal, b.edge.normal];
+        const v = toVector(frame);
+        const beyond = (n: Vec) => v[0] * n[0] + v[1] * n[1] + v[2] * n[2] + Math.sin(PAST_CORNER * rad);
+        const past = v.map((x, k) => x - beyond(na) * na[k]! - beyond(nb) * nb[k]!) as [number, number, number];
+        const length = Math.hypot(...past);
+        const over = rectangleAt(seam.lobes, [Math.atan2(past[1], past[0]) / rad, Math.asin(Math.max(-1, Math.min(1, past[2] / length))) / rad]);
+        if (!over || over.id === lobe || over.id === a.edge.lobe || over.id === b.edge.lobe) continue;
+        const diagonal = continued(frame[0] + a.edge.shift + b.edge.shift, over.id);
+        if (diagonal) extra.push({ ...diagonal, cuts: [[-a.own[0], -a.own[1], -a.own[2]], [-b.own[0], -b.own[1], -b.own[2]]] });
+      }
+    }
+  }
+  // Where two seams are near, a copy across one is on the image's own side of the other.
   for (const { copy, own } of copies) {
     for (const other of copies) if (other.own && other.own !== own) copy.cuts.push(other.own);
   }
   for (const { own } of copies) if (own) image.cuts.push(own);
-  return [image, ...copies.map(({ copy }) => copy)];
+  return [image, ...copies.map(({ copy }) => copy), ...extra];
 }
 
 /** The clip cap that holds a frame point, if any. */
 function capHolding(c: CompiledProjection, frame: LonLat): ExcludedCap | undefined {
-  return clipCaps(c).find((cap) => geoDistance(frame, cap.frameCenter) / rad < cap.radius);
+  return clipCaps(c).find((cap) => !cap.regular && geoDistance(frame, cap.frameCenter) / rad < cap.radius);
 }
 
 /**

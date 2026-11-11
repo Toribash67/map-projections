@@ -1,4 +1,4 @@
-import { geoArea, geoClipAntimeridian, geoClipCircle, geoRotation, geoStream } from 'd3-geo';
+import { geoArea, geoClipAntimeridian, geoClipCircle, geoInterpolate, geoRotation, geoStream } from 'd3-geo';
 import type { GeoPermissibleObjects, GeoStream } from 'd3-geo';
 import { geoClipPolygon } from 'd3-geo-polygon';
 import type { CompiledProjection, ExcludedCap, Lobe, LonLat } from '../projections/types';
@@ -17,6 +17,9 @@ const ON_SEAM = 1e-9;
 // Each further lobed seam pulls in half as far, so that its edges stay clear of an earlier seam's
 // when the two line up.
 export const LOBE_PULL = 1e-6; // degrees
+// How far (degrees) a point lying exactly on a lobe's edge is moved to one side of it. A clip takes anything within 1e-6 radians of
+// its edge for on it, and cannot tell which side a path along its edge is on: this is clear of that, and a hundredth of a pixel.
+export const OFF_EDGE = 2e-4;
 // A lobe stops short of the pole. Any closer and its end edge is too short for the clip's
 // arithmetic, and lies inside the turn that a seam makes round the pole. Each further lobed
 // seam stops twice as far off, because two end edges at one distance cross over and over.
@@ -360,14 +363,15 @@ function lobePolygon(lobe: Lobe, { lobePull, polePull }: Pulls): GeoJSON.Polygon
  * stay on their own side.
  */
 export function offLobeEdges(lobes: Lobe[], gap: number): PointMap {
-  const off = (value: number, edges: number[], top: number) => {
-    const edge = edges.find((e) => Math.abs(value - e) <= ON_LOBE_EDGE);
+  // `scale` is the true length of a degree of the value there: near a pole a longitude is rounding noise many times the size it has at the equator.
+  const off = (value: number, edges: number[], top: number, scale: number) => {
+    const edge = edges.find((e) => Math.abs(value - e) * scale <= ON_LOBE_EDGE);
     if (edge === undefined) return value;
     return edge === top ? edge - gap : edge + gap;
   };
-  const lons = lobes.flatMap((l) => [l.lonMin, l.lonMax]);
-  const lats = lobes.flatMap((l) => [l.latMin, l.latMax]);
-  return ([lon, lat]) => [off(lon, lons, 180), off(lat, lats, 90)];
+  const lons = [...new Set(lobes.flatMap((l) => [l.lonMin, l.lonMax]))];
+  const lats = [...new Set(lobes.flatMap((l) => [l.latMin, l.latMax]))];
+  return ([lon, lat]) => [off(lon, lons, 180, Math.cos(lat * rad)), off(lat, lats, 90, 1)];
 }
 
 /** Splits a part along the member's seam. */
@@ -381,16 +385,79 @@ function cutSeam(part: Part, m: CompiledProjection, key: string, pulls: Pulls): 
     case 'antimeridian':
       return clipPaths(part, frame, (sink) => geoClipAntimeridian(offSeam(sink, pulls.seamPull))).map(child);
     case 'lobes': {
-      const off = offLobeEdges(seam.lobes, 2 * pulls.lobePull);
+      const off = offLobeEdges(seam.lobes, OFF_EDGE);
       const lobeFrame: ClipFrame = { to: (p) => off(m.toFrame(p)), from: m.fromFrame };
-      return seam.lobes.flatMap((lobe) =>
-        clipPaths(part, lobeFrame, geoClipPolygon(lobePolygon(lobe, pulls))).map((path) => ({
-          ...child(path),
-          lobe: new Map(part.lobe).set(key, lobe.id),
-        })),
-      );
+      let cut = seam.lobes.map((lobe) => ({ lobe, paths: clipPaths(part, lobeFrame, geoClipPolygon(lobePolygon(lobe, pulls))) }));
+      // The polygon clip reads whether a line starts inside from the line's first point, and can read it wrong: it then gives the
+      // parts of the line outside the lobe in place of those inside. A line found outside its lobe says so, and the lines are cut
+      // again, in the plain way, lobe by lobe.
+      const strays = cut.some(({ lobe, paths }) => paths.some((path) => !path.closed && path.coords[0]!.some((p) => !inLobe(lobeFrame.to(p), lobe, pulls, STRAY))));
+      if (strays) {
+        const lines: Path[] = [];
+        geoStream(part.geom, collector(lines));
+        const open = lines.filter((path) => !path.closed).map((path) => densify(path.coords[0]!, []).map(lobeFrame.to));
+        cut = cut.map(({ lobe, paths }) => ({
+          lobe,
+          paths: [
+            ...paths.filter((path) => path.closed),
+            ...open.flatMap((line) => lineInLobe(line, lobe, pulls)).map((line): Path => ({ closed: false, coords: [line.map(lobeFrame.from)] })),
+          ],
+        }));
+      }
+      return cut.flatMap(({ lobe, paths }) => paths.map((path) => ({ ...child(path), lobe: new Map(part.lobe).set(key, lobe.id) })));
     }
   }
+}
+
+// A point of a line this far (degrees) outside its lobe has not been cut to the lobe at all.
+const STRAY = 1e-3;
+// How many times the step from a point inside a lobe to the next one outside is halved to find where the line leaves.
+const HALVINGS = 40;
+
+/** Whether a frame point is within a lobe's rectangle, as `lobePolygon` pulls it in, or no more than `slack` degrees outside. */
+function inLobe([lon, lat]: LonLat, lobe: Lobe, { lobePull, polePull }: Pulls, slack = 0): boolean {
+  const south = lobe.latMin === -90 ? -90 + polePull : lobe.latMin + lobePull;
+  const north = lobe.latMax === 90 ? 90 - polePull : lobe.latMax - lobePull;
+  if (lat < south - slack || lat > north + slack) return false;
+  // Right by a pole a longitude says nothing.
+  if (Math.abs(lat) > 89.9) return true;
+  return lon >= lobe.lonMin + lobePull - slack / Math.cos(lat * rad) && lon <= lobe.lonMax - lobePull + slack / Math.cos(lat * rad);
+}
+
+/**
+ * The parts of a line, given in the frame with steps of two degrees at most, that lie in a lobe: cut in the plain way, by walking the
+ * line and finding where it enters and leaves by halving the step across the edge. Slower than a clip and no cleverer, and so not
+ * wrong: it is what a clip's answer is put right with.
+ */
+function lineInLobe(line: LonLat[], lobe: Lobe, pulls: Pulls): LonLat[][] {
+  const inside = (p: LonLat) => inLobe(p, lobe, pulls);
+  /** The point nearest `outer` that is still in the lobe, on the way from `inner`, which is. */
+  const edgeBetween = (inner: LonLat, outer: LonLat): LonLat => {
+    const along = geoInterpolate(inner, outer);
+    let [low, high] = [0, 1];
+    for (let i = 0; i < HALVINGS; i++) {
+      const middle = (low + high) / 2;
+      if (inside(along(middle) as LonLat)) low = middle;
+      else high = middle;
+    }
+    return low === 0 ? inner : (along(low) as LonLat);
+  };
+  const out: LonLat[][] = [];
+  let current: LonLat[] | null = null;
+  line.forEach((point, i) => {
+    const previous = line[i - 1];
+    if (inside(point)) {
+      if (!current) {
+        current = previous ? [edgeBetween(point, previous)] : [];
+        out.push(current);
+      }
+      current.push(point);
+    } else if (current) {
+      current.push(edgeBetween(previous!, point));
+      current = null;
+    }
+  });
+  return out.filter((path) => path.length >= 2);
 }
 
 /** Where a member's frame lands, as two probe points; that pins down a rotation. */

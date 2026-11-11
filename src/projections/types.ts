@@ -5,8 +5,12 @@ export type Orientation = { lon: number; lat: number; tilt: number };
 export type Params = Record<string, number>;
 /** Raw projection in radians, y north-positive. `lobe` is the id of the lobe to draw the point on, as it is: only interrupted projections use it. */
 export type RawFn = (lambda: number, phi: number, lobe?: number) => [number, number];
-/** A circle in the projection's frame (degrees) that the map cannot show. */
-export type ExcludedCap = { frameCenter: LonLat; radius: number; mode: 'clip' | 'behind' };
+/**
+ * A circle in the projection's frame (degrees) that the map cannot show. One that is `regular` is no fault of the map's: the
+ * place is an ordinary point of it, a pole where several lobes have a corner, and a speck round it is left out only because the
+ * clips cannot cut to a corner that a path runs exactly through. Nothing is said to be off the map for being in it.
+ */
+export type ExcludedCap = { frameCenter: LonLat; radius: number; mode: 'clip' | 'behind'; regular?: boolean };
 /**
  * A rectangle of longitude and latitude (degrees) in the frame that an interrupted projection draws in one piece, by the formula of
  * the lobe with this `id`. A lobe is usually one rectangle; one that wraps the antimeridian is two with the same id, and there is no

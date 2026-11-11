@@ -34,7 +34,7 @@ const ramp = (v: number, from: number, to: number) => Math.min(1, Math.max(0, (v
 const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 /** How far (degrees) past a clip cap's edge indicatrices are computed: none for a small cap, `FADE_BAND` for a large one. */
-export const capMargin = (cap: ExcludedCap): number => (cap.mode === 'clip' ? FADE_BAND * ramp(cap.radius, SMALL_CAP, LARGE_CAP) : 0);
+export const capMargin = (cap: ExcludedCap): number => (cap.mode === 'clip' && !cap.regular ? FADE_BAND * ramp(cap.radius, SMALL_CAP, LARGE_CAP) : 0);
 
 /**
  * The alpha of an indicatrix at `p` on a map at rest, for how near it is to the map's clip caps: 1 away from them, falling smoothly
@@ -45,7 +45,8 @@ export function boundaryFade(m: Member, p: LonLat, mat: Mat2): number {
   const frame = m.compiled.toFrame(p);
   let fade = 1;
   for (const cap of m.compiled.caps) {
-    if (cap.mode !== 'clip') continue;
+    // By a regular cap the map is as it is anywhere: nothing fades there.
+    if (cap.mode !== 'clip' || cap.regular) continue;
     const margin = capMargin(cap);
     const distance = geoDistance(frame, cap.frameCenter) / rad;
     // How far the centre is outside the cap, on the map; negative past its edge.
