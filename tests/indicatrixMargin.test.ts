@@ -254,6 +254,54 @@ describe('across a seam', () => {
     expect(restImages(m, [30, 0])[0]!.pos[0]).toBeCloseTo(500 + 100 * ((30 * Math.PI) / 180 + 0.4), 9);
   });
 
+  test('across a crease along the equator, an indicatrix is its two parts, each with its own lobe\'s derivative', () => {
+    // North of the equator an equirectangular map; south of it the same, stretched to twice the height. They meet along the equator.
+    const lobes = [
+      { id: 1, lonMin: -180, lonMax: 180, latMin: 0, latMax: 90 },
+      { id: 2, lonMin: -180, lonMax: 180, latMin: -90, latMax: 0 },
+    ];
+    const creased = (smoothEquator: boolean): Member => {
+      const def: ProjectionDef = {
+        id: 'test-crease',
+        family: 'test',
+        defaultParams: {},
+        defaultOrientation: { lon: 0, lat: 0, tilt: 0 },
+        tiltEnabled: true,
+        latEnabled: true,
+        raw: () => (lambda, phi, lobe) => [lambda, lobe === 2 ? 2 * phi : phi],
+        caps: () => [],
+        seam: { kind: 'lobes', lobes, smoothEquator },
+      };
+      const state = { defId: def.id, params: {}, orientation: def.defaultOrientation };
+      return { compiled: { def, state, raw: def.raw({}), caps: [], toFrame: (p) => p, fromFrame: (p) => p }, screen: { k: 100, tx: 500, ty: 300, cos: 1, sin: 0 }, weight: 1 };
+    };
+    const m = creased(false);
+    for (const [p, ownScale, farScale] of [[[10, 2], 1, 2], [[-70, -1.5], 2, 1]] as [LonLat, number, number][]) {
+      const images = restImages(m, p);
+      expect(images, `${p}`).toHaveLength(2);
+      const [own, far] = images as [(typeof images)[0], (typeof images)[0]];
+      expect([own.own, far.own]).toEqual([true, false]);
+      // The two sides of one chord, which runs east and west through the disc, on the equator's side of the centre.
+      expect(own.cuts).toHaveLength(1);
+      far.cuts[0]!.forEach((v, k) => expect(v).toBeCloseTo(-own.cuts[0]![k]!, 12));
+      expect(Math.abs(own.cuts[0]![0])).toBeLessThan(1e-9);
+      expect(own.cuts[0]![1]).toBeCloseTo(-Math.sign(p[1]), 9);
+      expect(own.cuts[0]![2]).toBeCloseTo(Math.abs(p[1]) / 5, 3);
+      // Each has the derivative of its own lobe: pixels per radian north, 100 in the one and 200 in the other.
+      expect(Math.abs(own.mat[3])).toBeCloseTo(100 * ownScale, 3);
+      expect(Math.abs(far.mat[3])).toBeCloseTo(100 * farScale, 3);
+      // And they meet on the equator: a point of the chord is at the same place by both.
+      const onChord = (image: typeof own) => image.pos[1] + image.mat[3] * ((-p[1] * Math.PI) / 180);
+      expect(onChord(own)).toBeCloseTo(onChord(far), 6);
+      expect(onChord(own)).toBeCloseTo(300, 6);
+    }
+    // Twenty degrees from the equator it is whole.
+    expect(restImages(m, [10, 20])).toHaveLength(1);
+    // Where the map is smooth across the equator, as Goode's is, there is nothing to cut.
+    expect(restImages(creased(true), [10, 2])).toHaveLength(1);
+    expect(restImages(creased(true), [10, 2])[0]!.cuts).toEqual([]);
+  });
+
   test('one whose disc the seam does not reach is whole, and its copy is cut away altogether', () => {
     const m = member('mollweide');
     // Eight degrees from the seam: within reach of a copy, and beyond the five degrees of the disc.

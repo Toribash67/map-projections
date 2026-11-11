@@ -66,16 +66,49 @@ export type MorphImage = { pos: Pair; mat: Mat2 | null; alpha: number | null; ow
 const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const finite = (q: Pair) => Number.isFinite(q[0]) && Number.isFinite(q[1]);
 
-/** A seam the map has next to a point: frame longitude `lon` from `latMin` to `latMax`, and how to reach the far side of it. */
-type Edge = { lon: number; latMin: number; latMax: number; lobe: number | undefined; shift: number; inside: 1 | -1 };
+type Vec = readonly [number, number, number];
 
-/** The seams that bound the part of the map that holds a frame point: the antimeridian, or the sides of its lobe. */
+/**
+ * A seam or crease the map has next to a point: an arc of a great circle of the frame, as the unit normal of the circle on the
+ * point's own side and a test of whether a point of the circle is on the arc, with how to reach the far side: the lobe there, and
+ * the shift of longitude (degrees) that carries the point across the antimeridian to it.
+ */
+type Edge = { normal: Vec; holds(foot: Vec): boolean; lobe: number | undefined; shift: number };
+
+const latOf = (v: Vec) => Math.atan2(v[2], Math.hypot(v[0], v[1])) / rad;
+
+/** A side of a region along the meridian `lon`, from `latMin` to `latMax`, with the region to the east of it (`inside` 1) or the west (-1). */
+function meridianEdge(lon: number, latMin: number, latMax: number, inside: 1 | -1, lobe: number | undefined, shift: number): Edge {
+  const [cos, sin] = [Math.cos(lon * rad), Math.sin(lon * rad)];
+  return {
+    normal: [-inside * sin, inside * cos, 0],
+    // The great circle of the meridian runs on as the opposite meridian, which is not the edge.
+    holds: (foot) => foot[0] * cos + foot[1] * sin > 0 && latOf(foot) >= latMin && latOf(foot) <= latMax,
+    lobe,
+    shift,
+  };
+}
+
+/** A side of a region along the equator, from `lonMin` to `lonMax`, with the region to the north of it (`inside` 1) or the south (-1). */
+function equatorEdge(lonMin: number, lonMax: number, inside: 1 | -1, lobe: number): Edge {
+  return {
+    normal: [0, 0, inside],
+    holds: (foot) => {
+      const lon = Math.atan2(foot[1], foot[0]) / rad;
+      return lon >= lonMin && lon <= lonMax;
+    },
+    lobe,
+    shift: 0,
+  };
+}
+
+/** The seams and creases that bound the part of the map that holds a frame point: the antimeridian, or the sides of its lobe. */
 function edgesOf(c: CompiledProjection, frame: LonLat, lobe: number | undefined): Edge[] {
   const seam = c.def.seam;
   if (seam.kind === 'none') return [];
   if (seam.kind === 'antimeridian') {
     const east = frame[0] >= 0;
-    return [{ lon: east ? 180 : -180, latMin: -90, latMax: 90, lobe: undefined, shift: east ? -360 : 360, inside: east ? -1 : 1 }];
+    return [meridianEdge(east ? 180 : -180, -90, 90, east ? -1 : 1, undefined, east ? -360 : 360)];
   }
   const own = seam.lobes.find((l) => l.id === lobe && frame[0] >= l.lonMin && frame[0] <= l.lonMax && frame[1] >= l.latMin && frame[1] <= l.latMax);
   if (!own) return [];
@@ -87,29 +120,41 @@ function edgesOf(c: CompiledProjection, frame: LonLat, lobe: number | undefined)
     const next = seam.lobes.find((l) => band(l) && (inside === 1 ? l.lonMax === (around ? 180 : lon) : l.lonMin === (around ? -180 : lon)));
     // The other rectangle of the lobe itself is across no seam: the map is one piece there.
     if (!next || next.id === own.id) continue;
-    edges.push({ lon, latMin: own.latMin, latMax: own.latMax, lobe: next.id, shift: around ? 360 * inside : 0, inside });
+    edges.push(meridianEdge(lon, own.latMin, own.latMax, inside, next.id, around ? 360 * inside : 0));
+  }
+  // Along the equator a lobe meets those of the other hemisphere. Where the map does not run smoothly on there, it is creased or
+  // cut, and each lobe across it has its own stretch of the edge.
+  if (!seam.smoothEquator) {
+    const inside = own.latMin === 0 ? 1 : own.latMax === 0 ? -1 : null;
+    if (inside !== null) {
+      for (const across of seam.lobes) {
+        const meets = (inside === 1 ? across.latMax === 0 : across.latMin === 0) && across.id !== own.id;
+        const [from, to] = [Math.max(own.lonMin, across.lonMin), Math.min(own.lonMax, across.lonMax)];
+        if (meets && to > from) edges.push(equatorEdge(from, to, inside, across.id));
+      }
+    }
   }
   return edges;
 }
 
 /**
- * Angle (degrees) from a frame point to a seam, where the nearest point of the seam's meridian lies on the seam itself; infinite where
- * it lies past an end of it. A seam ends at a pole of the frame or at the equator, and its great circle runs on from there as a
- * meridian that is no seam: a disc beside that part is whole, and cutting it along the circle would take half of it away.
+ * Angle (degrees) from a frame point to a seam, where the nearest point of the seam's great circle lies on the seam itself; infinite
+ * where it lies past an end of it. A seam ends at a pole of the frame or at the equator, and its great circle runs on from there as
+ * a line that is no seam: a disc beside that part is whole, and cutting it along the circle would take half of it away.
  */
 function distanceTo(frame: LonLat, edge: Edge): number {
   const v = toVector(frame);
-  const n = [-Math.sin(edge.lon * rad), Math.cos(edge.lon * rad), 0] as const;
-  const off = v[0] * n[0] + v[1] * n[1];
-  const foot = [v[0] - off * n[0], v[1] - off * n[1], v[2]] as const;
-  const footLat = Math.atan2(foot[2], Math.hypot(foot[0], foot[1])) / rad;
-  const onEdge = foot[0] * Math.cos(edge.lon * rad) + foot[1] * Math.sin(edge.lon * rad) > 0;
-  return onEdge && footLat >= edge.latMin && footLat <= edge.latMax ? Math.asin(Math.min(1, Math.abs(off))) / rad : Infinity;
+  const n = edge.normal;
+  const off = v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
+  const foot = [v[0] - off * n[0], v[1] - off * n[1], v[2] - off * n[2]] as const;
+  return edge.holds(foot) ? Math.asin(Math.min(1, Math.abs(off))) / rad : Infinity;
 }
 
-/** The part of an indicatrix at `p`, of `radius` radians, on its own side of a seam, as a `Cut` in its east and north. Null at a frame pole. */
+/** The part of an indicatrix at `p`, of `radius` radians, on its own side of a seam, as a `Cut` in its east and north. Null where the seam's circle has no direction from it. */
 function cutAt(c: CompiledProjection, p: LonLat, edge: Edge, radius: number): Cut | null {
-  const n = toVector(c.fromFrame([edge.lon + 90, 0]));
+  // The normal of the seam's circle, on the indicatrix's own side, carried from the frame to the Earth as a point is.
+  const [nx, ny, nz] = edge.normal;
+  const n = toVector(c.fromFrame([Math.atan2(ny, nx) / rad, Math.asin(Math.max(-1, Math.min(1, nz))) / rad]));
   const [lon, lat] = [p[0] * rad, p[1] * rad];
   const centre = toVector(p);
   const east = [-Math.sin(lon), Math.cos(lon), 0];
@@ -118,8 +163,8 @@ function cutAt(c: CompiledProjection, p: LonLat, edge: Edge, radius: number): Cu
   const [ne, nn, np] = [dot(east), dot(north), dot(centre)];
   const q = Math.hypot(ne, nn);
   if (!(q > 1e-9)) return null;
-  // A point at x (in units of the indicatrix's radius) east and north of the centre is on the lobe's side where inside * (n . point) > 0.
-  return [(-edge.inside * ne) / q, (-edge.inside * nn) / q, (edge.inside * np) / (radius * q)];
+  // A point at x (in units of the indicatrix's radius) east and north of the centre is on its own side where n . point > 0.
+  return [-ne / q, -nn / q, np / (radius * q)];
 }
 
 /** Adds to an image at `frame` its copies across the seams near it, each cut to its side of the seam, and cuts the image to its own. */
