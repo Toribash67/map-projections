@@ -3,7 +3,9 @@
  * properties (--paper, --panel, --ink, --muted, --line, --accent, --accent-wash, --shadow ...), so this file has none of its own.
  */
 :root {
-  --sidebar: 300px;
+  --sidebar: 260px;
+  /* Space between a floating control and the edge of the map. */
+  --inset: 10px;
 }
 
 * {
@@ -17,38 +19,6 @@ body {
   background: var(--paper);
   color: var(--ink);
   font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-}
-
-#app {
-  display: grid;
-  grid-template-columns: var(--sidebar) minmax(0, 1fr);
-  height: 100vh;
-  height: 100dvh;
-}
-
-#map {
-  display: block;
-  /* Placed, as the locator shares its cell and an unplaced canvas would be moved out of it. */
-  grid-column: 2;
-  grid-row: 1;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-}
-
-#sidebar {
-  overflow-y: auto;
-  padding: 14px 14px 20px;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-}
-
-h1 {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
 }
 
 [hidden] {
@@ -66,267 +36,25 @@ input {
   outline-offset: 1px;
 }
 
-/* Projection list */
-.family {
-  border-top: 1px solid var(--line);
+#app {
+  display: grid;
+  grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
 }
 
-.family-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 32px;
-  padding: 4px 0;
-  background: none;
-  border: 0;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.family-head::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  transform: rotate(-45deg);
-  transition: transform 0.12s;
-}
-
-.family-head[aria-expanded='true']::before {
-  transform: rotate(45deg);
-}
-
-.family-head.current::after {
-  content: '';
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.family-body {
-  padding-bottom: 8px;
-}
-
-.stops,
-.limit-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.stop,
-.custom {
-  display: block;
-  width: 100%;
-  padding: 5px 8px 5px 14px;
-  background: none;
-  border: 0;
-  border-left: 2px solid transparent;
-  border-radius: 0 3px 3px 0;
-  text-align: left;
-}
-
-.stop {
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .stop:hover {
-    background: var(--line);
-  }
-}
-
-.stop.current,
-.custom.current {
-  background: var(--accent-wash);
-  border-left-color: var(--accent);
-  font-weight: 600;
-}
-
-.custom {
-  font-style: italic;
-}
-
-/* The limits of the conic sliders */
-.limits {
-  margin: 8px 0 0 14px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--line);
-  color: var(--muted);
-}
-
-.limits p {
-  margin: 0 0 4px;
-  font-size: 12px;
-}
-
-.limit-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.limit {
-  padding: 1px 7px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 12px;
-}
-
-.limit.current {
-  border-color: var(--accent);
-  background: var(--accent-wash);
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.limits-reached {
-  display: none;
-  margin-top: 5px !important;
-  color: var(--accent-text);
-}
-
-.reached .limits-reached {
-  display: block;
-}
-
-/* Sliders */
-.sliders {
-  margin: 6px 0 0 14px;
-}
-
-.slider {
-  margin-top: 8px;
-}
-
-.slider.disabled {
-  opacity: 0.45;
-}
-
-.slider-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.slider-label {
-  flex: 1;
-  color: var(--muted);
-}
-
-.slider-number {
-  width: 58px;
-  padding: 2px 4px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.slider-reset {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.slider-reset:hover:not(:disabled) {
-  border-color: var(--line);
-}
-
-.slider-track {
+/* The map, and the controls that float on it. */
+#stage {
   position: relative;
-  padding: 0 7px;
-}
-
-.slider-range {
-  display: block;
-  width: calc(100% + 14px);
-  margin: 2px -7px 0;
-  accent-color: var(--accent);
-}
-
-.slider-tick {
-  position: absolute;
-  bottom: -2px;
-  width: 1px;
-  height: 4px;
-  background: var(--muted);
-  transform: translateX(-0.5px);
-  pointer-events: none;
-}
-
-.kind {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  margin-top: 10px;
-}
-
-.kind > span {
-  color: var(--muted);
-}
-
-.kind label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.kind input {
-  margin: 0;
-  accent-color: var(--accent);
-}
-
-/* Note, centre and tilt, and Tissot */
-.note,
-.orientation,
-.tissot {
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-
-.orientation {
-  margin-top: 12px;
-}
-
-.orientation-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.orientation h2 {
-  margin: 0;
-  font-size: 13px;
-}
-
-.reset-all {
-  padding: 1px 8px;
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.orientation > .hint {
-  margin-top: 6px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 #map {
+  display: block;
+  width: 100%;
+  height: 100%;
   cursor: grab;
 }
 
@@ -340,60 +68,89 @@ input {
   cursor: crosshair;
 }
 
-.note h3 {
-  margin: 0 0 3px;
-  font-size: 13px;
+.floating {
+  position: absolute;
+  z-index: 2;
 }
 
-.note p,
-.hint {
-  margin: 0;
-  color: var(--muted);
+#tools {
+  top: var(--inset);
+  left: var(--inset);
 }
 
-.tissot {
-  margin-top: 12px;
-}
-
-/* Drawing tools */
-.drawing {
-  margin-bottom: 12px;
-}
-
-.drawing h2 {
-  margin: 0 0 6px;
-  font-size: 13px;
-}
-
-.tool-row {
+#actions {
+  top: var(--inset);
+  right: var(--inset);
   display: flex;
   gap: 6px;
-  margin-bottom: 6px;
 }
 
-.tool,
-.draw-action {
-  flex: 1;
-  padding: 3px 6px;
+#zoom {
+  bottom: var(--inset);
+  left: var(--inset);
+}
+
+.toolbar,
+.zoom-control,
+#actions > .map-button {
+  display: flex;
+  background: var(--panel);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 5px var(--shadow);
+  overflow: hidden;
+}
+
+.zoom-control {
+  flex-direction: column;
+}
+
+.toolbar-gap {
+  width: 1px;
+  margin: 5px 3px;
+  background: var(--line);
+}
+
+.map-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   background: none;
-  border: 1px solid var(--line);
-  border-radius: 3px;
+  border: 0;
+  color: var(--ink);
   cursor: pointer;
 }
 
-.tool[aria-pressed='true'] {
-  background: var(--accent-wash);
-  border-color: var(--accent);
-  font-weight: 600;
-}
-
-.draw-action:disabled {
-  opacity: 0.45;
+.map-button:disabled {
+  opacity: 0.35;
   cursor: default;
 }
 
+.map-button[aria-pressed='true'],
+.map-button[aria-expanded='true'] {
+  background: var(--accent-wash);
+  color: var(--accent-text);
+}
+
+@media (hover: hover) {
+  .map-button:hover:not(:disabled):not([aria-pressed='true']) {
+    background: var(--line);
+  }
+}
+
+/* Why a point was refused: under the drawing tools. */
 .draw-notice {
-  margin: 6px 0 0;
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--inset) + 38px);
+  left: var(--inset);
+  max-width: 260px;
+  margin: 0;
+  padding: 4px 8px;
+  background: var(--panel);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--accent), 0 1px 5px var(--shadow);
   color: var(--accent-text);
   font-size: 12px;
 }
@@ -409,38 +166,15 @@ input {
   pointer-events: none;
 }
 
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.toggle input {
-  accent-color: var(--accent);
-}
-
-.hint {
-  font-size: 12px;
-}
-
-.sliders > .hint {
-  margin-bottom: 4px;
-}
-
-/* Locator globe: in the corner of the map's cell, over the map. */
+/* Locator globe: in the corner of the map. */
 #locator {
   --locator: 96px;
-  grid-column: 2;
-  grid-row: 1;
-  align-self: end;
-  justify-self: end;
+  position: absolute;
   z-index: 1;
+  right: var(--inset);
+  bottom: var(--inset);
   width: var(--locator);
   height: var(--locator);
-  margin: 10px;
   border-radius: 50%;
   /* The square canvas is clipped round, so its corners pass clicks and drags on to the map. */
   overflow: hidden;
@@ -460,33 +194,217 @@ input {
   height: 100%;
 }
 
-/* Narrow screens: the map on top, the controls scrolling below it. */
-@media (max-width: 720px) {
-  #app {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 46%) minmax(0, 1fr);
-  }
+/* The sidebar: a filter, the list, which scrolls, and the parameters of the map on screen, which stay in view. */
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
 
-  #map {
-    grid-column: 1;
-  }
+h1 {
+  margin: 0;
+  padding: 12px 14px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
 
-  #locator {
-    --locator: 72px;
-    grid-column: 1;
-    margin: 6px;
-  }
+.filter {
+  margin: 0 14px 8px;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
 
-  #sidebar {
-    grid-row: 2;
-    border-right: 0;
-    border-top: 1px solid var(--line);
-  }
+.filter::placeholder {
+  color: var(--muted);
+}
 
-  .stop,
-  .family-head {
-    min-height: 38px;
+.projection-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.family-name {
+  margin: 8px 14px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stops {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stop {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 3px 14px 3px 12px;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stop-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.tag {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (hover: hover) {
+  .stop:hover {
+    background: var(--line);
   }
+}
+
+.stop.current {
+  background: var(--accent-wash);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.parameters {
+  flex: none;
+  max-height: 60%;
+  overflow-y: auto;
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.parameters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.map-name {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reset-all {
+  flex: none;
+  padding: 1px 8px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Sliders */
+.slider {
+  margin-top: 6px;
+}
+
+.slider-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slider-label {
+  flex: 1;
+  color: var(--muted);
+}
+
+.slider-number {
+  width: 58px;
+  padding: 1px 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-reset {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.slider-reset .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.slider-reset:hover,
+.reset-all:hover {
+  border-color: var(--muted);
+}
+
+.slider-track {
+  position: relative;
+  padding: 0 7px;
+}
+
+.slider-range {
+  display: block;
+  width: calc(100% + 14px);
+  margin: 1px -7px 0;
+  accent-color: var(--accent);
+}
+
+.slider-tick {
+  position: absolute;
+  bottom: -2px;
+  width: 1px;
+  height: 4px;
+  background: var(--muted);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
+.kind-label {
+  color: var(--muted);
+}
+
+.kind-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.kind input {
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 /* Tips and popovers */
@@ -530,50 +448,58 @@ input {
   flex: none;
 }
 
-/* Zoom: in the corner of the map's cell, over the map. */
-#zoom {
-  grid-column: 2;
-  grid-row: 1;
-  align-self: end;
-  justify-self: start;
-  z-index: 1;
-  margin: 10px;
-}
-
-.zoom-control {
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border-radius: 6px;
-  box-shadow: 0 0 0 1px var(--line), 0 1px 5px var(--shadow);
-  overflow: hidden;
-}
-
-.map-button {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  background: none;
-  border: 0;
-  cursor: pointer;
-}
-
-.map-button:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-@media (hover: hover) {
-  .map-button:hover:not(:disabled) {
-    background: var(--line);
-  }
-}
-
+/* Narrow screens: the map on top, with its own controls still on it, and the sidebar scrolling below. */
 @media (max-width: 720px) {
-  #zoom {
-    grid-column: 1;
-    margin: 6px;
+  :root {
+    --inset: 6px;
+  }
+
+  #app {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 46%) minmax(0, 1fr);
+  }
+
+  #stage {
+    grid-row: 1;
+  }
+
+  #sidebar {
+    grid-row: 2;
+    border-right: 0;
+    border-top: 1px solid var(--line);
+    overflow-y: auto;
+  }
+
+  /* One scroll for the whole sidebar, with the parameters first, where a thumb reaches them. */
+  .projection-list,
+  .parameters {
+    flex: none;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .parameters {
+    order: -1;
+    border-top: 0;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 8px;
+  }
+
+  #sidebar > h1 {
+    order: -2;
+  }
+
+  #locator {
+    --locator: 72px;
+  }
+
+  .stop {
+    min-height: 34px;
+    align-items: center;
+  }
+
+  .map-button {
+    width: 36px;
+    height: 36px;
   }
 }

@@ -14,7 +14,7 @@ import {
   geoWinkel3Raw,
 } from 'd3-geo-projection';
 import { cylindricalRaw, goodeRaw, perspectiveRaw } from './raws';
-import type { ExcludedCap, Lobe, Orientation, Params, ProjectionDef, Seam, Stop } from './types';
+import type { ExcludedCap, Lobe, Orientation, Params, Preserves, ProjectionDef, Seam, Stop } from './types';
 
 const rad = Math.PI / 180;
 
@@ -235,35 +235,36 @@ const stop = (
   family: string,
   defId: string,
   params: Params,
+  preserves: Preserves,
   note: string,
   extra: Pick<Stop, 'tilt' | 'ignoreParams'> = {},
-): Stop => ({ id, name, family, note, defId, params, ...extra });
+): Stop => ({ id, name, family, note, preserves, defId, params, ...extra });
 
 export const stops: Stop[] = [
-  stop('globe', 'Globe', 'globe', 'globe', {}, 'Keeps every shape, area and distance true at once, but shows only one hemisphere at a time.'),
+  stop('globe', 'Globe', 'globe', 'globe', {}, 'none', 'Keeps every shape, area and distance true at once, but shows only one hemisphere at a time.'),
 
-  stop('gnomonic', 'Gnomonic', 'azimuthal', 'perspective', { x: 0 }, 'Keeps every straight line a great circle, the shortest route, but stretches shapes and areas ever more toward the edge and cannot show a full hemisphere.'),
-  stop('stereographic', 'Stereographic', 'azimuthal', 'perspective', { x: 0.5 }, 'Keeps angles and small shapes true and turns circles into circles, but inflates areas away from the centre.'),
-  stop('orthographic', 'Orthographic', 'azimuthal', 'perspective', { x: 1 }, 'Looks like the Earth seen from far away, but squeezes shapes and areas toward the rim.'),
-  stop('azimuthal-equidistant', 'Azimuthal equidistant', 'azimuthal', 'azimuthal-equidistant', {}, 'Keeps distances and directions true from the centre, but distorts shapes and areas far from it.'),
-  stop('lambert-azimuthal', 'Lambert azimuthal equal-area', 'azimuthal', 'lambert-azimuthal', {}, 'Keeps areas true and directions from the centre right, but bends shapes toward the edge.'),
+  stop('gnomonic', 'Gnomonic', 'azimuthal', 'perspective', { x: 0 }, 'none', 'Keeps every straight line a great circle, the shortest route, but stretches shapes and areas ever more toward the edge and cannot show a full hemisphere.'),
+  stop('stereographic', 'Stereographic', 'azimuthal', 'perspective', { x: 0.5 }, 'conformal', 'Keeps angles and small shapes true and turns circles into circles, but inflates areas away from the centre.'),
+  stop('orthographic', 'Orthographic', 'azimuthal', 'perspective', { x: 1 }, 'none', 'Looks like the Earth seen from far away, but squeezes shapes and areas toward the rim.'),
+  stop('azimuthal-equidistant', 'Azimuthal equidistant', 'azimuthal', 'azimuthal-equidistant', {}, 'equidistant', 'Keeps distances and directions true from the centre, but distorts shapes and areas far from it.'),
+  stop('lambert-azimuthal', 'Lambert azimuthal equal-area', 'azimuthal', 'lambert-azimuthal', {}, 'equal-area', 'Keeps areas true and directions from the centre right, but bends shapes toward the edge.'),
 
-  stop('mercator', 'Mercator', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 0 }, 'Keeps angles and local shapes true, so it suits navigation, but inflates areas toward the poles.', { ignoreParams: ['phi0'] }),
-  stop('transverse-mercator', 'Transverse Mercator', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 0 }, 'Mercator turned a quarter turn, so it keeps angles and shapes true along a meridian, but inflates areas away from it.', { tilt: 90, ignoreParams: ['phi0'] }),
-  stop('equirectangular', 'Equirectangular', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 1 }, 'Plots longitude and latitude as a plain grid, which is simple to use, but stretches shapes and areas away from the equator.'),
-  stop('lambert-cylindrical', 'Lambert cylindrical equal-area', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 2 }, 'Keeps areas true, but stretches shapes badly near the poles.'),
-  stop('behrmann', 'Behrmann', 'cylindrical', 'cylindrical', { phi0: 30, spacing: 2 }, 'Keeps areas true with less shape distortion at mid-latitudes than Lambert, but squashes the tropics.'),
-  stop('gall-peters', 'Gall-Peters', 'cylindrical', 'cylindrical', { phi0: 45, spacing: 2 }, 'Keeps areas true, but stretches the tropics tall and squashes the high latitudes wide.'),
+  stop('mercator', 'Mercator', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 0 }, 'conformal', 'Keeps angles and local shapes true, so it suits navigation, but inflates areas toward the poles.', { ignoreParams: ['phi0'] }),
+  stop('transverse-mercator', 'Transverse Mercator', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 0 }, 'conformal', 'Mercator turned a quarter turn, so it keeps angles and shapes true along a meridian, but inflates areas away from it.', { tilt: 90, ignoreParams: ['phi0'] }),
+  stop('equirectangular', 'Equirectangular', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 1 }, 'equidistant', 'Plots longitude and latitude as a plain grid, which is simple to use, but stretches shapes and areas away from the equator.'),
+  stop('lambert-cylindrical', 'Lambert cylindrical equal-area', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 2 }, 'equal-area', 'Keeps areas true, but stretches shapes badly near the poles.'),
+  stop('behrmann', 'Behrmann', 'cylindrical', 'cylindrical', { phi0: 30, spacing: 2 }, 'equal-area', 'Keeps areas true with less shape distortion at mid-latitudes than Lambert, but squashes the tropics.'),
+  stop('gall-peters', 'Gall-Peters', 'cylindrical', 'cylindrical', { phi0: 45, spacing: 2 }, 'equal-area', 'Keeps areas true, but stretches the tropics tall and squashes the high latitudes wide.'),
 
-  stop('albers', 'Albers', 'conic', 'conic-equal-area', { p1: 29.5, p2: 45.5 }, 'Keeps areas true with little shape distortion between its two standard parallels, but distorts shapes farther away.'),
-  stop('lambert-conformal', 'Lambert conformal conic', 'conic', 'conic-conformal', { p1: 33, p2: 45 }, 'Keeps angles and local shapes true, so it suits flight charts, but inflates areas away from its standard parallels.'),
+  stop('albers', 'Albers', 'conic', 'conic-equal-area', { p1: 29.5, p2: 45.5 }, 'equal-area', 'Keeps areas true with little shape distortion between its two standard parallels, but distorts shapes farther away.'),
+  stop('lambert-conformal', 'Lambert conformal conic', 'conic', 'conic-conformal', { p1: 33, p2: 45 }, 'conformal', 'Keeps angles and local shapes true, so it suits flight charts, but inflates areas away from its standard parallels.'),
 
-  stop('robinson', 'Robinson', 'compromise', 'robinson', {}, 'Trades small distortions of shape, area and distance against each other to look right, but preserves none of them exactly.'),
-  stop('winkel-tripel', 'Winkel Tripel', 'compromise', 'winkel3', {}, 'Balances distortion of area, direction and distance across the whole world, but keeps none of them exactly.'),
+  stop('robinson', 'Robinson', 'compromise', 'robinson', {}, 'compromise', 'Trades small distortions of shape, area and distance against each other to look right, but preserves none of them exactly.'),
+  stop('winkel-tripel', 'Winkel Tripel', 'compromise', 'winkel3', {}, 'compromise', 'Balances distortion of area, direction and distance across the whole world, but keeps none of them exactly.'),
 
-  stop('equal-earth', 'Equal Earth', 'equal-area', 'equal-earth', {}, 'Keeps areas true with a pleasing shape, but distorts shapes toward the poles and edges; the UN General Assembly\'s non-binding September 2026 "Correct the Map" resolution encouraged its use.'),
-  stop('mollweide', 'Mollweide', 'equal-area', 'mollweide', {}, 'Keeps areas true in a single ellipse, but squashes shapes near the poles and the edges.'),
-  stop('sinusoidal', 'Sinusoidal', 'equal-area', 'sinusoidal', {}, 'Keeps areas true and distances along parallels, but shears shapes badly toward the edges.'),
-  stop('hammer', 'Hammer', 'equal-area', 'hammer', {}, 'Keeps areas true in a smooth ellipse, but bends shapes toward the edges.'),
-  stop('goode', 'Goode homolosine', 'equal-area', 'goode', {}, 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
+  stop('equal-earth', 'Equal Earth', 'equal-area', 'equal-earth', {}, 'equal-area', 'Keeps areas true with a pleasing shape, but distorts shapes toward the poles and edges; the UN General Assembly\'s non-binding September 2026 "Correct the Map" resolution encouraged its use.'),
+  stop('mollweide', 'Mollweide', 'equal-area', 'mollweide', {}, 'equal-area', 'Keeps areas true in a single ellipse, but squashes shapes near the poles and the edges.'),
+  stop('sinusoidal', 'Sinusoidal', 'equal-area', 'sinusoidal', {}, 'equal-area', 'Keeps areas true and distances along parallels, but shears shapes badly toward the edges.'),
+  stop('hammer', 'Hammer', 'equal-area', 'hammer', {}, 'equal-area', 'Keeps areas true in a smooth ellipse, but bends shapes toward the edges.'),
+  stop('goode', 'Goode homolosine', 'equal-area', 'goode', {}, 'equal-area', 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
 ];

@@ -1,4 +1,6 @@
 import { el } from './dom';
+import { icon } from './icons';
+import { tip } from './tooltip';
 
 /** The value of `stops` nearest to `v` if it lies within `tolerance`, else `v`. */
 export function snapValue(v: number, stops: number[], tolerance: number): number {
@@ -13,15 +15,12 @@ export function snapValue(v: number, stops: number[], tolerance: number): number
 
 export const clampTilt = (v: number): number => Math.min(90, Math.max(0, v));
 
-export const formatDegrees = (v: number): string => `${Math.round(v * 100) / 100}\u00b0`;
-/** Typed text for an angle: a number, with or without the degree sign. */
-export function parseDegrees(raw: string): number | null {
-  const text = raw.replace('\u00b0', '').trim();
-  return text === '' || !Number.isFinite(Number(text)) ? null : Number(text);
-}
+export { formatDegrees, parseDegrees } from '../geo/angles';
 
 export interface SliderOptions {
   label: string;
+  /** What the value means, as the tip of the label and the description of the slider. */
+  tip?: string;
   min: number;
   max: number;
   step: number;
@@ -64,7 +63,7 @@ export function createSlider(opts: SliderOptions): Slider {
   const head = el('div', 'slider-head');
   const range = el('input', 'slider-range');
   const number = el('input', 'slider-number');
-  const reset = el('button', 'slider-reset', '↺');
+  const reset = el('button', 'slider-reset');
   const label = el('label', 'slider-label', opts.label);
 
   range.type = 'range';
@@ -75,8 +74,13 @@ export function createSlider(opts: SliderOptions): Slider {
   number.inputMode = 'decimal';
   number.setAttribute('aria-label', `${opts.label}, value`);
   reset.type = 'button';
-  reset.title = `Reset ${opts.label.toLowerCase()}`;
-  reset.setAttribute('aria-label', reset.title);
+  reset.setAttribute('aria-label', `Reset ${opts.label.toLowerCase()}`);
+  reset.append(icon('reset'));
+  tip(reset, `Reset ${opts.label.toLowerCase()}`);
+  if (opts.tip) {
+    tip(label, opts.tip);
+    range.setAttribute('aria-description', opts.tip);
+  }
 
   const track = el('div', 'slider-track');
   track.append(range);

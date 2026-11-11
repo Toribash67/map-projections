@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseViewpoint } from '../src/ui/sidebar';
+import { parseViewpoint } from '../src/projections/controls';
 import { clampLat, normaliseLon } from '../src/geo/angles';
 import { clampTilt, parseDegrees, snapValue } from '../src/ui/slider';
 

@@ -18,7 +18,6 @@ export const openPaused = async (page: Page) => {
   await page.clock.runFor(32);
 };
 
-export const head = (page: Page, family: string) => page.locator(`[data-family="${family}"] > .family-head`);
 export const stopButton = (page: Page, id: string) => page.locator(`[data-stop="${id}"]`);
 export const slider = (page: Page, name: string) => page.getByRole('slider', { name, exact: true });
 export const numberBox = (page: Page, name: string) => page.getByRole('textbox', { name: `${name}, value`, exact: true });
@@ -29,12 +28,11 @@ export const isSliding = (page: Page): Promise<boolean> => page.evaluate(() => (
 export const state = (page: Page): Promise<ProjectionState> => page.evaluate(() => JSON.parse(JSON.stringify((window as any).__app.state)));
 export const isCurrent = (page: Page, selector: string) => page.locator(selector).getAttribute('aria-current').then((v) => v === 'true');
 
-/** Clicks a named projection in its family, opening the family first as a person would. */
-export async function pick(page: Page, id: string) {
-  const family = stop(id).family;
-  if ((await head(page, family).getAttribute('aria-expanded')) !== 'true') await head(page, family).click();
-  await stopButton(page, id).click();
-}
+/** Clicks a named projection in the list. */
+export const pick = (page: Page, id: string) => stopButton(page, id).click();
+
+/** The name of the map on screen, as the heading of its parameters has it. */
+export const mapName = (page: Page) => page.locator('#parameters h2');
 
 /** Moves a slider the way the browser does: set a value and fire `input`. */
 export const move = (page: Page, name: string, value: number) =>

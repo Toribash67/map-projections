@@ -2,61 +2,58 @@ import type { App } from '../app';
 import { DrawingModel, type Tool } from '../drawing/model';
 import { screenToLonLat } from '../screen/screen';
 import { el } from './dom';
+import { icon, type IconName } from './icons';
 import { attachMapPointer } from './mapPointer';
+import { tip } from './tooltip';
 
 type Pair = [number, number];
 
-const TOOLS: [Exclude<Tool, 'none'>, string][] = [['line', 'Line'], ['polygon', 'Polygon'], ['circle', 'Circle']];
-const HINTS: Record<Tool, string> = {
-  none: 'Choose a tool, then click the map to place points. Dragging still moves the map.',
-  line: 'Click to place points. Finish, Enter or a double-click ends the line, Escape cancels it.',
-  polygon: 'Click to place points. Finish, Enter or a double-click closes the polygon, Escape cancels it.',
-  circle: 'Click for the centre, then click again for the radius. Escape cancels.',
-};
+const TOOLS: { tool: Exclude<Tool, 'none'>; label: string; key: string; text: string }[] = [
+  { tool: 'line', label: 'Line', key: 'L', text: 'Draw a line: click to place points, then Finish, Enter or a double-click. Escape cancels' },
+  { tool: 'polygon', label: 'Polygon', key: 'P', text: 'Draw a polygon: click to place corners, then Finish, Enter or a double-click. Escape cancels' },
+  { tool: 'circle', label: 'Circle', key: 'C', text: 'Draw a circle: click for the centre, then again for the radius. Escape cancels' },
+];
 // The second click of a double-click, within this long (ms) and this far (CSS pixels) of the first, places no point of its own.
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 6;
 
-/** Whether typing is going into this element, which then owns Enter and Escape. */
+/** Whether typing is going into this element, which then owns the keys. */
 const isTyping = (target: EventTarget | null) => target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]') !== null;
 
 const formatKm = (km: number) => `${km < 100 ? km.toFixed(1) : Math.round(km).toLocaleString('en-US')} km`;
 
 /**
- * The line, polygon and circle tools: their buttons and notice in the sidebar, and what the map
- * does with clicks, the cursor and the keyboard. Clicks reach the model as latitude and
- * longitude, and what it draws is handed to the app as its shapes. Also attaches the map pointer.
+ * The line, polygon and circle tools: their buttons on the map, and what the map does with clicks, the cursor and the keyboard. Clicks
+ * reach the model as latitude and longitude, and what it draws is handed to the app as its shapes. Why a point was refused is said in
+ * `notice`. Also attaches the map pointer.
  */
-export function createDrawingTools(app: App, canvas: HTMLCanvasElement): { el: HTMLElement; model: DrawingModel } {
+export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice: HTMLElement): { el: HTMLElement; model: DrawingModel } {
   const model = new DrawingModel();
-  const root = el('section', 'drawing');
-  root.setAttribute('role', 'group');
+  const root = el('div', 'toolbar');
+  root.setAttribute('role', 'toolbar');
   root.setAttribute('aria-label', 'Drawing tools');
-  const buttons = TOOLS.map(([tool, label]) => {
-    const button = el('button', 'tool', label);
-    button.type = 'button';
-    button.addEventListener('click', () => model.setTool(model.tool === tool ? 'none' : tool));
-    return { tool, button };
+
+  const button = (name: IconName, label: string, text: string, shortcut: string | undefined, className: string, act: () => void) => {
+    const b = el('button', `map-button ${className}`);
+    b.type = 'button';
+    b.setAttribute('aria-label', label);
+    b.append(icon(name));
+    tip(b, text, shortcut);
+    b.addEventListener('click', act);
+    root.append(b);
+    return b;
+  };
+  const choose = (tool: Exclude<Tool, 'none'>) => model.setTool(model.tool === tool ? 'none' : tool);
+  const buttons = TOOLS.map(({ tool, label, key, text }) => {
+    const b = button(tool, label, text, key, 'tool', () => choose(tool));
+    b.dataset.tool = tool;
+    return { tool, button: b };
   });
-  const toolRow = el('div', 'tool-row');
-  toolRow.append(...buttons.map((b) => b.button));
+  root.append(el('span', 'toolbar-gap'));
   // A phone has no Enter, and a double tap is no surer than two taps: Finish does what Enter does.
-  const finish = el('button', 'draw-action', 'Finish');
-  const undo = el('button', 'draw-action', 'Undo');
-  const clear = el('button', 'draw-action', 'Clear');
-  for (const button of [finish, undo, clear]) button.type = 'button';
-  finish.title = 'End the line, or close the polygon';
-  undo.title = 'Take back the last point, then the last shape';
-  clear.title = 'Remove every shape';
-  finish.addEventListener('click', () => model.finish());
-  undo.addEventListener('click', () => model.undo());
-  clear.addEventListener('click', () => model.clear());
-  const actionRow = el('div', 'tool-row');
-  actionRow.append(finish, undo, clear);
-  const hint = el('p', 'hint');
-  const notice = el('p', 'draw-notice');
-  notice.setAttribute('role', 'status');
-  root.append(el('h2', '', 'Draw'), toolRow, actionRow, hint, notice);
+  const finish = button('finish', 'Finish', 'End the line, or close the polygon', 'Enter', 'draw-action', () => model.finish());
+  const undo = button('undo', 'Undo', 'Take back the last point, then the last shape', undefined, 'draw-action', () => model.undo());
+  const clear = button('clear', 'Clear', 'Remove every shape', undefined, 'draw-action', () => model.clear());
 
   // The circle's radius, by the cursor while it is being chosen.
   const readout = el('div', 'draw-readout');
@@ -99,11 +96,15 @@ export function createDrawingTools(app: App, canvas: HTMLCanvasElement): { el: H
   });
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
+    const chosen = TOOLS.find(({ key }) => key === e.key.toUpperCase());
     if (e.key === 'Escape' && model.draft) {
       model.cancel();
       e.preventDefault();
     } else if (e.key === 'Enter' && model.draft && !(e.target instanceof HTMLButtonElement)) {
       model.finish();
+      e.preventDefault();
+    } else if (chosen) {
+      choose(chosen.tool);
       e.preventDefault();
     }
   });
@@ -114,9 +115,8 @@ export function createDrawingTools(app: App, canvas: HTMLCanvasElement): { el: H
   });
 
   function render(): void {
-    for (const { tool, button } of buttons) button.setAttribute('aria-pressed', String(model.tool === tool));
+    for (const { tool, button: b } of buttons) b.setAttribute('aria-pressed', String(model.tool === tool));
     canvas.dataset.tool = model.tool;
-    hint.textContent = HINTS[model.tool];
     notice.textContent = model.notice ?? '';
     notice.hidden = model.notice === null;
     const km = model.radiusKm;

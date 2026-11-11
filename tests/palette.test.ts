@@ -99,11 +99,11 @@ describe('the light palette\'s accent as text', () => {
   });
 });
 
-test('the accent as text is only text: the notices use it, and nothing else does', () => {
-  const uses = (token: string) => [...styleCss.matchAll(new RegExp(`([^{}]+)\\{[^}]*var\\(--${token}\\)`, 'g'))].map((m) => m[1]!.trim());
-  expect(uses('accent-text').sort()).toEqual(['.draw-notice', '.limits-reached']);
-  expect(uses('accent')).not.toContain('.draw-notice');
-  expect(uses('accent')).not.toContain('.limits-reached');
+test('the accent as text is only for text and glyphs: the notice and the icon of a pressed button use it, and nothing else does', () => {
+  const uses = (token: string) => [...styleCss.replace(/\/\*[^]*?\*\//g, '').matchAll(new RegExp(`([^{}]+)\\{[^}]*var\\(--${token}\\)`, 'g'))].map((m) => m[1]!.trim().replace(/\s+/g, ' '));
+  expect(uses('accent-text').sort()).toEqual(['.draw-notice', ".map-button[aria-pressed='true'], .map-button[aria-expanded='true']"]);
+  // Its border is the accent, as a line; its words are not.
+  expect(styleCss).toMatch(/\.draw-notice \{[^}]*color: var\(--accent-text\)/);
 });
 
 describe('the dark palette is legible', () => {

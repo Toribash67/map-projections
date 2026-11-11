@@ -23,11 +23,16 @@ export interface ProjectionDef {
   seam: Seam;
 }
 
+/** What a projection keeps true everywhere: angles, areas, some distances; a balance of all three that keeps none; or nothing in particular. */
+export type Preserves = 'conformal' | 'equal-area' | 'equidistant' | 'compromise' | 'none';
+
 export interface Stop {
   id: string;
   name: string;
   family: string;
+  /** One sentence on what it keeps and what it gives up, shown as the tip of its name in the list. */
   note: string;
+  preserves: Preserves;
   defId: string;
   params: Params;
   tilt?: number;

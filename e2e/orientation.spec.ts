@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { compile } from '../src/projections/compile';
 import type { LonLat, Orientation, ProjectionState } from '../src/projections/types';
 import { projectPoint, screenToLonLat, type ScreenTransform } from '../src/screen/screen';
-import { isCurrent, isMorphing, move, numberBox, open, openPaused, pick, settle, slider, state, stop, type } from './support';
+import { isCurrent, isMorphing, move, numberBox, open, openPaused, pick, settle, slider, state, stop, type, mapName } from './support';
 
 type Pair = [number, number];
 
@@ -147,7 +147,7 @@ test('each reset restores its default; reset-all restores all three', async ({ p
   expect((await orientation(page)).lon).toBe(10);
 });
 
-test('tilt snaps at 0 and 90 and is disabled on globe, azimuthals and conics', async ({ page }) => {
+test('tilt snaps at 0 and 90, and there is no tilt control on the globe, the azimuthals and the conics', async ({ page }) => {
   await open(page);
   await pick(page, 'mollweide');
   await settle(page);
@@ -165,12 +165,13 @@ test('tilt snaps at 0 and 90 and is disabled on globe, azimuthals and conics', a
   await page.keyboard.press('ArrowLeft');
   expect((await orientation(page)).tilt).toBe(89);
 
+  // On these a tilt would only spin the page, or the cone's axis is held to the pole: the control is not there at all.
   for (const id of ['globe', 'gnomonic', 'stereographic', 'orthographic', 'azimuthal-equidistant', 'lambert-azimuthal', 'albers', 'lambert-conformal']) {
     await pick(page, id);
     await settle(page);
-    await expect(slider(page, 'Tilt'), id).toBeDisabled();
-    await expect(numberBox(page, 'Tilt'), id).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Reset tilt', exact: true }), id).toBeDisabled();
+    await expect(slider(page, 'Tilt'), id).toHaveCount(0);
+    await expect(numberBox(page, 'Tilt'), id).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reset tilt', exact: true }), id).toHaveCount(0);
     await expect(slider(page, 'Longitude'), id).toBeEnabled();
   }
   for (const id of ['mercator', 'equirectangular', 'robinson', 'goode']) {
@@ -178,22 +179,16 @@ test('tilt snaps at 0 and 90 and is disabled on globe, azimuthals and conics', a
     await settle(page);
     await expect(slider(page, 'Tilt'), id).toBeEnabled();
   }
-  // Why it is off is said, next to it.
-  await pick(page, 'gnomonic');
-  await settle(page);
-  await expect(page.locator('.orientation .hint')).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Centre and tilt' })).toHaveAccessibleDescription(/spin/);
 });
 
-test('latitude is disabled on conics', async ({ page }) => {
+test('there is no latitude control on a conic', async ({ page }) => {
   await open(page);
   for (const id of ['albers', 'lambert-conformal']) {
     await pick(page, id);
     await settle(page);
-    await expect(slider(page, 'Latitude'), id).toBeDisabled();
-    await expect(numberBox(page, 'Latitude'), id).toBeDisabled();
+    await expect(slider(page, 'Latitude'), id).toHaveCount(0);
+    await expect(numberBox(page, 'Latitude'), id).toHaveCount(0);
     await expect(slider(page, 'Longitude'), id).toBeEnabled();
-    await expect(page.getByRole('group', { name: 'Centre and tilt' })).toHaveAccessibleDescription(/sideways/);
   }
   await pick(page, 'robinson');
   await settle(page);
@@ -269,24 +264,23 @@ test('tilt slider to 90 on Mercator highlights Transverse Mercator; moving away 
   await move(page, 'Tilt', 89);
   expect(await isCurrent(page, '[data-stop="transverse-mercator"]')).toBe(true);
   expect(await isCurrent(page, '[data-stop="mercator"]')).toBe(false);
-  await expect(page.locator('#note h3')).toHaveText('Transverse Mercator');
+  await expect(mapName(page)).toHaveText('Transverse Mercator');
   await move(page, 'Tilt', 1);
   expect((await orientation(page)).tilt).toBe(0);
   expect(await isCurrent(page, '[data-stop="mercator"]')).toBe(true);
   expect(await isCurrent(page, '[data-stop="transverse-mercator"]')).toBe(false);
-  await expect(page.locator('#note h3')).toHaveText('Mercator');
+  await expect(mapName(page)).toHaveText('Mercator');
 });
 
 test('a tilted map keeps its name: Mercator and Mollweide at tilt 45', async ({ page }) => {
   await open(page);
-  for (const [id, name, family] of [['mercator', 'Mercator', 'cylindrical'], ['mollweide', 'Mollweide', 'equal-area']]) {
+  for (const [id, name] of [['mercator', 'Mercator'], ['mollweide', 'Mollweide']]) {
     await pick(page, id!);
     await settle(page);
     await move(page, 'Tilt', 45);
     expect((await orientation(page)).tilt).toBe(45);
     expect(await isCurrent(page, `[data-stop="${id}"]`), id).toBe(true);
-    await expect(page.locator(`[data-family="${family}"] [data-custom]`)).toBeHidden();
-    await expect(page.locator('#note h3')).toHaveText(name!);
+    await expect(mapName(page)).toHaveText(name!);
     // A drag, which can move the centre anywhere, keeps the name too.
     await setOrientation(page, { lon: -60, lat: 35, tilt: 45 });
     expect(await isCurrent(page, `[data-stop="${id}"]`), id).toBe(true);
@@ -295,7 +289,7 @@ test('a tilted map keeps its name: Mercator and Mollweide at tilt 45', async ({ 
   await pick(page, 'equirectangular');
   await settle(page);
   await move(page, 'Vertical spacing', 0.5);
-  await expect(page.locator('[data-family="cylindrical"] [data-custom]')).toBeVisible();
+  await expect(mapName(page)).toHaveText('Custom');
 });
 
 test('resets return to the projection last chosen from the list, not the one highlighted', async ({ page }) => {

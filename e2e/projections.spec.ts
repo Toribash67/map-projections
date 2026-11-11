@@ -5,7 +5,7 @@ import { isCovered, projectPoint } from '../src/screen/screen';
 import type { LonLat, ProjectionState } from '../src/projections/types';
 import { mapStyle } from '../src/render/style';
 import { similarity } from '../tests/similarity';
-import { head, isCurrent, isMorphing, move, numberBox, open, openPaused, pick, settle, slider, state, stopButton, type } from './support';
+import { isCurrent, isMorphing, move, numberBox, open, openPaused, pick, settle, slider, state, stopButton, type, mapName } from './support';
 
 // The tests run in light mode, as the browser is told to, unless one says otherwise.
 const LIGHT_STYLE = mapStyle('light');
@@ -27,40 +27,6 @@ function bothShow(a: Awaited<ReturnType<typeof snapshot>>, b: Awaited<ReturnType
 }
 
 /** The sliders in the projection list, not the centre and tilt ones below it. */
-const familySliders = (page: Page) => page.locator('.projection-list').getByRole('slider');
-
-test('clicking a family opens it and shows only its sliders', async ({ page }) => {
-  await open(page);
-  // The app opens on the globe, with its family open and no sliders.
-  await expect(head(page, 'globe')).toHaveAttribute('aria-expanded', 'true');
-  await expect(familySliders(page)).toHaveCount(0);
-
-  await head(page, 'azimuthal').click();
-  await expect(head(page, 'azimuthal')).toHaveAttribute('aria-expanded', 'true');
-  await expect(head(page, 'globe')).toHaveAttribute('aria-expanded', 'false');
-  await expect(stopButton(page, 'gnomonic')).toBeVisible();
-  await expect(stopButton(page, 'mercator')).toBeHidden();
-  await expect(slider(page, 'Viewpoint')).toBeVisible();
-  await expect(familySliders(page)).toHaveCount(1);
-
-  await head(page, 'cylindrical').click();
-  await expect(slider(page, 'Viewpoint')).toBeHidden();
-  await expect(slider(page, 'Standard parallel')).toBeVisible();
-  await expect(slider(page, 'Vertical spacing')).toBeVisible();
-  await expect(familySliders(page)).toHaveCount(2);
-
-  await head(page, 'conic').click();
-  await expect(familySliders(page)).toHaveCount(2);
-  await expect(slider(page, 'First parallel')).toBeVisible();
-  await expect(slider(page, 'Second parallel')).toBeVisible();
-  await expect(page.getByRole('radio', { name: 'Conformal' })).toBeVisible();
-
-  // Opening a family does not change the map.
-  expect((await state(page)).defId).toBe('globe');
-  await head(page, 'equal-area').click();
-  await expect(familySliders(page)).toHaveCount(0);
-});
-
 test('clicking Mollweide morphs: state changes at once, canvas settles after 1400 ms', async ({ page }) => {
   await openPaused(page);
   const pixelAt = (x: number, y: number) => page.evaluate(([x, y]) => {
@@ -94,14 +60,12 @@ test('moving the spacing slider to 0 highlights Mercator; 0.5 shows Custom', asy
   await move(page, 'Vertical spacing', 0);
   expect((await state(page)).params.spacing).toBe(0);
   expect(await isCurrent(page, '[data-stop="mercator"]')).toBe(true);
-  await expect(page.locator('#note h3')).toHaveText('Mercator');
+  await expect(mapName(page)).toHaveText('Mercator');
 
   await move(page, 'Vertical spacing', 0.5);
   expect((await state(page)).params.spacing).toBe(0.5);
-  await expect(page.locator('[data-family="cylindrical"] [data-custom]')).toBeVisible();
-  await expect(page.locator('[data-family="cylindrical"] [data-custom]')).toHaveText('Custom');
   await expect(page.locator('[data-stop="mercator"]')).not.toHaveAttribute('aria-current', 'true');
-  await expect(page.locator('#note h3')).toHaveText('Custom');
+  await expect(mapName(page)).toHaveText('Custom');
 
   // It snaps to a named stop that it is moved close to, and the typed value and reset work too.
   await move(page, 'Vertical spacing', 1.98);
@@ -136,11 +100,11 @@ test('moving the viewpoint slider through gnomonic, stereographic and orthograph
   expect(await isCurrent(page, '[data-stop="orthographic"]')).toBe(true);
   await expect(page.getByRole('textbox', { name: 'Viewpoint, value' })).toHaveValue('∞');
   await move(page, 'Viewpoint', 0.25);
-  await expect(page.locator('[data-family="azimuthal"] [data-custom]')).toBeVisible();
+  await expect(mapName(page)).toHaveText('Custom');
 
-  // The plain azimuthals are not perspective views: the slider is off for them.
+  // The plain azimuthals are not perspective views: they have no such slider.
   await pick(page, 'azimuthal-equidistant');
-  await expect(slider(page, 'Viewpoint')).toBeDisabled();
+  await expect(slider(page, 'Viewpoint')).toHaveCount(0);
 });
 
 test('moving Albers parallels to 45/-45 highlights Gall-Peters with the conic indication', async ({ page }) => {
@@ -148,14 +112,14 @@ test('moving Albers parallels to 45/-45 highlights Gall-Peters with the conic in
   await pick(page, 'albers');
   await settle(page);
   expect(await isCurrent(page, '[data-stop="albers"]')).toBe(true);
-  await expect(page.locator('.limits-reached')).toBeHidden();
+  await expect(mapName(page)).toHaveText('Albers');
 
   await move(page, 'First parallel', 45);
   await move(page, 'Second parallel', -45);
-  expect(await isCurrent(page, '[data-limit="gall-peters"]')).toBe(true);
+  // It has become Gall-Peters, which the heading says; the list marks neither the conic nor the cylindrical map.
+  await expect(mapName(page)).toHaveText('Gall-Peters (cone limit)');
   expect(await isCurrent(page, '[data-stop="albers"]')).toBe(false);
-  await expect(page.locator('.limits-reached')).toBeVisible();
-  await expect(page.locator('#note h3')).toHaveText('Gall-Peters, reached from the conic sliders');
+  expect(await isCurrent(page, '[data-stop="gall-peters"]')).toBe(false);
   expect((await state(page)).defId).toBe('conic-equal-area');
 
   // The switch keeps the parallels and gives the conformal conic, which is Mercator here.
@@ -164,20 +128,20 @@ test('moving Albers parallels to 45/-45 highlights Gall-Peters with the conic in
   // Two formulas, so the map morphs from one to the other.
   expect(await isMorphing(page)).toBe(true);
   await settle(page);
-  expect(await isCurrent(page, '[data-limit="mercator"]')).toBe(true);
+  await expect(mapName(page)).toHaveText('Mercator (cone limit)');
 
   // Both parallels to the pole make a disc, and the slider stops there.
   await move(page, 'First parallel', 100);
   await move(page, 'Second parallel', 100);
   expect((await state(page)).params).toEqual({ p1: 89.9, p2: 89.9 });
-  expect(await isCurrent(page, '[data-limit="stereographic"]')).toBe(true);
+  await expect(mapName(page)).toHaveText('Stereographic (cone limit)');
   await page.getByRole('radio', { name: 'Equal-area' }).check();
   await settle(page);
-  expect(await isCurrent(page, '[data-limit="lambert-azimuthal"]')).toBe(true);
+  await expect(mapName(page)).toHaveText('Lambert azimuthal equal-area (cone limit)');
 
   // Anything between is custom; reset returns to the conic's own parallels.
   await move(page, 'First parallel', 60);
-  await expect(page.locator('[data-family="conic"] [data-custom]')).toBeVisible();
+  await expect(mapName(page)).toHaveText('Custom');
   await page.getByRole('button', { name: 'Reset first parallel' }).click();
   await settle(page);
   await page.getByRole('button', { name: 'Reset second parallel' }).click();
@@ -342,48 +306,13 @@ test('typed values: bad ones revert, out-of-range ones clamp, and the box shows 
   }
 });
 
-test('a family whose sliders are off says why, and says it to a screen reader too', async ({ page }) => {
-  await open(page);
-  const group = (family: string) => page.locator(`[data-family="${family}"] .sliders`);
-  const hint = (family: string) => group(family).locator('.hint');
-
-  // On the globe, the Azimuthal family's slider is off.
-  await head(page, 'azimuthal').click();
-  await expect(slider(page, 'Viewpoint')).toBeDisabled();
-  await expect(hint('azimuthal')).toBeVisible();
-  await expect(hint('azimuthal')).toContainText('Gnomonic, Stereographic or Orthographic');
-  await expect(group('azimuthal')).toHaveAccessibleDescription(/Gnomonic, Stereographic or Orthographic/);
-
-  await pick(page, 'stereographic');
-  await settle(page);
-  await expect(slider(page, 'Viewpoint')).toBeEnabled();
-  await expect(hint('azimuthal')).toBeHidden();
-  await expect(group('azimuthal')).toHaveAccessibleDescription('');
-
-  // The plain azimuthals are not perspective views.
-  await pick(page, 'azimuthal-equidistant');
-  await settle(page);
-  await expect(slider(page, 'Viewpoint')).toBeDisabled();
-  await expect(hint('azimuthal')).toBeVisible();
-
-  await head(page, 'cylindrical').click();
-  await expect(hint('cylindrical')).toHaveText('Choose a projection in this family to use these sliders.');
-  await head(page, 'conic').click();
-  await expect(hint('conic')).toBeVisible();
-  await expect(page.getByRole('radio', { name: 'Conformal' })).toBeDisabled();
-  await pick(page, 'albers');
-  await settle(page);
-  await expect(hint('conic')).toBeHidden();
-  await expect(page.getByRole('radio', { name: 'Conformal' })).toBeEnabled();
-});
-
 test('each slider is labelled by its visible label, and the viewpoint reads out its distance and name', async ({ page }) => {
   await open(page);
   await pick(page, 'stereographic');
   await settle(page);
   const labelled = await page.evaluate(() => [...document.querySelectorAll<HTMLInputElement>('.slider-range')].map((r) => [r.labels?.[0]?.textContent ?? '', r.labels?.[0]?.classList.contains('slider-label') ?? false]));
-  // Five in the families, and longitude, latitude and tilt.
-  expect(labelled.length).toBe(8);
+  // The viewpoint, and longitude and latitude.
+  expect(labelled.length).toBe(3);
   for (const [text, isLabel] of labelled) {
     expect(text).not.toBe('');
     expect(isLabel).toBe(true);
@@ -505,32 +434,31 @@ test('a tilt set by hand carries over; the 90 degrees of Transverse Mercator doe
   expect(await tilt()).toBe(0);
 });
 
-test('every projection shows its note, Equal Earth names the UN resolution, and the Tissot toggle explains itself', async ({ page }) => {
+test('every projection is named over its parameters and has its note as a tip, Equal Earth names the UN resolution, and the Tissot button explains itself', async ({ page }) => {
   await open(page);
   for (const s of stops) {
     await pick(page, s.id);
-    await expect(page.locator('#note h3')).toHaveText(s.name);
-    await expect(page.locator('#note p')).toHaveText(s.note);
+    await expect(mapName(page)).toHaveText(s.name);
+    await expect(stopButton(page, s.id)).toHaveAttribute('aria-description', s.note);
   }
-  await pick(page, 'equal-earth');
-  const text = await page.locator('#note p').innerText();
+  const text = (await stopButton(page, 'equal-earth').getAttribute('aria-description'))!;
   expect(text).toContain('UN General Assembly');
   expect(text).toContain('September 2026');
   expect(text).toContain('Correct the Map');
   expect(text).toContain('non-binding');
   expect(text).not.toMatch(/\bban/i);
 
-  const toggle = page.getByRole('checkbox', { name: 'Tissot indicatrices' });
-  await expect(page.locator('#tissot-note')).toContainText('tiny circle');
-  await expect(page.locator('#tissot-note')).toContainText('real circles');
-  expect(await page.evaluate(() => (window as any).__app.tissot)).toBe(false);
-  await toggle.check();
+  const toggle = page.getByRole('button', { name: 'Tissot indicatrices' });
+  await expect(toggle).toHaveAttribute('aria-description', /small circle on the globe/);
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
   expect(await page.evaluate(() => (window as any).__app.tissot)).toBe(true);
-  await toggle.uncheck();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
   expect(await page.evaluate(() => (window as any).__app.tissot)).toBe(false);
-  // The store can change it too, and the toggle follows.
+  // The store can change it too, and the button follows.
   await page.evaluate(() => (window as any).__app.setTissot(true));
-  await expect(toggle).toBeChecked();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 });
 
 test.describe('on a phone', () => {
@@ -555,11 +483,15 @@ test.describe('on a phone', () => {
     expect(l.sidebar.top).toBeGreaterThanOrEqual(l.canvas.bottom - 1);
     expect(l.sidebar.bottom).toBeLessThanOrEqual(844);
 
-    await head(page, 'conic').click();
-    await expect(slider(page, 'First parallel')).toBeVisible();
+    await stopButton(page, 'albers').scrollIntoViewIfNeeded();
+    await pick(page, 'albers');
+    await settle(page);
     await slider(page, 'First parallel').scrollIntoViewIfNeeded();
-    await page.locator('#tissot-note').scrollIntoViewIfNeeded();
-    await expect(page.getByRole('checkbox', { name: 'Tissot indicatrices' })).toBeVisible();
+    await expect(slider(page, 'First parallel')).toBeVisible();
+    // The map's own controls are on the map, not in the scroll.
+    await expect(page.getByRole('button', { name: 'Tissot indicatrices' })).toBeVisible();
+    await stopButton(page, 'goode').scrollIntoViewIfNeeded();
+    await expect(stopButton(page, 'goode')).toBeVisible();
     l = await layout();
     expect(l.sidebarScrolls).toBe(true);
     expect(l.scrollWidth).toBeLessThanOrEqual(l.clientWidth);
