@@ -262,13 +262,18 @@ test('indicatrices and drawn shapes appear in the accent colour, and a changed s
   await openPaused(page);
   expect(await countOf(page, ACCENT)).toBe(0);
 
+  // An indicatrix is a translucent fill of the accent with no outline: over the sea it is the two mixed.
+  const [, r, g, b, a] = LIGHT_STYLE.indicatrix.match(/rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/)!.map(Number) as [number, number, number, number, number];
+  const onSea = rgb(LIGHT_STYLE.ocean).map((v, i) => Math.round(v * (1 - a) + [r, g, b][i]! * a)) as Rgb;
+  expect(await countOf(page, onSea)).toBe(0);
   await page.evaluate(() => (window as any).__app.setTissot(true));
   await page.clock.runFor(32);
-  const ellipses = await countOf(page, ACCENT);
-  expect(ellipses).toBeGreaterThan(200);
+  expect(await countOf(page, onSea)).toBeGreaterThan(2000);
+  // No outline in the accent itself.
+  expect(await countOf(page, ACCENT)).toBe(0);
   await page.evaluate(() => (window as any).__app.setTissot(false));
   await page.clock.runFor(32);
-  expect(await countOf(page, ACCENT)).toBe(0);
+  expect(await countOf(page, onSea)).toBe(0);
 
   const shapes: Shape[] = [{ kind: 'line', points: [[-40, -30], [40, 30]] }];
   await page.evaluate((shapes) => {

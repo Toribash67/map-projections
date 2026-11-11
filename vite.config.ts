@@ -21,6 +21,8 @@ export default defineConfig({
   plugins: [palette()],
   test: {
     include: ['tests/**/*.test.ts'],
+    // The cut tests run for two seconds or more each, and several at once take longer still: the default of five is too near.
+    testTimeout: 20_000,
     // So that a test can read the stylesheet as text: without it a stylesheet imported with ?raw is empty.
     css: { include: [/\.css/] },
   },

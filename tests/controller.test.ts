@@ -1,6 +1,5 @@
 import { expect, test } from 'vitest';
 import { MorphController } from '../src/morph/controller';
-import { alphaOf } from '../src/render/draw';
 import { buildScene, type Scene } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
@@ -115,7 +114,7 @@ function expectUnmoved(before: Scene, after: Scene, tBefore: number, label: stri
   // An indicatrix hidden at both ends of the old morph may appear in the new one, at alpha 0, so go by what was there.
   // One that has faded out entirely may go with a source whose weight is dropped, and so may not be there.
   for (const m of before.indicatrices) {
-    if (alphaOf(m, tBefore) < 1e-3) continue;
+    if (mix(m.alphaSrc, m.alphaDst, tBefore) < 1e-3) continue;
     const [x, y] = [mix(m.srcPos[0], m.dstPos[0], tBefore), mix(m.srcPos[1], m.dstPos[1], tBefore)];
     const gap = Math.min(...after.indicatrices.map((a) => Math.hypot(a.srcPos[0] - x, a.srcPos[1] - y)));
     expect(gap, `${label}, indicatrix at ${x}, ${y}`).toBeLessThan(1);
@@ -145,8 +144,8 @@ test('redirect: positions just after morphTo during a morph equal positions just
   }
 }, 30_000);
 
-test('redirect: a singular indicatrix keeps its alpha', () => {
-  // The globe's limb is singular, so these fade in on the way out. A redirect must not make them pop.
+test('redirect: every indicatrix keeps its strength, one flat on a globe\'s limb included', () => {
+  // On the globe's limb an indicatrix is flat, with no area, and opens out on the way to the map. A redirect must not make it pop.
   const { controller, advance } = atRest(member('globe'));
   controller.morphTo(member('mercator'));
   advance(700);
@@ -154,8 +153,9 @@ test('redirect: a singular indicatrix keeps its alpha', () => {
   const before = buildScene({}, controller.source(), controller.target(), true);
   controller.morphTo(member('mollweide'));
   const after = buildScene({}, controller.source(), controller.target(), true);
-  expect(before.indicatrices.some((m) => m.alphaSrc === 0 && m.alphaDst === 1)).toBe(true);
-  const alphaAt = (m: Scene['indicatrices'][number], at: number) => alphaOf(m, at);
+  const flat = (mat: readonly number[]) => Math.abs(mat[0]! * mat[3]! - mat[1]! * mat[2]!) < 1e-6 * (mat[0]! ** 2 + mat[1]! ** 2 + mat[2]! ** 2 + mat[3]! ** 2);
+  expect(before.indicatrices.some((m) => flat(m.srcMat) && m.alphaSrc === 1 && m.alphaDst === 1)).toBe(true);
+  const alphaAt = (m: Scene['indicatrices'][number], at: number) => mix(m.alphaSrc, m.alphaDst, at);
   const byPosition = new Map(after.indicatrices.map((m) => [m.srcPos.map((v) => v.toFixed(1)).join(), m]));
   let compared = 0;
   for (const m of before.indicatrices) {

@@ -21,6 +21,8 @@ export type Palette = {
   graticule: string;
   coast: string;
   accentFill: string;
+  // A Tissot indicatrix: the accent, stronger than a drawing's fill, as it has no outline to carry it.
+  indicatrix: string;
   tint: string;
   halo: string;
 };
@@ -42,6 +44,7 @@ export const LIGHT: Palette = {
   graticule: 'rgba(62, 84, 98, 0.16)',
   coast: '#97a3a9',
   accentFill: 'rgba(217, 71, 43, 0.16)',
+  indicatrix: 'rgba(217, 71, 43, 0.34)',
   tint: '#97a3a9',
   halo: 'rgba(247, 245, 239, 0.85)',
 };
@@ -67,6 +70,7 @@ export const DARK: Palette = {
   graticule: 'rgba(150, 180, 200, 0.14)',
   coast: '#62798a',
   accentFill: 'rgba(255, 112, 82, 0.24)',
+  indicatrix: 'rgba(255, 112, 82, 0.4)',
   tint: '#7f98a8',
   halo: 'rgba(18, 23, 27, 0.85)',
 };

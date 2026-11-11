@@ -9,7 +9,7 @@ import type { LonLat, ProjectionState } from '../src/projections/types';
 import { isCovered, projectPoint } from '../src/screen/screen';
 import { destination } from '../src/screen/screen';
 import { indicatrixCentres, jacobian, singularValues, type Mat2, type Member } from '../src/tissot/indicatrix';
-import { restImages } from '../src/tissot/rest';
+import { foldedJacobian, restImages } from '../src/tissot/rest';
 import {
   aloneArea,
   aloneRaster,
@@ -266,21 +266,22 @@ test('no indicatrices unless asked for', () => {
 
 test('an indicatrix covered at both ends has the projected position and the Jacobian at both ends', () => {
   const [a, b] = [member('mercator'), member('mollweide', { lon: 30, lat: 10, tilt: 20 })];
-  // Copies that one map shows besides (across its seam) stay where that map has them; see the tests in indicatrixMargin.test.ts.
-  const shown = buildScene({}, [a], b, true).indicatrices.filter((m) => m.alphaSrc > 0 && m.alphaDst > 0 && m.clip === undefined);
+  const scene = buildScene({}, [a], b, true).indicatrices;
   const both = indicatrixCentres().filter((p) => isCovered(a.compiled, p) && isCovered(b.compiled, p));
-  // Near the edge of a map's coverage it fades, as at rest; elsewhere it is shown in full.
+  // Near the edge of a map's coverage it is fainter, as at rest; elsewhere it is shown in full.
   const atRest = (m: Member, p: LonLat) => restImages(m, p).find((image) => image.own)?.alpha ?? 0;
-  expect(shown.length).toBe(both.length);
-  shown.forEach((m, i) => {
-    const p = both[i]!;
-    expect(m.srcPos).toEqual(projectPoint(a.compiled, a.screen, p));
-    expect(m.dstPos).toEqual(projectPoint(b.compiled, b.screen, p));
+  let whole = 0;
+  for (const p of both) {
+    // By a seam it is in parts, and the part on its own side of both maps' seams is the one at its own place on both.
+    const [from, to] = [projectPoint(a.compiled, a.screen, p), projectPoint(b.compiled, b.screen, p)];
+    const m = scene.find((x) => x.srcPos.join() === from.join() && x.dstPos.join() === to.join())!;
+    expect(m, `${p}`).toBeDefined();
     expect(m.srcMat).toEqual(jacobian(a.compiled, a.screen, p));
     expect(m.dstMat).toEqual(jacobian(b.compiled, b.screen, p));
     expect([m.alphaSrc, m.alphaDst]).toEqual([atRest(a, p), atRest(b, p)]);
-  });
-  expect(shown.filter((m) => m.alphaSrc === 1 && m.alphaDst === 1).length).toBeGreaterThan(both.length / 2);
+    if (m.alphaSrc === 1 && m.alphaDst === 1 && m.cuts.length === 0) whole++;
+  }
+  expect(whole).toBeGreaterThan(both.length / 2);
 });
 
 test('live, an indicatrix shows the same at both ends, and only where covered', () => {
@@ -299,41 +300,48 @@ test('live, an indicatrix shows the same at both ends, and only where covered', 
   });
 });
 
-test('an indicatrix off the map at one end fades, moves to the cap edge, and keeps its shape', () => {
+test('an indicatrix off the map at one end moves to the cap edge and is flat along it there, at full strength: it does not fade', () => {
   const source = member('mollweide');
   const target = member('gnomonic');
   const scene = buildScene({}, [source], target, true);
   const centre = projectPoint(target.compiled, target.screen, [0, 0]);
   const rim = projectPoint(target.compiled, target.screen, [68, 0]);
   const limit = Math.hypot(rim[0] - centre[0], rim[1] - centre[1]);
-  const fading = scene.indicatrices.filter((m) => m.alphaDst === 0 && m.clip === undefined);
-  expect(fading.length).toBeGreaterThan(10);
-  for (const m of fading) {
-    expect(m.alphaSrc).toBe(1);
+  const leaving = scene.indicatrices.filter((m) => axisRatio(m.dstMat) < 1e-6);
+  expect(leaving.length).toBeGreaterThan(10);
+  for (const m of leaving) {
+    expect([m.alphaSrc, m.alphaDst]).toEqual([1, 1]);
     expect(Math.abs(Math.hypot(m.dstPos[0] - centre[0], m.dstPos[1] - centre[1]) - limit)).toBeLessThan(0.1);
-    expect(m.dstMat).toEqual(m.srcMat);
+    // Along the edge: across the line from the middle of the map to its place on the rim.
+    const [ex, ey] = [m.dstMat[0], m.dstMat[2]];
+    const [nx, ny] = [m.dstMat[1], m.dstMat[3]];
+    const [rx, ry] = [(m.dstPos[0] - centre[0]) / limit, (m.dstPos[1] - centre[1]) / limit];
+    const size = Math.hypot(ex, ey, nx, ny);
+    expect(Math.abs(ex * rx + ey * ry) / size).toBeLessThan(1e-3);
+    expect(Math.abs(nx * rx + ny * ry) / size).toBeLessThan(1e-3);
   }
 });
 
-test('indicatrix alpha comes from the weight of the members that can show it', () => {
+test('with several sources, one that cannot show an indicatrix adds the map folded onto its edge, and takes nothing from its strength', () => {
   const source = [member('gnomonic', {}, 0.25), member('mollweide', {}, 0.75)];
   const target = member('robinson');
   const centres = indicatrixCentres();
   const scene = buildScene({}, source, target, true);
   // Off the gnomonic map and on the other two.
-  const atFar = scene.indicatrices.find((m) => m.dstPos.join() === projectPoint(target.compiled, target.screen, [150, 30]).join())!;
-  expect(centres).toContainEqual([150, 30]);
-  expect(atFar.alphaSrc).toBeCloseTo(0.75, 10);
-  expect(atFar.alphaDst).toBe(1);
-  // The matrix is the mix of those that can, renormalised, as `blendIndicatrix` gives it.
-  expect(atFar.srcMat).toEqual(jacobian(source[1]!.compiled, source[1]!.screen, [150, 30]));
-  // The position still follows the land beneath it, through the gnomonic map's edge.
-  const moll = projectPoint(source[1]!.compiled, source[1]!.screen, [150, 30]);
+  const p: LonLat = [150, 30];
+  const atFar = scene.indicatrices.find((m) => m.dstPos.join() === projectPoint(target.compiled, target.screen, p).join())!;
+  expect(centres).toContainEqual(p);
+  expect([atFar.alphaSrc, atFar.alphaDst]).toEqual([1, 1]);
+  // The matrix is the mix of all of them, which is the derivative of the mix of the maps.
+  const [moll, fold] = [jacobian(source[1]!.compiled, source[1]!.screen, p)!, foldedJacobian(source[0]!, p)];
+  atFar.srcMat.forEach((v, k) => expect(v).toBeCloseTo(0.75 * moll[k]! + 0.25 * fold[k]!, 9));
+  // The position follows the land beneath it, through the gnomonic map's edge.
+  const at = projectPoint(source[1]!.compiled, source[1]!.screen, p);
   const bearing = Math.atan2(Math.cos(30 * rad) * Math.sin(150 * rad), Math.sin(30 * rad));
   const gnomonic = source[0]!;
   const edge = projectPoint(gnomonic.compiled, gnomonic.screen, gnomonic.compiled.fromFrame(frameAt(68, bearing)));
-  expect(atFar.srcPos[0]).toBeCloseTo(0.75 * moll[0] + 0.25 * edge[0], 3);
-  expect(atFar.srcPos[1]).toBeCloseTo(0.75 * moll[1] + 0.25 * edge[1], 3);
+  expect(atFar.srcPos[0]).toBeCloseTo(0.75 * at[0] + 0.25 * edge[0], 3);
+  expect(atFar.srcPos[1]).toBeCloseTo(0.75 * at[1] + 0.25 * edge[1], 3);
 });
 
 test('singular ellipses on the opening globe are not shown, and the rest are', () => {
@@ -358,7 +366,7 @@ test('a thin ellipse close to the limb is still shown: the threshold is on near-
   expect(axisRatio(m.srcMat)).toBeCloseTo(Math.cos(89.5 * rad), 2);
 });
 
-test('an ellipse singular at one end fades in, on its true matrices, and does not pop', () => {
+test('an ellipse flat at one end, on a globe\'s limb, opens out on its true matrices at the strength it has at the other, and does not pop', () => {
   const globe = member('globe');
   const target = member('mollweide');
   const scene = buildScene({}, [globe], target, true);
@@ -366,8 +374,7 @@ test('an ellipse singular at one end fades in, on its true matrices, and does no
   const expected = projectPoint(target.compiled, target.screen, p);
   const m = scene.indicatrices.find((x) => x.dstPos.join() === expected.join())!;
   expect(m).toBeDefined();
-  expect(m.alphaSrc).toBe(0);
-  expect(m.alphaDst).toBe(1);
+  expect([m.alphaSrc, m.alphaDst]).toEqual([1, 1]);
   expect(m.srcMat).toEqual(jacobian(globe.compiled, globe.screen, p));
   expect(axisRatio(m.srcMat)).toBeLessThan(1e-3);
   expect(m.dstMat).toEqual(jacobian(target.compiled, target.screen, p));
@@ -432,23 +439,25 @@ test('only the far side of a globe is marked behind, at either end of a morph', 
   expect(live.length).toBeLessThanOrEqual(indicatrixCentres().filter((p) => geoDistance(p, [0, 0]) / rad <= 90).length);
 });
 
-test('a clip cap still fades an indicatrix, where a behind cap does not', () => {
+test('past a clip cap an indicatrix is flat on the edge, and behind a globe it is whole: both at full strength', () => {
   const scene = buildScene({}, [member('gnomonic')], member('mollweide'), true);
-  expect(scene.indicatrices.some((m) => m.alphaSrc === 0 && m.alphaDst === 1 && !m.behind)).toBe(true);
+  expect(scene.indicatrices.some((m) => axisRatio(m.srcMat) < 1e-6 && m.alphaSrc === 1 && m.alphaDst === 1 && !m.behind)).toBe(true);
   const toGlobe = buildScene({}, [member('mollweide')], member('globe'), true);
-  for (const m of toGlobe.indicatrices.filter((x) => x.behind && x.clip === undefined)) expect(m.alphaDst).toBe(1);
+  const behind = toGlobe.indicatrices.filter((x) => x.behind);
+  expect(behind.length).toBeGreaterThan(10);
+  for (const m of behind) expect(m.alphaDst).toBe(m.alphaSrc);
+  expect(behind.some((m) => axisRatio(m.dstMat) > 0.3)).toBe(true);
 });
 
-test('an ellipse on the limb is singular and fades, and those just either side of it are thin and shown', () => {
+test('an ellipse on the limb is flat, and those just either side of it are thin: all at the strength the map gives them', () => {
   // A globe turned so that one centre lies a whisker to either side of the limb, as a far-side ellipse goes through it.
   const target = member('mollweide');
   const p: LonLat = [30, 0];
-  for (const [offset, shown] of [[0, false], [1e-3, false], [-1e-3, false], [0.2, true], [-0.2, true]] as const) {
+  for (const offset of [0, 1e-3, -1e-3, 0.2, -0.2]) {
     const globe = member('globe', { lon: 30 - 90 + offset });
     const m = buildScene({}, [globe], target, true).indicatrices.find((x) => x.dstPos.join() === projectPoint(target.compiled, target.screen, p).join())!;
     expect(m, `offset ${offset}`).toBeDefined();
-    expect(m.alphaSrc, `offset ${offset}`).toBe(shown ? 1 : 0);
-    expect(m.alphaDst, `offset ${offset}`).toBe(1);
+    expect([m.alphaSrc, m.alphaDst], `offset ${offset}`).toEqual([1, 1]);
     expect(m.srcMat).toEqual(jacobian(globe.compiled, globe.screen, p));
   }
 });

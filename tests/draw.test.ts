@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import type { Scene, SceneIndicatrix, ScenePiece } from '../src/morph/scene';
-import { alphaOf, drawScene } from '../src/render/draw';
+import { drawScene } from '../src/render/draw';
 import { mapStyle } from '../src/render/style';
 import { INDICATRIX_RADIUS } from '../src/tissot/indicatrix';
 
@@ -53,7 +53,7 @@ const square = (x: number) => [x, 0, x + 10, 0, x + 10, 10, x, 10];
 const emptyLayers = () => ({ ocean: [], land: [], graticule: [], coast: [], drawings: [] });
 
 function indicatrix(options: Partial<SceneIndicatrix> = {}): SceneIndicatrix {
-  return { srcPos: [10, 20], dstPos: [30, 60], srcMat: [100, 0, 0, 100], dstMat: [300, 40, -20, 100], alphaSrc: 1, alphaDst: 1, behind: false, ...options };
+  return { srcPos: [10, 20], dstPos: [30, 60], srcMat: [100, 0, 0, 100], dstMat: [300, 40, -20, 100], alphaSrc: 1, alphaDst: 1, behind: false, cuts: [], ...options };
 }
 
 /** An ocean that holds every indicatrix of these tests, so that its outline clips none of them. */
@@ -172,11 +172,11 @@ test('draw: an indicatrix is the blended matrix times the shared radius, through
   // Device x = 2 (m00 east + m01 north + x), device y = 2 (m10 east + m11 north + y), at (1-t) src + t dst.
   const expected = [2 * r * 200, 2 * r * -10, 2 * r * 20, 2 * r * 100, 40, 80];
   arc.transform.forEach((value, i) => expect(value).toBeCloseTo(expected[i]!, 9));
-  // The line is stroked with the plain transform back, or its width would be distorted with the ellipse.
+  // It is a translucent fill with no outline, and the transform is put back after it.
   expect(transform()).toEqual([2, 0, 0, 2, 0, 0]);
-  const stroke = painted(ops).filter((o) => o.op === 'stroke').at(-1)!;
-  expect(stroke.transform).toEqual([2, 0, 0, 2, 0, 0]);
-  expect(stroke.style).toBe(LIGHT_STYLE.accent);
+  const last = painted(ops).at(-1)!;
+  expect([last.op, last.style]).toEqual(['fill', LIGHT_STYLE.indicatrix]);
+  expect(painted(ops).some((o) => o.op === 'stroke' && o.style === LIGHT_STYLE.accent)).toBe(false);
 });
 
 test('draw: a far-side indicatrix goes under the near ocean; others on top of everything', () => {
@@ -191,16 +191,18 @@ test('draw: a far-side indicatrix goes under the near ocean; others on top of ev
   expect(order).toEqual([4, 'ocean', 2]);
 });
 
-test('draw: an indicatrix at alpha 0 is skipped, and a fading one uses its eased alpha', () => {
+test('draw: an indicatrix with no strength is skipped, and its strength goes evenly from one end to the other', () => {
   const { ctx, ops } = recordingContext();
   const scene: Scene = {
     layers: { ...emptyLayers(), ocean: [bigOcean()] },
-    indicatrices: [indicatrix({ alphaSrc: 0, alphaDst: 0 }), indicatrix({ alphaSrc: 1, alphaDst: 0 })],
+    indicatrices: [indicatrix({ alphaSrc: 0, alphaDst: 0 }), indicatrix({ alphaSrc: 1, alphaDst: 0.2 })],
   };
   drawScene(ctx, scene, 0.25, LIGHT_STYLE);
   const arcs = ops.filter((o) => o.op === 'arc');
   expect(arcs.length).toBe(1);
-  expect(arcs[0]!.alpha).toBe(alphaOf({ alphaSrc: 1, alphaDst: 0 }, 0.25));
+  expect(arcs[0]!.alpha).toBeCloseTo(0.8, 12);
+  // Whatever is painted later is not left at its alpha.
+  expect(ctx.globalAlpha).toBe(1);
 });
 
 test('draw: the background fills the whole store whatever the transform', () => {
@@ -228,68 +230,6 @@ test('draw: ocean cells beyond a globe\'s limb are filled as one path, each woun
   const cells = oceanFills[0]!.path;
   const area = (ring: number[][]) => ring.reduce((sum, [x, y], i) => sum + x! * ring[(i + 1) % ring.length]![1]! - ring[(i + 1) % ring.length]![0]! * y!, 0) / 2;
   expect(Math.sign(area(cells.slice(0, 4)))).toBe(Math.sign(area(cells.slice(4, 8))));
-});
-
-const at = (alphaSrc: number, alphaDst: number, t: number, hidden?: number[]) => alphaOf({ alphaSrc, alphaDst, hidden }, t);
-
-test('alphaOf: the ends are what the maps there show, and it is continuous and monotone between', () => {
-  for (const [a, b] of [[0, 1], [1, 0]] as [number, number][]) {
-    expect(at(a, b, 0)).toBeCloseTo(a, 12);
-    expect(at(a, b, 1)).toBeCloseTo(b, 12);
-    let last = a;
-    for (let k = 1; k <= 1000; k++) {
-      const v = at(a, b, k / 1000);
-      // A step of 0.001 in t moves it by at most 0.01.
-      expect(Math.abs(v - last)).toBeLessThan(0.01);
-      expect(b > a ? v >= last : v <= last).toBe(true);
-      last = v;
-    }
-  }
-});
-
-test('alphaOf: what every map shows is blended linearly, and what arrives or leaves is fainter than that', () => {
-  for (const t of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]) {
-    expect(at(1, 1, t)).toBe(1);
-    expect(at(0.4, 0.4, t)).toBe(0.4);
-  }
-  for (const t of [0.1, 0.25, 0.5, 0.75, 0.9]) {
-    expect(at(0, 1, t)).toBeCloseTo(t ** 3, 12);
-    expect(at(1, 0, t)).toBeCloseTo((1 - t) ** 3, 12);
-  }
-});
-
-test('alphaOf: a morph redirected under way starts at the alpha it had, however its sources are mixed', () => {
-  // A piece that the first source (weight 0.6 at the start) cannot show, the second (0.4) can, and so can the target.
-  const before = (t: number) => at(0.4, 1, t, [0.6]);
-  for (const t of [0.1, 0.35, 0.6, 0.9]) {
-    // Redirected at t: the sources are now the two of them at (1 - t) times their weights, and the old target at t, and
-    // a piece that the old first source cannot show has the same hidden weight, (1 - t) 0.6.
-    const after = at(0.4 * (1 - t) + t, 1, 0, [(1 - t) * 0.6]);
-    expect(after).toBeCloseTo(before(t), 12);
-  }
-  // A piece that only the old target cannot show: after a redirect at t its weight t hides it, as before.
-  for (const t of [0.2, 0.5, 0.8]) expect(at(1 - t, 1, 0, [t])).toBeCloseTo(at(1, 0, t), 12);
-});
-
-test('alphaOf: a map that shows something faded hides the rest of its weight, and the ends are what the maps show at rest', () => {
-  const fading = (alphaSrc: number, alphaDst: number, fade: number) => ({ alphaSrc, alphaDst, hidden: [1], fade: [fade] });
-  // Shown at 0.3 by the source and 0.8 by the target.
-  expect(alphaOf(fading(0.3, 0.8, 0.7), 0)).toBeCloseTo(0.3, 12);
-  expect(alphaOf(fading(0.3, 0.8, 0.7), 1)).toBeCloseTo(0.8, 12);
-  // A copy that only the source shows, at 0.6: it starts at 0.6 and is gone at the end, falling all the way.
-  let last = alphaOf(fading(0.6, 0, 0.4), 0);
-  expect(last).toBeCloseTo(0.6, 12);
-  for (let t = 0.01; t <= 1; t += 0.01) {
-    const alpha = alphaOf(fading(0.6, 0, 0.4), t);
-    expect(alpha).toBeLessThanOrEqual(last);
-    last = alpha;
-  }
-  expect(last).toBe(0);
-  // A redirect at t: the old source at (1 - t) with the same fade, the old target at t hiding 1 - 0.8 of it.
-  for (const t of [0.2, 0.5, 0.9]) {
-    const after = alphaOf({ alphaSrc: 0, alphaDst: 1, hidden: [1 - t, t], fade: [0.7, 0.2] }, 0);
-    expect(after).toBeCloseTo(alphaOf(fading(0.3, 0.8, 0.7), t), 12);
-  }
 });
 
 test('draw: cells of ocean beyond a map\'s coverage replace the ocean pieces that lie beyond it, wherever the cap is', () => {
@@ -335,22 +275,6 @@ test('draw: a far-side indicatrix is drawn with the far side, and clipped to the
   expect(firstOf(ops, 'arc')).toBeLessThan(ops.findIndex((o) => o.op === 'fill' && o.path[0]![0] === 0));
 });
 
-test('draw: a copy that one map shows is clipped to what that map shows, and the others to the whole outline', () => {
-  const { ctx, ops } = recordingContext();
-  // Shown by the source (bit 0) only, by the target (bit 1) only, and by both.
-  const source = piece(square(0), square(0), { shownBy: 1 });
-  const target = piece(square(100), square(100), { shownBy: 2 });
-  const both = piece(square(200), square(200), { shownBy: 3 });
-  const scene: Scene = {
-    layers: { ...emptyLayers(), ocean: [source, target, both] },
-    indicatrices: [indicatrix(), indicatrix({ clip: 0, alphaSrc: 1, alphaDst: 0 }), indicatrix({ clip: 1, alphaSrc: 0, alphaDst: 1 })],
-  };
-  drawScene(ctx, scene, 0.5, LIGHT_STYLE);
-  const starts = clipsOf(ops).map((o) => o.path.filter((_, i) => i % 4 === 0).map((point) => point[0]));
-  expect(starts).toEqual([[0, 100, 200], [0, 200], [100, 200]]);
-  expect(ops.filter((o) => o.op === 'arc')).toHaveLength(3);
-});
-
 /** Records the arguments of every arc a context draws. */
 function arcsOf(ctx: CanvasRenderingContext2D): number[][] {
   const recorded: number[][] = [];
@@ -362,28 +286,44 @@ function arcsOf(ctx: CanvasRenderingContext2D): number[][] {
   return recorded;
 }
 
-test('draw: an indicatrix cut at a lobe edge is the part of the disc on its side of the chord, filled to the chord, its outline the arc alone', () => {
+test('draw: an indicatrix cut at a seam is the part of the disc on its side of the chord, filled to the chord', () => {
   const { ctx, ops } = recordingContext();
   const arcs = arcsOf(ctx);
   // Keeps m . x <= c for m east and c = 0.5: the west part, from 60 degrees round to 300.
-  const cut = indicatrix({ cut: { src: [1, 0, 0.5], dst: [1, 0, 0.5] } });
+  const cut = indicatrix({ cuts: [[1, 0, 0.5]] });
   drawScene(ctx, { layers: { ...emptyLayers(), ocean: [bigOcean()] }, indicatrices: [cut] }, 0.5, LIGHT_STYLE);
   expect(arcs[0]!.slice(0, 3)).toEqual([0, 0, 1]);
   expect(arcs[0]![3]).toBeCloseTo(Math.PI / 3, 12);
   expect(arcs[0]![4]).toBeCloseTo((5 * Math.PI) / 3, 12);
-  expect(ops.filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.accentFill)).toHaveLength(1);
+  expect(ops.filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.indicatrix)).toHaveLength(1);
 });
 
-test('draw: a cut at one end only opens out to the whole disc at the other', () => {
-  const { ctx } = recordingContext();
+test('draw: a cut that leaves nothing of the disc draws nothing', () => {
+  const { ctx, ops } = recordingContext();
+  drawScene(ctx, { layers: { ...emptyLayers(), ocean: [bigOcean()] }, indicatrices: [indicatrix({ cuts: [[1, 0, -1]] })] }, 0.5, LIGHT_STYLE);
+  expect(ops.some((o) => o.op === 'arc')).toBe(false);
+});
+
+test('draw: an indicatrix with several cuts is the whole disc clipped by each half-plane in turn, and the clips are undone after it', () => {
+  const { ctx, ops, transform } = recordingContext();
   const arcs = arcsOf(ctx);
-  for (const t of [0, 0.5, 1]) {
-    drawScene(ctx, { layers: { ...emptyLayers(), ocean: [bigOcean()] }, indicatrices: [indicatrix({ cut: { src: [1, 0, 0], dst: null } })] }, t, LIGHT_STYLE);
-  }
-  // At t = 0 half the disc, at 0.5 the chord is half way to the edge, and at 1 the whole disc.
-  expect(arcs[0]![3]).toBeCloseTo(Math.PI / 2, 12);
-  expect(arcs[1]![3]).toBeCloseTo(Math.acos(0.5), 12);
-  expect(arcs[2]!.slice(3, 5)).toEqual([0, 2 * Math.PI]);
+  // West of x = 0.5 and south of y = 0.25, in the disc's own east and north.
+  const quarter = indicatrix({ srcPos: [0, 0], dstPos: [0, 0], srcMat: [100, 0, 0, 100], dstMat: [100, 0, 0, 100], cuts: [[1, 0, 0.5], [0, 1, 0.25]] });
+  drawScene(ctx, { layers: { ...emptyLayers(), ocean: [bigOcean()] }, indicatrices: [quarter, indicatrix()] }, 0.5, LIGHT_STYLE);
+  // One clip for the outline, then one for each cut, each a four-cornered half-plane that holds the disc's centre and stops at its line.
+  const halfPlanes = clipsOf(ops).slice(1);
+  expect(halfPlanes).toHaveLength(2);
+  // Traced in the disc's own coordinates, through its transform.
+  expect(halfPlanes[0]!.transform[0]).toBeCloseTo(2 * 100 * INDICATRIX_RADIUS, 9);
+  expect(Math.max(...halfPlanes[0]!.path.map((point) => point[0]!))).toBeCloseTo(0.5, 12);
+  expect(Math.min(...halfPlanes[0]!.path.map((point) => point[0]!))).toBeLessThan(-1);
+  expect(Math.max(...halfPlanes[1]!.path.map((point) => point[1]!))).toBeCloseTo(0.25, 12);
+  expect(Math.min(...halfPlanes[1]!.path.map((point) => point[1]!))).toBeLessThan(-1);
+  expect(arcs[0]!.slice(3, 5)).toEqual([0, 2 * Math.PI]);
+  // The next indicatrix is whole and filled in the same colour.
+  expect(arcs).toHaveLength(2);
+  expect(ops.filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.indicatrix)).toHaveLength(2);
+  expect(transform()).toEqual([2, 0, 0, 2, 0, 0]);
 });
 
 test('draw: the clip is the outline as the frame draws it at t: blended, without what is not shown, with cells in place of pieces beyond a cap', () => {
@@ -405,7 +345,7 @@ test('draw: a piece of the outline that is fading is in the clip, so an indicatr
   drawScene(ctx, { layers: { ...emptyLayers(), ocean: [arriving] }, indicatrices: [indicatrix({ alphaSrc: 0, alphaDst: 1 })] }, 0.25, LIGHT_STYLE);
   expect(clipsOf(ops)).toHaveLength(1);
   const arc = ops.find((o) => o.op === 'arc')!;
-  expect(arc.alpha).toBe(alphaOf({ alphaSrc: 0, alphaDst: 1 }, 0.25));
+  expect(arc.alpha).toBe(0.25);
 });
 
 test('draw: the cells of a clip are wound the same way, so folded cells that overlap do not cancel', () => {

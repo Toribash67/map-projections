@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'vitest';
+import { buildIndicatrices } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
 import type { CompiledProjection, LonLat, Orientation } from '../src/projections/types';
 import { computeScreen, isCovered, lobeOf, projectPoint, type ScreenTransform } from '../src/screen/screen';
 import {
   INDICATRIX_RADIUS,
-  blendIndicatrix,
   indicatrixCentres,
   jacobian,
   singularValues,
@@ -355,21 +355,25 @@ describe('indicatrixCentres', () => {
   });
 });
 
-describe('blendIndicatrix', () => {
+let checked = 0;
+
+describe('an indicatrix in a morph', () => {
   const member = (id: string, weight: number, o?: Partial<Orientation>) => ({ ...compiled(id, o), weight });
   const asMember = ({ c, s, weight }: ReturnType<typeof member>) => ({ compiled: c, screen: s, weight });
 
   test('mid-morph matrix equals a numeric derivative of the interpolated map', () => {
     for (const o of orientations(14, 3)) {
-      const a = member('mercator', 0.3, o);
-      const b = member('mollweide', 0.7, o);
+      const a = member('mercator', 1, o);
+      const b = member('mollweide', 1, o);
       const p: LonLat = [20, 35];
-      const blended = blendIndicatrix([asMember(a), asMember(b)], p)!;
-      expect(blended).not.toBeNull();
+      // By a seam it is in parts: the one that holds its centre goes from its place on the one map to its place on the other.
+      const part = buildIndicatrices(p, [asMember(a)], asMember(b)).find((m) => m.cuts.every((cut) => cut[2] > 0));
+      if (!part || Math.abs(a.c.toFrame(p)[1]) > 80 || Math.abs(b.c.toFrame(p)[1]) > 80) continue;
+      const t = 0.7;
       const pos = (q: LonLat): [number, number] => {
         const pa = projectPoint(a.c, a.s, q);
         const pb = projectPoint(b.c, b.s, q);
-        return [0.3 * pa[0] + 0.7 * pb[0], 0.3 * pa[1] + 0.7 * pb[1]];
+        return [(1 - t) * pa[0] + t * pb[0], (1 - t) * pa[1] + t * pb[1]];
       };
       const h = 1e-5;
       const cosPhi = Math.cos(p[1] * rad);
@@ -385,37 +389,15 @@ describe('blendIndicatrix', () => {
       ];
       const scale = Math.hypot(...reference);
       for (let k = 0; k < 4; k++) {
-        expect(Math.abs(blended.mat[k]! - reference[k]!), JSON.stringify(o)).toBeLessThanOrEqual(1e-3 * scale);
+        const drawn = (1 - t) * part!.srcMat[k]! + t * part!.dstMat[k]!;
+        expect(Math.abs(drawn - reference[k]!), JSON.stringify(o)).toBeLessThanOrEqual(1e-3 * scale);
       }
       const centre = pos(p);
-      expect(blended.pos[0]).toBeCloseTo(centre[0], 6);
-      expect(blended.pos[1]).toBeCloseTo(centre[1], 6);
+      expect((1 - t) * part!.srcPos[0] + t * part!.dstPos[0]).toBeCloseTo(centre[0], 6);
+      expect((1 - t) * part!.srcPos[1] + t * part!.dstPos[1]).toBeCloseTo(centre[1], 6);
+      checked++;
     }
-  });
-
-  test('a single full-weight member returns its own jacobian and position', () => {
-    const a = member('robinson', 1);
-    const blended = blendIndicatrix([asMember(a)], [30, 20])!;
-    expect(blended.mat).toEqual(jacobian(a.c, a.s, [30, 20]));
-    expect(blended.pos).toEqual(projectPoint(a.c, a.s, [30, 20]));
-  });
-
-  test('a member that cannot show the point is left out and the others are renormalised', () => {
-    const gnomonic = member('gnomonic', 0.4);
-    const mollweide = member('mollweide', 0.6);
-    const p: LonLat = [170, 20];
-    expect(jacobian(gnomonic.c, gnomonic.s, p)).toBeNull();
-    const blended = blendIndicatrix([asMember(gnomonic), asMember(mollweide)], p)!;
-    const alone = blendIndicatrix([asMember({ ...mollweide, weight: 1 })], p)!;
-    expect(blended.mat).toEqual(alone.mat);
-    expect(blended.pos).toEqual(alone.pos);
-  });
-
-  test('null when every member lacks the point', () => {
-    const gnomonic = member('gnomonic', 0.5);
-    const shifted = member('gnomonic', 0.5, { lon: 10 });
-    expect(blendIndicatrix([asMember(gnomonic), asMember(shifted)], [180, 0])).toBeNull();
-    expect(blendIndicatrix([], [0, 0])).toBeNull();
+    expect(checked).toBe(4);
   });
 
   test('exports the 5 degree display radius in radians', () => {

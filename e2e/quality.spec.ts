@@ -26,15 +26,11 @@ const setScene = (page: Page, tissot: boolean, shapes: Shape[]) =>
   );
 
 /**
- * Counts the numbers in the scene that was last drawn which are not finite, and the pieces it has. That includes each
- * `hidden` list and the alpha that `alphaOf` gives every piece and indicatrix at the morph's progress now, which a canvas
- * would ignore if it were NaN, so nothing else would show it.
+ * Counts the numbers in the scene that was last drawn which are not finite, and the pieces it has. That includes the strength of
+ * every piece and indicatrix and every cut, which a canvas would ignore if it were NaN, so nothing else would show it.
  */
 const badNumbers = (page: Page) =>
   page.evaluate(async () => {
-    // Served by the dev server, which the tests run against.
-    const module = '/src/render/draw.ts';
-    const { alphaOf } = await import(/* @vite-ignore */ module);
     const app = (window as any).__app;
     const scene = app.scene;
     const t = app.controller.t() as number;
@@ -43,10 +39,10 @@ const badNumbers = (page: Page) =>
       for (let i = 0; i < values.length; i++) if (!Number.isFinite(values[i]!)) n++;
       return n;
     };
-    // An alpha that is a number from 0 to 1, and a list of weights that are numbers.
+    // A strength that is a number from 0 to 1 at the morph's progress now, and cuts that are numbers.
     const badAlpha = (a: any) => {
-      const alpha = alphaOf(a, t);
-      return bad([alpha, ...(a.hidden ?? [])]) + (alpha >= 0 && alpha <= 1 ? 0 : 1);
+      const alpha = a.alphaSrc + t * (a.alphaDst - a.alphaSrc);
+      return bad([alpha, ...(a.cuts ?? []).flat()]) + (alpha >= -1e-9 && alpha <= 1 + 1e-9 ? 0 : 1);
     };
     let count = 0;
     let pieces = 0;

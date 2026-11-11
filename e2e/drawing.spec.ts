@@ -129,6 +129,8 @@ test('typing in a sidebar input does not draw: Enter and Escape stay with the in
   const box = numberBox(page, 'Longitude');
   await box.fill('40');
   await box.press('Enter');
+  // The typed value moves the map there by a slide.
+  await settle(page);
   expect((await state(page)).orientation.lon).toBe(40);
   expect(await draftPoints(page)).toHaveLength(2);
   await box.fill('50');

@@ -108,29 +108,3 @@ export function indicatrixCentres(): LonLat[] {
   centres.push([0, 90], [0, -90]);
   return centres;
 }
-
-/**
- * The position and matrix of an indicatrix on a map that is a weighted mix of
- * members. A member that cannot show `p` is left out and the rest are
- * renormalised; null when none can. A `margin` is that of `jacobian`.
- */
-export function blendIndicatrix(members: Member[], p: LonLat, margin: Margin = 0): { pos: Pair; mat: Mat2 } | null {
-  let total = 0;
-  const shown: { weight: number; pos: Pair; mat: Mat2 }[] = [];
-  for (const { compiled, screen, weight } of members) {
-    const mat = jacobian(compiled, screen, p, { margin });
-    if (!mat) continue;
-    shown.push({ weight, pos: projectPoint(compiled, screen, p), mat });
-    total += weight;
-  }
-  if (!(total > 0)) return null;
-  const pos: Pair = [0, 0];
-  const mat: Mat2 = [0, 0, 0, 0];
-  for (const m of shown) {
-    const w = m.weight / total;
-    pos[0] += w * m.pos[0];
-    pos[1] += w * m.pos[1];
-    for (let k = 0; k < 4; k++) mat[k]! += w * m.mat[k]!;
-  }
-  return { pos, mat };
-}

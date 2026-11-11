@@ -23,24 +23,6 @@ function widthAt(piece: ScenePiece, t: number, width: number): number {
   return width;
 }
 
-/**
- * How visible an indicatrix is at morph progress `t`. What every map shows keeps its alpha. Whatever
- * some map cannot show is hidden by that map's weight, which is (1 - t) times its weight at the start for a
- * source and t for the target, through `hiding`: it arrives as t^3 and leaves as (1 - t)^3, so while it is
- * folded onto an edge, at the start or the end, it is faint. A weight of zero hides nothing and each map hides on its
- * own, so a morph redirected under way starts at the alpha it had, whatever the redirect.
- *
- * A map can also show something only in part, as an indicatrix near the edge of its coverage: then `fade` says how much
- * of each weight in `hidden` hides it, and the target hides by `1 - alphaDst`. The ends are still what the maps show at rest.
- */
-export function alphaOf(a: { alphaSrc: number; alphaDst: number; hidden?: readonly number[]; fade?: readonly number[] }, t: number): number {
-  if (!a.fade && a.alphaSrc === a.alphaDst) return a.alphaSrc;
-  let alpha = 1 - (1 - a.alphaDst) * hiding(t);
-  const hidden = a.hidden ?? [1 - a.alphaSrc];
-  for (let k = 0; k < hidden.length; k++) alpha -= (a.fade?.[k] ?? 1) * hiding((1 - t) * hidden[k]!);
-  return Math.max(0, Math.min(1, alpha));
-}
-
 const ringEnd = (piece: ScenePiece, r: number) => (r + 1 < piece.ringStarts.length ? piece.ringStarts[r + 1]! : piece.src.length / 2);
 
 /** Adds a piece's rings, at the blend of its two ends, to the current path, each ring backwards if `reverse`. */
@@ -141,54 +123,64 @@ function strokePieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behin
   if (current > 0) ctx.stroke();
 }
 
-/** The part of an indicatrix drawn at `t`, as a `Cut` between its ends, or null where it is whole. */
-function cutAt(m: SceneIndicatrix, t: number): Cut | null {
-  if (!m.cut) return null;
-  const { src, dst } = m.cut;
-  // An end where it is whole is a cut at the edge of the disc, in the other end's direction.
-  const a: Cut = src ?? [dst![0], dst![1], 1];
-  const b: Cut = dst ?? [a[0], a[1], 1];
-  const [x, y] = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
-  const length = Math.hypot(x, y);
-  const c = a[2] + t * (b[2] - a[2]);
-  return length > 0 && c < 1 ? [x / length, y / length, c] : null;
+// Half the side of the square that stands for a half-plane, in radii of the disc it cuts: anything well over one.
+const FAR = 4;
+
+/** Adds the half-plane m . x <= c, as far as a unit disc can reach, to the current path. */
+function traceHalfPlane(ctx: CanvasPath, [mx, my, c]: Cut): void {
+  const corners = [[c, FAR], [c, -FAR], [c - 2 * FAR, -FAR], [c - 2 * FAR, FAR]] as const;
+  // Along m and across it.
+  corners.forEach(([along, across], i) => {
+    const [x, y] = [along * mx - across * my, along * my + across * mx];
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
 }
 
 /**
- * Each ellipse is the unit circle under its blended matrix times the shared radius, put
- * on screen through the context's own transform. The outline is stroked with that transform
- * back, so its width is not stretched with the ellipse. One cut at a lobe's edge is the part of the disc on
- * its side of the chord, filled to the chord, and its outline is the arc alone, as where the map's outline cuts it.
+ * Each indicatrix is the unit circle under its blended matrix times the shared radius, put on screen through the context's own
+ * transform, and filled: a translucent ellipse with no outline. One with cuts is the part of the disc within every one of them: with
+ * one cut, the disc on its side of the chord; with more, the disc clipped by each in turn. Its strength goes evenly between its ends.
  */
 function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndicatrix[], t: number, style: Style, base: DOMMatrix): void {
-  ctx.fillStyle = style.accentFill;
-  ctx.strokeStyle = style.accent;
-  ctx.lineWidth = style.indicatrixWidth;
+  ctx.fillStyle = style.indicatrix;
   const r = INDICATRIX_RADIUS;
   for (const m of indicatrices) {
-    const alpha = alphaOf(m, t);
-    if (alpha <= 0) continue;
-    const cut = cutAt(m, t);
-    if (cut && cut[2] <= -1) continue;
+    const alpha = indicatrixAlpha(m, t);
+    if (alpha <= 0 || m.cuts.some((cut) => cut[2] <= -1)) continue;
     const u = 1 - t;
     // Mat2 is [[east x, north x], [east y, north y]]; a canvas transform takes (a, b) as the image of x and (c, d) of y.
     const east = [r * (u * m.srcMat[0] + t * m.dstMat[0]), r * (u * m.srcMat[2] + t * m.dstMat[2])] as const;
     const north = [r * (u * m.srcMat[1] + t * m.dstMat[1]), r * (u * m.srcMat[3] + t * m.dstMat[3])] as const;
     const x = u * m.srcPos[0] + t * m.dstPos[0];
     const y = u * m.srcPos[1] + t * m.dstPos[1];
+    const onDisc = () =>
+      ctx.setTransform(
+        base.a * east[0] + base.c * east[1],
+        base.b * east[0] + base.d * east[1],
+        base.a * north[0] + base.c * north[1],
+        base.b * north[0] + base.d * north[1],
+        base.a * x + base.c * y + base.e,
+        base.b * x + base.d * y + base.f,
+      );
     ctx.globalAlpha = Math.min(1, alpha);
+    const several = m.cuts.length > 1;
+    if (several) {
+      ctx.save();
+      for (const cut of m.cuts) {
+        onDisc();
+        ctx.beginPath();
+        traceHalfPlane(ctx, cut);
+        ctx.clip();
+      }
+    }
+    onDisc();
     ctx.beginPath();
-    ctx.setTransform(
-      base.a * east[0] + base.c * east[1],
-      base.b * east[0] + base.d * east[1],
-      base.a * north[0] + base.c * north[1],
-      base.b * north[0] + base.d * north[1],
-      base.a * x + base.c * y + base.e,
-      base.b * x + base.d * y + base.f,
-    );
-    if (cut) {
-      // The arc of the disc where m . x <= c: away from m, from the chord's one end to its other.
-      const [towards, half] = [Math.atan2(cut[1], cut[0]), Math.acos(cut[2])];
+    const [cut] = m.cuts;
+    if (cut && !several) {
+      // The arc of the disc where m . x <= c: away from m, from the chord's one end to its other. Filling closes it along the chord.
+      const [towards, half] = [Math.atan2(cut[1], cut[0]), Math.acos(Math.max(-1, Math.min(1, cut[2])))];
       ctx.moveTo(Math.cos(towards + half), Math.sin(towards + half));
       ctx.arc(0, 0, 1, towards + half, towards + 2 * Math.PI - half);
     } else {
@@ -197,13 +189,17 @@ function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndi
     }
     ctx.setTransform(base);
     ctx.fill();
-    ctx.stroke();
+    if (several) {
+      ctx.restore();
+      ctx.fillStyle = style.indicatrix;
+    }
   }
 }
 
-const shownBy = (piece: ScenePiece, member: number) => (((piece.shownBy ?? 1) >> member) & 1) === 1;
+/** How strong an indicatrix is at `t`: evenly from what the maps at one end show of it to what the map at the other does. */
+const indicatrixAlpha = (m: SceneIndicatrix, t: number): number => m.alphaSrc + t * (m.alphaDst - m.alphaSrc);
 
-/** The pieces of the outline at `t`: ocean that is filled as pieces, and the cells that stand in for the rest. */
+/** The pieces of the outline: ocean that is filled as pieces, and the cells that stand in for the rest. */
 function* outlinePieces(scene: Scene): Generator<ScenePiece> {
   const cells = scene.layers.capOcean;
   for (const piece of scene.layers.ocean ?? []) {
@@ -212,35 +208,24 @@ function* outlinePieces(scene: Scene): Generator<ScenePiece> {
   for (const cell of cells ?? []) if (cell.closed && shows(cell)) yield cell;
 }
 
-/** The clip for what `member` shows, or undefined where that is the whole outline, so that the two are one clip. */
-function clipKey(scene: Scene, t: number, member: number | undefined): number | undefined {
-  if (member === undefined) return undefined;
-  for (const piece of outlinePieces(scene)) if (!shownBy(piece, member)) return member;
-  return undefined;
-}
-
-/** What a frame works out once and uses in both groups: for each clip, its path where the canvas has paths to keep. */
-type Frame = { t: number; outlines: Map<number | undefined, Path2D> };
-
 /**
- * Clips to the outline of the map: the ocean the frame fills, wherever it is not faded out, in front and behind, so that an
- * indicatrix across a globe's limb is cut at the same place at the end of a morph as at rest. A piece of ocean that cells
- * stand in for is left out and the cells are in, wound the same way, as for filling them, so folded cells do not cancel one another.
- * With `member`, only what that member shows (its index among the sources and then the target). The outline is the same for both
- * groups, so where the canvas can keep a path it is traced once a frame.
+ * Clips to the outline of the map: the ocean the frame fills, in front and behind, so that an indicatrix across a globe's limb is cut
+ * at the same place at the end of a morph as at rest. A piece of ocean that cells stand in for is left out and the cells are in, wound
+ * the same way, as for filling them, so folded cells do not cancel one another. The outline is the same for both groups, so where the
+ * canvas can keep a path it is traced once a frame.
  */
-function clipToOutline(ctx: CanvasRenderingContext2D, scene: Scene, frame: Frame, member: number | undefined): void {
-  const kept = frame.outlines.get(member);
-  if (kept) return ctx.clip(kept);
+function clipToOutline(ctx: CanvasRenderingContext2D, scene: Scene, frame: Frame): void {
+  if (frame.outline) return ctx.clip(frame.outline);
   const path: CanvasPath = typeof Path2D === 'function' ? new Path2D() : ctx;
   ctx.beginPath();
-  for (const piece of outlinePieces(scene)) {
-    if (member === undefined || shownBy(piece, member)) trace(path, piece, frame.t, signedArea(piece, frame.t) < 0);
-  }
+  for (const piece of outlinePieces(scene)) trace(path, piece, frame.t, signedArea(piece, frame.t) < 0);
   if (path === ctx) return ctx.clip();
-  frame.outlines.set(member, path as Path2D);
-  ctx.clip(path as Path2D);
+  frame.outline = path as Path2D;
+  ctx.clip(frame.outline);
 }
+
+/** What a frame works out once and uses in both groups: the outline, where the canvas has paths to keep. */
+type Frame = { t: number; outline?: Path2D };
 
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, frame: Frame, style: Style, base: DOMMatrix): void {
   const { t } = frame;
@@ -256,17 +241,11 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
   fillPieces(ctx, layer('drawings'), behind, t, style.accentFill, null);
   strokePieces(ctx, layer('drawings'), behind, t, style.accent, style.drawingWidth);
   // An ellipse is cut by the map's edge like the coast: the part past the outline is not drawn, at rest or in a morph.
-  // A copy that one map shows is cut to what that map shows.
-  const shown = scene.indicatrices.filter((m) => m.behind === behind && alphaOf(m, t) > 0);
-  const keys = new Map<number | undefined, number | undefined>();
-  const keyOf = (m: SceneIndicatrix) => {
-    if (!keys.has(m.clip)) keys.set(m.clip, clipKey(scene, t, m.clip));
-    return keys.get(m.clip);
-  };
-  for (const clip of new Set(shown.map(keyOf))) {
+  const shown = scene.indicatrices.filter((m) => m.behind === behind && indicatrixAlpha(m, t) > 0);
+  if (shown.length > 0) {
     ctx.save();
-    clipToOutline(ctx, scene, frame, clip);
-    drawIndicatrices(ctx, shown.filter((m) => keyOf(m) === clip), t, style, base);
+    clipToOutline(ctx, scene, frame);
+    drawIndicatrices(ctx, shown, t, style, base);
     ctx.restore();
   }
 }
@@ -285,7 +264,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene, t: number
   ctx.setTransform(base);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  const frame: Frame = { t, outlines: new Map() };
+  const frame: Frame = { t };
   drawGroup(ctx, scene, true, frame, style, base);
   drawGroup(ctx, scene, false, frame, style, base);
   ctx.globalAlpha = 1;

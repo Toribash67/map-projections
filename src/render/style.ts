@@ -9,6 +9,8 @@ export type Style = {
   coast: string;
   accent: string;
   accentFill: string;
+  /** The fill of a Tissot indicatrix, which has no outline. */
+  indicatrix: string;
   /** The area a locator covers is tinted, and its marker has a halo. */
   tint: string;
   halo: string;
@@ -18,11 +20,10 @@ export type Style = {
   graticuleWidth: number;
   coastWidth: number;
   drawingWidth: number;
-  indicatrixWidth: number;
 };
 
 // Fills of neighbouring pieces meet at a seam; a stroke this wide in their own colour hides the hairline between them.
-const WIDTHS = { seamWidth: 0.5, graticuleWidth: 0.75, coastWidth: 0.6, drawingWidth: 2, indicatrixWidth: 1.25 };
+const WIDTHS = { seamWidth: 0.5, graticuleWidth: 0.75, coastWidth: 0.6, drawingWidth: 2 };
 
 const styles = new Map<Scheme, Style>();
 
@@ -31,7 +32,7 @@ export function mapStyle(scheme: Scheme): Style {
   let style = styles.get(scheme);
   if (!style) {
     const p = PALETTES[scheme];
-    style = { background: p.paper, ocean: p.ocean, land: p.land, graticule: p.graticule, coast: p.coast, accent: p.accent, accentFill: p.accentFill, tint: p.tint, halo: p.halo, ink: p.ink, ...WIDTHS };
+    style = { background: p.paper, ocean: p.ocean, land: p.land, graticule: p.graticule, coast: p.coast, accent: p.accent, accentFill: p.accentFill, indicatrix: p.indicatrix, tint: p.tint, halo: p.halo, ink: p.ink, ...WIDTHS };
     styles.set(scheme, style);
   }
   return style;

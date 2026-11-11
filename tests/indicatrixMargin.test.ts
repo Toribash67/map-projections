@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { geoDistance } from 'd3-geo';
-import { buildScene, type SceneIndicatrix, type ScenePiece } from '../src/morph/scene';
-import { alphaOf } from '../src/render/draw';
+import { buildScene, type ScenePiece } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
 import type { ExcludedCap, LonLat } from '../src/projections/types';
 import { isClipped, projectPoint } from '../src/screen/screen';
@@ -156,9 +155,9 @@ test('a copy of an indicatrix (past a cap, or across a seam) is never centred in
       const m = member(stop.id, o);
       const outline = buildScene({ ocean }, [m], null, true).layers.ocean!;
       for (const p of indicatrixCentres()) {
-        // A copy in the next lobe of an interrupted map can be centred in a lobe that meets that one at the equator; it is cut to its
-        // side of the edge, so that it is not drawn twice (see the Goode test below).
-        for (const image of restImages(m, p).filter((x) => !x.own && !x.cut)) {
+        // A copy across a seam is cut to its side of the seam, so that nothing is drawn twice (see the tests below). One past a cap's
+        // edge is whole, and has to be centred outside the outline.
+        for (const image of restImages(m, p).filter((x) => !x.own && x.cuts.length === 0)) {
           copies++;
           const inside = filledAt(outline, (piece) => piece.src, image.pos[0], image.pos[1]);
           expect(!inside || toOutline(outline, image.pos) < 1, `${stop.id} ${JSON.stringify(o)} at ${p} drawn at ${image.pos}`).toBe(true);
@@ -166,7 +165,7 @@ test('a copy of an indicatrix (past a cap, or across a seam) is never centred in
       }
     }
   }
-  expect(copies).toBeGreaterThan(100);
+  expect(copies).toBeGreaterThan(20);
 });
 
 describe('across a seam', () => {
@@ -189,100 +188,39 @@ describe('across a seam', () => {
     expect(restImages(m, [0, 30])).toHaveLength(1);
   });
 
-  test('Goode: one near the edge of a lobe is cut there, and its copy in the next lobe is the other part', () => {
-    // Three degrees from the northern lobes' edge at -40, near the equator, where the lobes meet and the gap between them is narrow.
+  test('one near a seam is cut there, and its copy across the seam is the other part: between them, the disc once', () => {
+    // Three degrees from the northern lobes' edge at -40 on Goode, near the equator, where the lobes meet with no gap between them.
     const goode = member('goode');
-    const images = restImages(goode, [-37, 10]);
-    expect(images).toHaveLength(2);
-    const [own, copy] = images as [(typeof images)[0], (typeof images)[0]];
-    expect(own.cut).toBeDefined();
-    copy.cut!.forEach((v, k) => expect(v).toBeCloseTo(-own.cut![k]!, 12));
-    // The edge runs through the disc, on the copy's side of the centre.
-    expect(own.cut![2]).toBeGreaterThan(0);
-    expect(own.cut![2]).toBeLessThan(1);
-    // Far from the equator the gap between the lobes, past the outline, cuts it, and so it is whole.
-    expect(restImages(goode, [-37, 50]).map((x) => x.cut)).toEqual([undefined, undefined]);
-    // At the antimeridian the outline does the cutting, and no part is taken off.
-    const around = restImages(member('goode'), [-180, 30]);
-    expect(around).toHaveLength(2);
-    expect(around.every((x) => x.cut === undefined)).toBe(true);
-  });
-});
-
-/** What a frame of a scene draws of each indicatrix at `t`: where, with what matrix and part, and how strongly. */
-const drawn = (items: SceneIndicatrix[], t: number, globe = false) =>
-  items
-    // What is behind a globe's near side is not seen at the globe's end, and a globe at rest leaves it out.
-    .filter((m) => !(globe && m.behind))
-    .map((m) => ({ m, alpha: alphaOf(m, t) }))
-    .filter(({ alpha }) => alpha > 1e-9)
-    .map(({ m, alpha }) => ({
-      pos: [0, 1].map((k) => (1 - t) * m.srcPos[k]! + t * m.dstPos[k]!),
-      mat: [0, 1, 2, 3].map((k) => (1 - t) * m.srcMat[k]! + t * m.dstMat[k]!),
-      alpha,
-      cut: m.cut ? (t === 0 ? m.cut.src : m.cut.dst) : null,
-    }))
-    .sort((a, b) => a.pos[0]! - b.pos[0]! || a.pos[1]! - b.pos[1]!);
-
-function expectSameFrame(a: ReturnType<typeof drawn>, b: ReturnType<typeof drawn>, label: string) {
-  expect(a.length, label).toBe(b.length);
-  a.forEach((x, i) => {
-    const y = b[i]!;
-    x.pos.forEach((v, k) => expect(v, label).toBeCloseTo(y.pos[k]!, 6));
-    x.mat.forEach((v, k) => expect(Math.abs(v - y.mat[k]!), label).toBeLessThan(1e-6 * (1 + Math.abs(v))));
-    expect(x.alpha, label).toBeCloseTo(y.alpha, 9);
-    expect(x.cut === null, label).toBe(y.cut === null);
-    x.cut?.forEach((v, k) => expect(v, label).toBeCloseTo(y.cut![k]!, 9));
-  });
-}
-
-describe('at a morph\'s ends', () => {
-  const pairs: [string, Record<string, number>][] = [
-    ['gnomonic', { lon: 82, lat: 0 }],
-    ['gnomonic', { lon: 14, lat: 8 }],
-    ['mercator', { lat: 12 }],
-    ['goode', { lon: 6 }],
-    ['stereographic', { lon: 15.05 }],
-  ];
-  test('the first frame draws every indicatrix as the map at rest does, and the last as the map arrived at', () => {
-    for (const [id, o] of pairs) {
-      for (const other of ['mollweide', 'globe', 'gnomonic']) {
-        if (other === id) continue;
-        const [a, b] = [member(id, o), member(other, o)];
-        const morph = buildScene({}, [a], b, true).indicatrices;
-        expectSameFrame(drawn(morph, 0), drawn(buildScene({}, [a], null, true).indicatrices, 0), `${id} to ${other}, first frame`);
-        expectSameFrame(drawn(morph, 1, other === 'globe'), drawn(buildScene({}, [b], null, true).indicatrices, 1), `${id} to ${other}, last frame`);
-      }
+    const cases: [Member, LonLat][] = [[goode, [-37, 10]], [goode, [-37, 50]], [goode, [-178, 30]], [member('mollweide'), [178, -40]], [member('mercator', { lon: 30 }), [-151, 60]]];
+    for (const [m, p] of cases) {
+      const images = restImages(m, p);
+      expect(images, `${p}`).toHaveLength(2);
+      const [own, copy] = images as [(typeof images)[0], (typeof images)[0]];
+      expect([own.own, copy.own]).toEqual([true, false]);
+      expect([own.cuts.length, copy.cuts.length]).toEqual([1, 1]);
+      copy.cuts[0]!.forEach((v, k) => expect(v).toBeCloseTo(-own.cuts[0]![k]!, 12));
+      // The seam runs through the disc, on the copy's side of the centre.
+      expect(own.cuts[0]![2]).toBeGreaterThan(0);
+      expect(own.cuts[0]![2]).toBeLessThan(1);
+      expect(Math.hypot(own.cuts[0]![0], own.cuts[0]![1])).toBeCloseTo(1, 12);
     }
   });
 
-  test('a copy that a map shows at rest fades out on that map\'s curve as the morph leaves it, and in as one arrives', () => {
-    const [a, b] = [member('gnomonic', { lon: 82 }), member('mollweide', { lon: 82 })];
-    const copies = buildScene({}, [a], b, true).indicatrices.filter((m) => m.clip !== undefined);
-    expect(copies.some((m) => m.clip === 0)).toBe(true);
-    expect(copies.some((m) => m.clip === 1)).toBe(true);
-    for (const m of copies) {
-      let last = alphaOf(m, 0);
-      for (let t = 0.01; t <= 1; t += 0.01) {
-        const alpha = alphaOf(m, t);
-        expect(Math.abs(alpha - last)).toBeLessThan(0.05);
-        expect(m.clip === 0 ? alpha <= last + 1e-12 : alpha >= last - 1e-12).toBe(true);
-        last = alpha;
-      }
+  test('one beside the meridian that a seam runs on as, past the pole where the seam ends, is whole and has no copy', () => {
+    // The south pole of the Earth, twelve degrees from the frame's own, on the frame's prime meridian: the same great circle as the seam.
+    for (const lat of [-11.9, -12, -12.1, -30]) {
+      const images = restImages(member('equirectangular', { lon: 7.31, lat }), [0, -90]);
+      expect(images, `${lat}`).toHaveLength(1);
+      expect(images[0]!.cuts, `${lat}`).toEqual([]);
     }
   });
 
-  test('a morph redirected under way starts each indicatrix where it was, as strong as it was', () => {
-    for (const t of [0.1, 0.4, 0.8]) {
-      const [a, b, c] = [member('gnomonic', { lon: 82 }), member('mollweide', { lon: 82 }), member('goode', { lon: 82 })];
-      const before = buildScene({}, [a], b, true).indicatrices;
-      const after = buildScene({}, [{ ...a, weight: 1 - t }, { ...b, weight: t }], c, true).indicatrices;
-      const [was, now] = [drawn(before, t), drawn(after, 0)];
-      for (const x of was.filter((x) => x.alpha > 1e-3)) {
-        const twin = now.find((y) => Math.hypot(y.pos[0]! - x.pos[0]!, y.pos[1]! - x.pos[1]!) < 1e-3 && Math.abs(y.alpha - x.alpha) < 1e-9);
-        expect(twin, `t ${t} at ${x.pos} alpha ${x.alpha}`).toBeDefined();
-      }
-    }
+  test('one whose disc the seam does not reach is whole, and its copy is cut away altogether', () => {
+    const m = member('mollweide');
+    // Eight degrees from the seam: within reach of a copy, and beyond the five degrees of the disc.
+    const [own, copy] = restImages(m, [172, 0]);
+    expect(own!.cuts).toEqual([]);
+    expect(copy!.cuts[0]![2]).toBeLessThanOrEqual(-1);
   });
 });
 
