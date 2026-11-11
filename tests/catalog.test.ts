@@ -9,7 +9,7 @@ import {
   geoOrthographicRaw,
   geoTransverseMercator,
 } from 'd3-geo';
-import { geoCylindricalEqualAreaRaw, geoInterruptedHomolosine } from 'd3-geo-projection';
+import { geoCylindricalEqualAreaRaw, geoInterruptedHomolosine, geoSinusoidalRaw } from 'd3-geo-projection';
 import { getDef, stops } from '../src/projections/catalog';
 import { compile, matchStop, stateForStop } from '../src/projections/compile';
 import { controlsFor, nameOf } from '../src/projections/controls';
@@ -53,7 +53,7 @@ function expectPair(actual: [number, number], expected: [number, number], eps = 
 }
 
 test('every stop compiles to finite positions at 200 random frame points outside its caps', () => {
-  expect(stops.length).toBe(20);
+  expect(stops.length).toBe(26);
   for (const s of stops) {
     const c = compile(stateForStop(s));
     const r = rng(7);
@@ -68,6 +68,59 @@ test('every stop compiles to finite positions at 200 random frame points outside
       tested++;
     }
   }
+});
+
+test('the projections added in round two are in their families, with what each preserves', () => {
+  const added: [string, string, string, string][] = [
+    ['natural-earth', 'Natural Earth', 'compromise', 'compromise'],
+    ['van-der-grinten', 'Van der Grinten', 'compromise', 'compromise'],
+    ['miller', 'Miller', 'cylindrical', 'compromise'],
+    ['eckert4', 'Eckert IV', 'equal-area', 'equal-area'],
+    ['bonne', 'Bonne', 'equal-area', 'equal-area'],
+    ['werner', 'Werner', 'equal-area', 'equal-area'],
+  ];
+  for (const [id, name, family, preserves] of added) {
+    const s = stop(id);
+    expect([s.name, s.family, s.preserves], id).toEqual([name, family, preserves]);
+    expect(s.note.length, id).toBeGreaterThan(40);
+    expect(s.note.endsWith('.'), id).toBe(true);
+  }
+});
+
+test('Bonne runs from sinusoidal, with its standard parallel on the equator, to Werner, with it at the pole', () => {
+  expect([stop('sinusoidal'), stop('bonne'), stop('werner')].map((s) => [s.defId, s.params.phi1])).toEqual([['bonne', 0], ['bonne', 45], ['bonne', 90]]);
+  const sinusoidal = compile(stateForStop(stop('sinusoidal')));
+  const r = rng(5);
+  for (let i = 0; i < 100; i++) {
+    const [lon, lat] = randomPoint(r);
+    expectPair(sinusoidal.raw(lon * rad, lat * rad), geoSinusoidalRaw(lon * rad, lat * rad), 1e-12);
+  }
+  // Along the standard parallel the scale is true: a degree of longitude there is cos(latitude) long.
+  for (const phi1 of [20, 45, 70]) {
+    const raw = getDef('bonne').raw({ phi1 });
+    const [a, b] = [raw(-0.5e-4, phi1 * rad), raw(0.5e-4, phi1 * rad)];
+    expect(Math.hypot(b[0] - a[0], b[1] - a[1]) / 1e-4, `${phi1}`).toBeCloseTo(Math.cos(phi1 * rad), 6);
+  }
+  // Werner's pole is a point, at the cleft of the heart.
+  const werner = getDef('bonne').raw({ phi1: 90 });
+  expectPair(werner(1, Math.PI / 2), werner(-2, Math.PI / 2), 1e-9);
+  // Close to the equator it is close to sinusoidal: the slider has no jump at its end.
+  const near = getDef('bonne').raw({ phi1: 0.5 });
+  const [n, s0] = [near(1, 0.6), geoSinusoidalRaw(1, 0.6)];
+  const [n0, s00] = [near(0, 0), geoSinusoidalRaw(0, 0)];
+  expect(Math.hypot(n[0] - n0[0] - (s0[0] - s00[0]), n[1] - n0[1] - (s0[1] - s00[1]))).toBeLessThan(0.01);
+  expect(controlsFor('bonne')).toMatchObject([{ key: 'phi1', label: 'Standard parallel', min: 0, max: 90, stops: [0, 45, 90] }]);
+  expect(controlsFor('miller')).toEqual([]);
+});
+
+test('Miller is Mercator with the latitude scaled by four fifths and the height by five quarters, so its poles are within reach', () => {
+  const miller = compile(stateForStop(stop('miller')));
+  for (const [l, p] of [[0.3, 0.2], [-1, 1.2], [2, -1.5]] as const) {
+    const [x, y] = miller.raw(l, p);
+    expect(x).toBeCloseTo(l, 12);
+    expect(y).toBeCloseTo(1.25 * Math.log(Math.tan(Math.PI / 4 + 0.4 * p)), 12);
+  }
+  expect(Number.isFinite(miller.raw(0, Math.PI / 2)[1])).toBe(true);
 });
 
 test('stop ids and names are unique and every stop refers to a real definition', () => {

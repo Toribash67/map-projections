@@ -127,7 +127,7 @@ describe('jacobian', () => {
     },
   );
 
-  test.each(['mollweide', 'equal-earth', 'sinusoidal', 'hammer', 'albers', 'lambert-azimuthal', 'goode', 'gall-peters'])(
+  test.each(['mollweide', 'equal-earth', 'sinusoidal', 'hammer', 'albers', 'lambert-azimuthal', 'goode', 'gall-peters', 'eckert4', 'bonne', 'werner'])(
     '%s is equal-area: product of axes is constant within 1e-3 across covered points, default and oblique',
     (id) => {
       for (const [i, o] of orientations(12).entries()) {

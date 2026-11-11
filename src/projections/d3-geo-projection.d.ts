@@ -6,6 +6,11 @@ declare module 'd3-geo-projection' {
   export const geoMollweideRaw: Raw;
   export const geoSinusoidalRaw: Raw;
   export const geoHomolosineRaw: Raw;
+  export const geoVanDerGrintenRaw: Raw;
+  export const geoMillerRaw: Raw;
+  export const geoEckert4Raw: Raw;
+  /** Bonne's pseudoconic, with its standard parallel at `phi0` radians. At 0 it is the sinusoidal projection itself. */
+  export function geoBonneRaw(phi0: number): Raw;
   export function geoHammerRaw(a: number, b?: number): Raw;
   // Used by tests only, as oracles: for the cylindrical equal-area stops and for the Goode lobes.
   export function geoCylindricalEqualAreaRaw(phi0: number): Raw;

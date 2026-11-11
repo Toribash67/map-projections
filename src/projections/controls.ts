@@ -99,6 +99,9 @@ const CONTROLS: Record<string, ParamControl[]> = {
     { key: 'phi0', label: 'Standard parallel', tip: 'The parallel, north and south, where the scale is true', min: 0, max: 80, step: 0.5, stops: [0, 30, 45], snap: 1.5, ...degrees },
     { key: 'spacing', label: 'Vertical spacing', tip: 'How the parallels are spaced: 0 as Mercator, 1 evenly, 2 for equal areas', min: 0, max: 2, step: 0.01, stops: [0, 1, 2], snap: 0.04 },
   ],
+  bonne: [
+    { key: 'phi1', label: 'Standard parallel', tip: "The parallel drawn at its true length and curvature. On the equator the map is sinusoidal; at the pole it is Werner's heart", min: 0, max: 90, step: 0.5, stops: [0, 45, 90], snap: 1.5, ...degrees },
+  ],
   'conic-conformal': conic,
   'conic-equal-area': conic,
 };

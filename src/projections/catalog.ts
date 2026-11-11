@@ -4,12 +4,16 @@ import {
   geoConicConformalRaw,
   geoConicEqualAreaRaw,
   geoEqualEarthRaw,
+  geoNaturalEarth1Raw,
 } from 'd3-geo';
 import {
+  geoBonneRaw,
+  geoEckert4Raw,
   geoHammerRaw,
+  geoMillerRaw,
   geoMollweideRaw,
   geoRobinsonRaw,
-  geoSinusoidalRaw,
+  geoVanDerGrintenRaw,
   geoWinkel3Raw,
 } from 'd3-geo-projection';
 import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from './raws';
@@ -217,11 +221,17 @@ const defList: ProjectionDef[] = [
     caps: (p) => equalAreaCaps(p.p1!, p.p2!),
     seam: antimeridian,
   },
+  // A cylindrical map with a spacing of its own, which the cylindrical sliders do not reach.
+  plain('miller', 'cylindrical', () => geoMillerRaw),
   plain('robinson', 'compromise', () => geoRobinsonRaw),
   plain('winkel3', 'compromise', () => geoWinkel3Raw),
+  plain('natural-earth', 'compromise', () => geoNaturalEarth1Raw),
+  plain('van-der-grinten', 'compromise', () => geoVanDerGrintenRaw),
   plain('equal-earth', 'equal-area', () => geoEqualEarthRaw),
   plain('mollweide', 'equal-area', () => geoMollweideRaw),
-  plain('sinusoidal', 'equal-area', () => geoSinusoidalRaw),
+  // Bonne's equal-area pseudoconic, by its standard parallel: on the equator it is the sinusoidal projection, at the pole Werner's heart.
+  { ...plain('bonne', 'equal-area', (p) => geoBonneRaw(p.phi1! * rad)), defaultParams: { phi1: 45 } },
+  plain('eckert4', 'equal-area', () => geoEckert4Raw),
   plain('hammer', 'equal-area', () => geoHammerRaw(2)),
   plain('goode', 'equal-area', () => goodeRaw, { kind: 'lobes', lobes: goodeLobes, smoothEquator: true }),
 ];
@@ -259,16 +269,22 @@ export const stops: Stop[] = [
   stop('lambert-cylindrical', 'Lambert cylindrical equal-area', 'cylindrical', 'cylindrical', { phi0: 0, spacing: 2 }, 'equal-area', 'Keeps areas true, but stretches shapes badly near the poles.'),
   stop('behrmann', 'Behrmann', 'cylindrical', 'cylindrical', { phi0: 30, spacing: 2 }, 'equal-area', 'Keeps areas true with less shape distortion at mid-latitudes than Lambert, but squashes the tropics.'),
   stop('gall-peters', 'Gall-Peters', 'cylindrical', 'cylindrical', { phi0: 45, spacing: 2 }, 'equal-area', 'Keeps areas true, but stretches the tropics tall and squashes the high latitudes wide.'),
+  stop('miller', 'Miller', 'cylindrical', 'miller', {}, 'compromise', 'Looks like Mercator with the poles brought within reach, so it shows the whole world, but keeps neither angles nor areas true.'),
 
   stop('albers', 'Albers', 'conic', 'conic-equal-area', { p1: 29.5, p2: 45.5 }, 'equal-area', 'Keeps areas true with little shape distortion between its two standard parallels, but distorts shapes farther away.'),
   stop('lambert-conformal', 'Lambert conformal conic', 'conic', 'conic-conformal', { p1: 33, p2: 45 }, 'conformal', 'Keeps angles and local shapes true, so it suits flight charts, but inflates areas away from its standard parallels.'),
 
   stop('robinson', 'Robinson', 'compromise', 'robinson', {}, 'compromise', 'Trades small distortions of shape, area and distance against each other to look right, but preserves none of them exactly.'),
   stop('winkel-tripel', 'Winkel Tripel', 'compromise', 'winkel3', {}, 'compromise', 'Balances distortion of area, direction and distance across the whole world, but keeps none of them exactly.'),
+  stop('natural-earth', 'Natural Earth', 'compromise', 'natural-earth', {}, 'compromise', 'Drawn by eye to look right on a small world map, with rounded corners and gentle distortion everywhere, but keeps nothing exactly.'),
+  stop('van-der-grinten', 'Van der Grinten', 'compromise', 'van-der-grinten', {}, 'compromise', 'Shows the whole world in a circle, with little distortion near the equator, but inflates the polar regions enormously.'),
 
   stop('equal-earth', 'Equal Earth', 'equal-area', 'equal-earth', {}, 'equal-area', 'Keeps areas true with a pleasing shape, but distorts shapes toward the poles and edges; the UN General Assembly\'s non-binding September 2026 "Correct the Map" resolution encouraged its use.'),
   stop('mollweide', 'Mollweide', 'equal-area', 'mollweide', {}, 'equal-area', 'Keeps areas true in a single ellipse, but squashes shapes near the poles and the edges.'),
-  stop('sinusoidal', 'Sinusoidal', 'equal-area', 'sinusoidal', {}, 'equal-area', 'Keeps areas true and distances along parallels, but shears shapes badly toward the edges.'),
+  stop('sinusoidal', 'Sinusoidal', 'equal-area', 'bonne', { phi1: 0 }, 'equal-area', 'Keeps areas true and distances along parallels, but shears shapes badly toward the edges.'),
+  stop('bonne', 'Bonne', 'equal-area', 'bonne', { phi1: 45 }, 'equal-area', 'Keeps areas true, and shapes along its standard parallel and its central meridian, but shears them toward the sides of its heart.'),
+  stop('werner', 'Werner', 'equal-area', 'bonne', { phi1: 90 }, 'equal-area', 'Keeps areas true in a heart with the pole at its cleft, and distances from the pole, but shears shapes badly away from the central meridian.'),
+  stop('eckert4', 'Eckert IV', 'equal-area', 'eckert4', {}, 'equal-area', 'Keeps areas true between rounded sides, with each pole a line half the length of the equator, but stretches the tropics tall.'),
   stop('hammer', 'Hammer', 'equal-area', 'hammer', {}, 'equal-area', 'Keeps areas true in a smooth ellipse, but bends shapes toward the edges.'),
   stop('goode', 'Goode homolosine', 'equal-area', 'goode', {}, 'equal-area', 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
 ];
