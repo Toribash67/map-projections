@@ -77,7 +77,7 @@ function edgesOf(c: CompiledProjection, frame: LonLat, lobe: number | undefined)
     const east = frame[0] >= 0;
     return [{ lon: east ? 180 : -180, latMin: -90, latMax: 90, lobe: undefined, shift: east ? -360 : 360, inside: east ? -1 : 1 }];
   }
-  const own = seam.lobes.find((l) => l.centralLon === lobe && frame[0] >= l.lonMin && frame[0] <= l.lonMax && frame[1] >= l.latMin && frame[1] <= l.latMax);
+  const own = seam.lobes.find((l) => l.id === lobe && frame[0] >= l.lonMin && frame[0] <= l.lonMax && frame[1] >= l.latMin && frame[1] <= l.latMax);
   if (!own) return [];
   const band = (l: Lobe) => l.latMin === own.latMin && l.latMax === own.latMax;
   const edges: Edge[] = [];
@@ -85,8 +85,9 @@ function edgesOf(c: CompiledProjection, frame: LonLat, lobe: number | undefined)
     // Across the antimeridian the next lobe is at the other end of the map.
     const around = Math.abs(lon) === 180;
     const next = seam.lobes.find((l) => band(l) && (inside === 1 ? l.lonMax === (around ? 180 : lon) : l.lonMin === (around ? -180 : lon)));
-    if (!next) continue;
-    edges.push({ lon, latMin: own.latMin, latMax: own.latMax, lobe: next.centralLon, shift: around ? 360 * inside : 0, inside });
+    // The other rectangle of the lobe itself is across no seam: the map is one piece there.
+    if (!next || next.id === own.id) continue;
+    edges.push({ lon, latMin: own.latMin, latMax: own.latMax, lobe: next.id, shift: around ? 360 * inside : 0, inside });
   }
   return edges;
 }

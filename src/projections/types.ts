@@ -3,13 +3,21 @@ export type LonLat = [number, number];
 /** Centre longitude and latitude, and tilt about the centre, all in degrees. */
 export type Orientation = { lon: number; lat: number; tilt: number };
 export type Params = Record<string, number>;
-/** Raw projection in radians, y north-positive. `lobe` is only used by interrupted projections. */
+/** Raw projection in radians, y north-positive. `lobe` is the id of the lobe to draw the point on, as it is: only interrupted projections use it. */
 export type RawFn = (lambda: number, phi: number, lobe?: number) => [number, number];
 /** A circle in the projection's frame (degrees) that the map cannot show. */
 export type ExcludedCap = { frameCenter: LonLat; radius: number; mode: 'clip' | 'behind' };
-/** A lobe of an interrupted projection. All values are degrees. */
-export type Lobe = { lonMin: number; lonMax: number; latMin: number; latMax: number; centralLon: number };
-export type Seam = { kind: 'none' } | { kind: 'antimeridian' } | { kind: 'lobes'; lobes: Lobe[] };
+/**
+ * A rectangle of longitude and latitude (degrees) in the frame that an interrupted projection draws in one piece, by the formula of
+ * the lobe with this `id`. A lobe is usually one rectangle; one that wraps the antimeridian is two with the same id, and there is no
+ * seam between those.
+ */
+export type Lobe = { id: number; lonMin: number; lonMax: number; latMin: number; latMax: number };
+export type Seam =
+  | { kind: 'none' }
+  | { kind: 'antimeridian' }
+  /** `smoothEquator`: the map runs smoothly across the equator from a lobe to the one beyond it, so nothing there is cut or mirrored. */
+  | { kind: 'lobes'; lobes: Lobe[]; smoothEquator: boolean };
 
 export interface ProjectionDef {
   id: string;

@@ -63,7 +63,7 @@ test('every stop compiles to finite positions at 200 random frame points outside
       const p = randomPoint(r);
       const inCap = c.caps.some((cap) => geoDistance(p, cap.frameCenter) / rad < cap.radius);
       if (inCap) continue;
-      const lobe = c.def.seam.kind === 'lobes' ? lobeFor(c.def.seam.lobes, p).centralLon * rad : undefined;
+      const lobe = c.def.seam.kind === 'lobes' ? lobeFor(c.def.seam.lobes, p).id : undefined;
       const [x, y] = c.raw(p[0] * rad, p[1] * rad, lobe);
       expect(Number.isFinite(x) && Number.isFinite(y), `${s.id} at ${p}`).toBe(true);
       tested++;
@@ -186,10 +186,10 @@ test('Goode lobes match d3', () => {
   for (let i = 0; i < 50; i++) {
     const p = randomPoint(r);
     const lobe = lobeFor(seam.lobes, p);
-    const out = raw(p[0] * rad, p[1] * rad, lobe.centralLon * rad);
+    const out = raw(p[0] * rad, p[1] * rad, lobe.id);
     const expected = ref(p)!;
     expectPair(out, [expected[0], -expected[1]]);
-    expect(goodeRaw(p[0] * rad, p[1] * rad, lobe.centralLon * rad)).toEqual(out);
+    expect(goodeRaw(p[0] * rad, p[1] * rad, lobe.id)).toEqual(out);
   }
 });
 

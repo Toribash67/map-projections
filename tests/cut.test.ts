@@ -279,7 +279,7 @@ test('a Goode piece carries the central longitude of the lobe holding all its po
   const used = new Set(pieces.map((p) => p.lobes[0]));
   expect(used.size).toBeGreaterThan(1);
   for (const piece of pieces) {
-    const lobe = seam.lobes.find((l) => l.centralLon === piece.lobes[0]);
+    const lobe = seam.lobes.find((l) => l.id === piece.lobes[0]);
     expect(lobe).toBeDefined();
     const contained = (p: LonLat) =>
       p[0] >= lobe!.lonMin && p[0] <= lobe!.lonMax && p[1] >= lobe!.latMin && p[1] <= lobe!.latMax;
@@ -606,7 +606,7 @@ test('flags and lobes describe where each piece lies, for rotated member sets', 
             expect(piece.lobes[i], label).toBeUndefined();
             return;
           }
-          const lobe = seam.lobes.find((l) => l.centralLon === piece.lobes[i])!;
+          const lobe = seam.lobes.find((l) => l.id === piece.lobes[i])!;
           expect(lobe, label).toBeDefined();
           const escapes = frame.filter(
             ([lon, lat]) =>

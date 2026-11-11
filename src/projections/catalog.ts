@@ -112,15 +112,16 @@ function equalAreaCaps(p1: number, p2: number): ExcludedCap[] {
 const antimeridian: Seam = { kind: 'antimeridian' };
 const noSeam: Seam = { kind: 'none' };
 
+// Each lobe is known by its central longitude, in degrees.
 const goodeLobes: Lobe[] = [
   // south
-  { lonMin: -180, lonMax: -100, latMin: -90, latMax: 0, centralLon: -160 },
-  { lonMin: -100, lonMax: -20, latMin: -90, latMax: 0, centralLon: -60 },
-  { lonMin: -20, lonMax: 80, latMin: -90, latMax: 0, centralLon: 20 },
-  { lonMin: 80, lonMax: 180, latMin: -90, latMax: 0, centralLon: 140 },
+  { id: -160, lonMin: -180, lonMax: -100, latMin: -90, latMax: 0 },
+  { id: -60, lonMin: -100, lonMax: -20, latMin: -90, latMax: 0 },
+  { id: 20, lonMin: -20, lonMax: 80, latMin: -90, latMax: 0 },
+  { id: 140, lonMin: 80, lonMax: 180, latMin: -90, latMax: 0 },
   // north
-  { lonMin: -180, lonMax: -40, latMin: 0, latMax: 90, centralLon: -100 },
-  { lonMin: -40, lonMax: 180, latMin: 0, latMax: 90, centralLon: 30 },
+  { id: -100, lonMin: -180, lonMax: -40, latMin: 0, latMax: 90 },
+  { id: 30, lonMin: -40, lonMax: 180, latMin: 0, latMax: 90 },
 ];
 
 /** A whole-sphere projection with fixed raw, centred on the frame origin and with both poles clipped. */
@@ -218,7 +219,7 @@ const defList: ProjectionDef[] = [
   plain('mollweide', 'equal-area', () => geoMollweideRaw),
   plain('sinusoidal', 'equal-area', () => geoSinusoidalRaw),
   plain('hammer', 'equal-area', () => geoHammerRaw(2)),
-  plain('goode', 'equal-area', () => goodeRaw, { kind: 'lobes', lobes: goodeLobes }),
+  plain('goode', 'equal-area', () => goodeRaw, { kind: 'lobes', lobes: goodeLobes, smoothEquator: true }),
 ];
 
 const defsById = new Map(defList.map((d) => [d.id, d]));

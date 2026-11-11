@@ -53,7 +53,7 @@ function regionOf(m: CompiledProjection): Region {
       x1: l.lonMax - LOBE_PULL,
       y0: Math.max(l.latMin + LOBE_PULL, yMin),
       y1: Math.min(l.latMax - LOBE_PULL, yMax),
-      lobe: l.centralLon,
+      lobe: l.id,
     })),
   };
 }

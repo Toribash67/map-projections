@@ -54,18 +54,18 @@ export function isClipped(c: CompiledProjection, p: LonLat, margin: Margin = 0):
   return c.caps.some((cap) => cap.mode === 'clip' && geoDistance(frame, cap.frameCenter) / rad < cap.radius - (typeof margin === 'number' ? margin : margin(cap)));
 }
 
-/** The central longitude (degrees) of the lobe that holds a frame point, or undefined for a projection without lobes. */
+/** The id of the lobe that holds a frame point, or undefined for a projection without lobes. */
 export function lobeOf(c: CompiledProjection, framePoint: LonLat): number | undefined {
   const seam = c.def.seam;
   if (seam.kind !== 'lobes') return undefined;
   const [lon, lat] = framePoint;
   const lobe = seam.lobes.find((l) => lon >= l.lonMin && lon <= l.lonMax && lat >= l.latMin && lat <= l.latMax);
-  return lobe?.centralLon;
+  return lobe?.id;
 }
 
 /** Raw projection output turned by the tilt compensation, before scaling. Inputs in degrees. */
 function rotatedRaw(c: CompiledProjection, cs: number, sn: number, frame: LonLat, lobe: number | undefined): [number, number] {
-  const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe === undefined ? undefined : lobe * rad);
+  const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe);
   return [cs * x - sn * y, sn * x + cs * y];
 }
 
@@ -80,7 +80,7 @@ function rotatedRaw(c: CompiledProjection, cs: number, sn: number, frame: LonLat
 function compensation(c: CompiledProjection): { cos: number; sin: number } {
   const tilt = effectiveTilt(c) * rad;
   const lobe = lobeOf(c, [0, 0]);
-  const raw = (lambda: number, phi: number) => c.raw(lambda, phi, lobe === undefined ? undefined : lobe * rad);
+  const raw = (lambda: number, phi: number) => c.raw(lambda, phi, lobe);
   const h = JACOBIAN_STEP;
   const [ex1, ey1] = raw(h, 0);
   const [ex0, ey0] = raw(-h, 0);
@@ -101,7 +101,7 @@ type Region = { lonMin: number; lonMax: number; latMin: number; latMax: number; 
 
 function regions(c: CompiledProjection): Region[] {
   const seam = c.def.seam;
-  if (seam.kind === 'lobes') return seam.lobes.map((l) => ({ ...l, lobe: l.centralLon }));
+  if (seam.kind === 'lobes') return seam.lobes.map((l) => ({ ...l, lobe: l.id }));
   return [{ lonMin: -180, lonMax: 180, latMin: -90, latMax: 90, lobe: undefined }];
 }
 
@@ -135,7 +135,7 @@ function sampleOutline(c: CompiledProjection): Float64Array {
   const out: number[] = [];
   const add = (frame: LonLat, lobe: number | undefined) => {
     if (!frameCovered(c.caps, frame)) return;
-    const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe === undefined ? undefined : lobe * rad);
+    const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe);
     if (Number.isFinite(x) && Number.isFinite(y)) out.push(x, y);
   };
   for (const r of regions(c)) {
@@ -210,13 +210,13 @@ export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransfo
   };
 }
 
-/** Screen position of a geographic point. `lobe` (central longitude, degrees) defaults to the lobe that holds the point. */
+/** Screen position of a geographic point. `lobe` is a lobe's id, and defaults to the lobe that holds the point. */
 export function projectPoint(c: CompiledProjection, s: ScreenTransform, p: LonLat, lobe?: number): [number, number] {
   const frame = c.toFrame(p);
   return projectFrame(c, s, frame, lobe ?? lobeOf(c, frame));
 }
 
-/** Screen position of a point already in the projection's frame, on the lobe with this central longitude (degrees). */
+/** Screen position of a point already in the projection's frame, on the lobe with this id. */
 export function projectFrame(c: CompiledProjection, s: ScreenTransform, frame: LonLat, lobe: number | undefined): [number, number] {
   const [x, y] = rotatedRaw(c, s.cos, s.sin, frame, lobe);
   return [s.tx + s.k * x, s.ty - s.k * y];

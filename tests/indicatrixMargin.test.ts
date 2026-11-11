@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 import { geoDistance } from 'd3-geo';
 import { buildScene, type ScenePiece } from '../src/morph/scene';
 import { stops } from '../src/projections/catalog';
-import type { ExcludedCap, LonLat } from '../src/projections/types';
+import type { CompiledProjection, ExcludedCap, LonLat, ProjectionDef } from '../src/projections/types';
 import { isClipped, projectPoint } from '../src/screen/screen';
 import { INDICATRIX_RADIUS, indicatrixCentres, jacobian, singularValues, type Member } from '../src/tissot/indicatrix';
 import { capMargin, FADE_BAND } from '../src/tissot/pastCap';
@@ -213,6 +213,45 @@ describe('across a seam', () => {
       expect(images, `${lat}`).toHaveLength(1);
       expect(images[0]!.cuts, `${lat}`).toEqual([]);
     }
+  });
+
+  test('two rectangles of one lobe are one piece of map: there is no seam between them, and no copy across it', () => {
+    // An equirectangular map in three lobes: one is in two rectangles that meet at longitude 60, the others are cut from it at 0 and 120.
+    const lobes = [
+      { id: 1, lonMin: -180, lonMax: 0, latMin: -90, latMax: 90 },
+      { id: 2, lonMin: 0, lonMax: 60, latMin: -90, latMax: 90 },
+      { id: 2, lonMin: 60, lonMax: 120, latMin: -90, latMax: 90 },
+      { id: 3, lonMin: 120, lonMax: 180, latMin: -90, latMax: 90 },
+    ];
+    const def: ProjectionDef = {
+      id: 'test-lobes',
+      family: 'test',
+      defaultParams: {},
+      defaultOrientation: { lon: 0, lat: 0, tilt: 0 },
+      tiltEnabled: true,
+      latEnabled: true,
+      // Each lobe a little apart from the next, so that a seam between two of them is a real one.
+      raw: () => (lambda, phi, lobe = 0) => [lambda + 0.2 * lobe, phi],
+      caps: () => [],
+      seam: { kind: 'lobes', lobes, smoothEquator: true },
+    };
+    const state = { defId: def.id, params: {}, orientation: def.defaultOrientation };
+    const compiled: CompiledProjection = { def, state, raw: def.raw({}), caps: [], toFrame: (p) => p, fromFrame: (p) => p };
+    const m: Member = { compiled, screen: { k: 100, tx: 500, ty: 300, cos: 1, sin: 0 }, weight: 1 };
+    // Two degrees from the join of the two rectangles: one whole image.
+    for (const lon of [58, 62]) {
+      const images = restImages(m, [lon, 10]);
+      expect(images, `${lon}`).toHaveLength(1);
+      expect(images[0]!.cuts).toEqual([]);
+    }
+    // Two degrees from a seam between two lobes: cut there, with its other part in the next lobe.
+    for (const lon of [2, 118, -2]) {
+      const images = restImages(m, [lon, 10]);
+      expect(images, `${lon}`).toHaveLength(2);
+      expect(images[0]!.cuts).toHaveLength(1);
+    }
+    // The lobe's id reaches the raw projection as it is.
+    expect(restImages(m, [30, 0])[0]!.pos[0]).toBeCloseTo(500 + 100 * ((30 * Math.PI) / 180 + 0.4), 9);
   });
 
   test('one whose disc the seam does not reach is whole, and its copy is cut away altogether', () => {

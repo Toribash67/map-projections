@@ -68,7 +68,7 @@ export type Piece = {
   behind: boolean[];
   /** Per member: inside a clip cap big enough for cells of ocean (see `hasCells`)? Its ocean is filled from the cells. */
   celled: boolean[];
-  /** Per member: the central longitude (degrees) of the lobe holding the piece. */
+  /** Per member: the id of the lobe holding the piece. */
   lobes: (number | undefined)[];
 };
 
@@ -386,7 +386,7 @@ function cutSeam(part: Part, m: CompiledProjection, key: string, pulls: Pulls): 
       return seam.lobes.flatMap((lobe) =>
         clipPaths(part, lobeFrame, geoClipPolygon(lobePolygon(lobe, pulls))).map((path) => ({
           ...child(path),
-          lobe: new Map(part.lobe).set(key, lobe.centralLon),
+          lobe: new Map(part.lobe).set(key, lobe.id),
         })),
       );
     }

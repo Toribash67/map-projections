@@ -102,7 +102,7 @@ test('fit: every covered sample lies inside the viewport, and the map touches on
  */
 function gridFit(c: CompiledProjection, v: Viewport, cos: number, sin: number) {
   const seam = c.def.seam;
-  const regions = seam.kind === 'lobes' ? seam.lobes : [{ lonMin: -180, lonMax: 180, latMin: -90, latMax: 90, centralLon: undefined }];
+  const regions = seam.kind === 'lobes' ? seam.lobes : [{ lonMin: -180, lonMax: 180, latMin: -90, latMax: 90, id: undefined }];
   const steps = (min: number, max: number, step: number) => {
     const n = Math.max(1, Math.round((max - min) / step));
     return Array.from({ length: n + 1 }, (_, i) => min + ((max - min) * i) / n);
@@ -111,10 +111,10 @@ function gridFit(c: CompiledProjection, v: Viewport, cos: number, sin: number) {
   const points: { frame: LonLat; lobe: number | undefined }[] = [];
   const add = (frame: LonLat, lobe: number | undefined) => covered(frame) && points.push({ frame, lobe });
   for (const r of regions) {
-    for (const lat of steps(r.latMin, r.latMax, 3)) for (const lon of steps(r.lonMin, r.lonMax, 3)) add([lon, lat], r.centralLon);
+    for (const lat of steps(r.latMin, r.latMax, 3)) for (const lon of steps(r.lonMin, r.lonMax, 3)) add([lon, lat], r.id);
     for (const lat of steps(r.latMin, r.latMax, 0.25)) {
-      add([r.lonMin, lat], r.centralLon);
-      add([r.lonMax, lat], r.centralLon);
+      add([r.lonMin, lat], r.id);
+      add([r.lonMax, lat], r.id);
     }
   }
   for (const cap of c.caps) {
@@ -125,7 +125,7 @@ function gridFit(c: CompiledProjection, v: Viewport, cos: number, sin: number) {
   }
   const raw = points
     .map(({ frame, lobe }) => {
-      const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe === undefined ? undefined : lobe * rad);
+      const [x, y] = c.raw(frame[0] * rad, frame[1] * rad, lobe);
       return [cos * x - sin * y, sin * x + cos * y] as [number, number];
     })
     .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));

@@ -42,11 +42,14 @@ export function cylindricalRaw(phi0: number, spacing: number): RawFn {
   };
 }
 
+const rad = Math.PI / 180;
+
 /**
- * One lobe of interrupted Goode homolosine. `lobe` is the lobe's central
- * longitude in radians; without it the projection is centred on longitude 0.
+ * One lobe of interrupted Goode homolosine. `lobe` is the lobe's id, which is its central
+ * longitude in degrees; without it the projection is centred on longitude 0.
  */
 export const goodeRaw: RawFn = (lambda, phi, lobe = 0) => {
-  const [x, y] = geoHomolosineRaw(lambda - lobe, phi);
-  return [x + lobe, y];
+  const centre = lobe * rad;
+  const [x, y] = geoHomolosineRaw(lambda - centre, phi);
+  return [x + centre, y];
 };
