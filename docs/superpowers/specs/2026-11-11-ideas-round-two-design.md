@@ -92,6 +92,8 @@ area, so it is drawn at full strength throughout and simply closes up.
   derivative of the folded map there, which flattens it onto the boundary. Copies
   across a seam travel from their place on one map to their place on the other as
   halves of the same ellipse. No alpha curve.
+- An indicatrix is drawn as a translucent ellipse with no outline, as in most
+  published figures. *(owner's request)*
 - The existing soft edge for indicatrices near a boundary **at rest** stays. It depends
   on position, not time, and stops ellipses popping while the map is dragged.
 
