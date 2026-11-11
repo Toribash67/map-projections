@@ -6,14 +6,17 @@ import {
   geoDistance,
   geoEquirectangularRaw,
   geoMercatorRaw,
+  geoOrthographicRaw,
   geoTransverseMercator,
 } from 'd3-geo';
 import { geoCylindricalEqualAreaRaw, geoInterruptedHomolosine } from 'd3-geo-projection';
 import { getDef, stops } from '../src/projections/catalog';
 import { compile, matchStop, stateForStop } from '../src/projections/compile';
-import { cylindricalRaw, goodeRaw, perspectiveRaw } from '../src/projections/raws';
+import { controlsFor, nameOf } from '../src/projections/controls';
+import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from '../src/projections/raws';
 import type { Lobe, LonLat, ProjectionState } from '../src/projections/types';
 import { similarity } from './similarity';
+import { stopOf } from './stopOf';
 
 const rad = Math.PI / 180;
 
@@ -34,11 +37,7 @@ function randomPoint(r: () => number): LonLat {
   return [r() * 360 - 180, Math.asin(2 * r() - 1) / rad];
 }
 
-function stop(id: string) {
-  const s = stops.find((x) => x.id === id);
-  if (!s) throw new Error(`no stop ${id}`);
-  return s;
-}
+const stop = stopOf;
 
 function lobeFor(lobes: Lobe[], p: LonLat): Lobe {
   const lobe = lobes.find(
@@ -54,7 +53,7 @@ function expectPair(actual: [number, number], expected: [number, number], eps = 
 }
 
 test('every stop compiles to finite positions at 200 random frame points outside its caps', () => {
-  expect(stops.length).toBe(21);
+  expect(stops.length).toBe(20);
   for (const s of stops) {
     const c = compile(stateForStop(s));
     const r = rng(7);
@@ -98,6 +97,59 @@ test('perspective raw hits the three named azimuthals', () => {
   const c = Math.acos(Math.cos(phi) * Math.cos(lambda));
   const [x, y] = perspectiveRaw(1)(lambda, phi);
   expect(Math.hypot(x, y)).toBeCloseTo(2 * Math.tan(c / 2), 12);
+});
+
+test('the globe from infinitely far is orthographic, and nearer it is the view from that many radii', () => {
+  const r = rng(11);
+  for (let i = 0; i < 100; i++) {
+    const [lon, lat] = randomPoint(r);
+    expectPair(nearPerspectiveRaw(Infinity)(lon * rad, lat * rad), geoOrthographicRaw(lon * rad, lat * rad), 1e-12);
+  }
+  // From two radii the limb is 60 degrees from the centre: the scale is 1 at the centre, and nothing lies farther out than the limb.
+  const raw = nearPerspectiveRaw(2);
+  const radius = (c: number) => Math.hypot(...raw(c * rad, 0));
+  expect(radius(1e-4) / (1e-4 * rad)).toBeCloseTo(1, 6);
+  expect(radius(60)).toBeCloseTo(Math.sin(60 * rad) / 1.5, 12);
+  for (const c of [61, 75, 90, 120, 179]) expect(radius(c), `${c}`).toBeLessThan(radius(60));
+  for (const c of [10, 30, 59]) expect(radius(c), `${c}`).toBeLessThan(radius(60));
+});
+
+test('the globe shows what the eye can see: less than a hemisphere from close by, with the rest behind it', () => {
+  const far = compile(stateForStop(stop('globe')));
+  expect(far.caps).toEqual([{ frameCenter: [180, 0], radius: 90, mode: 'behind' }]);
+  // The slider's axis is one over the distance: 0.5 is two radii.
+  const near = compile({ ...stateForStop(stop('globe')), params: { d: 0.5 } });
+  expect(near.caps[0]!.mode).toBe('behind');
+  expect(near.caps[0]!.radius).toBeCloseTo(120, 9);
+  const covered = (p: LonLat) => geoDistance(near.toFrame(p), near.caps[0]!.frameCenter) / rad >= near.caps[0]!.radius;
+  expect(covered([59, 0])).toBe(true);
+  expect(covered([61, 0])).toBe(false);
+  expect(covered([0, -59.5])).toBe(true);
+  const sample: [number, number][] = [[0.3, 0.2], [-0.5, 0.4], [0.1, -0.7]];
+  for (const [l, p] of sample) expectPair(near.raw(l, p), nearPerspectiveRaw(2)(l, p));
+});
+
+test('orthographic is no longer in the list: the far end of the viewpoint slider is the globe', () => {
+  expect(stops.some((s) => s.id === 'orthographic')).toBe(false);
+  const state = (x: number): ProjectionState => ({ defId: 'perspective', params: { x }, orientation: { lon: 0, lat: 0, tilt: 0 } });
+  expect(matchStop(state(1))?.id).toBe('globe');
+  expect(matchStop(state(0.9995))?.id).toBe('globe');
+  expect(matchStop(state(0.99))).toBeNull();
+  expect(matchStop(state(0.5))?.id).toBe('stereographic');
+  expect(nameOf(state(1))).toBe('Globe (slider limit)');
+  expect(nameOf({ defId: 'conic-conformal', params: { p1: 0, p2: 0 }, orientation: { lon: 0, lat: 0, tilt: 0 } })).toBe('Mercator (cone limit)');
+  // The globe itself matches at any distance: it is one projection, seen from nearer or farther.
+  expect(matchStop({ defId: 'globe', params: { d: 0.3 }, orientation: { lon: 0, lat: 0, tilt: 0 } })?.id).toBe('globe');
+});
+
+test('the view distance is written in radii and read back the same', () => {
+  const [control] = controlsFor('globe');
+  expect(control).toMatchObject({ key: 'd', label: 'View distance', min: 0, max: 1 / 1.1 });
+  expect(control!.stops!.map((v) => +v.toFixed(4))).toEqual([0, +(1 / 6.6).toFixed(4), 0.5]);
+  expect([0, 0.5, 1 / 6.6, 0.25].map((v) => control!.format!(v))).toEqual(['\u221e', '2\u00d7', '6.6\u00d7', '4\u00d7']);
+  expect(['inf', '\u221e', '2', '2\u00d7', ' 4 x ', '1', '0.5'].map((raw) => control!.parse!(raw))).toEqual([0, 0, 0.5, 0.5, 0.25, 1 / 1.1, 1 / 1.1]);
+  expect(control!.parse!('abc')).toBeNull();
+  expect(control!.parse!('')).toBeNull();
 });
 
 test('perspective stops use P = x / (1 - x) with x = 1 as orthographic', () => {
@@ -145,7 +197,7 @@ test('perspective cap grows as the viewpoint moves toward the globe', () => {
   expect(radius(0.5)).toBeCloseTo(180 - 165, 9); // stereographic reaches 165
   expect(radius(1)).toBeCloseTo(90, 9); // orthographic is a hemisphere
   expect(def.caps({ x: 1 })[0]!.mode).toBe('clip');
-  expect(getDef('globe').caps({})[0]).toEqual({ frameCenter: [180, 0], radius: 90, mode: 'behind' });
+  expect(getDef('globe').caps({ d: 0 })[0]).toEqual({ frameCenter: [180, 0], radius: 90, mode: 'behind' });
 });
 
 test('cylindrical family stops', () => {

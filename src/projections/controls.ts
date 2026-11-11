@@ -1,5 +1,5 @@
 import { formatDegrees, parseDegrees } from '../geo/angles';
-import { POLAR_PARALLEL } from './catalog';
+import { getDef, NEAREST_VIEW, POLAR_PARALLEL } from './catalog';
 import { matchStop } from './compile';
 import type { ProjectionState } from './types';
 
@@ -38,6 +38,17 @@ export function parseViewpoint(raw: string): number | null {
   return Math.max(0, distance) === Infinity ? 1 : Math.max(0, distance) / (1 + Math.max(0, distance));
 }
 
+/** The globe's view distance, written in Earth radii. The slider's axis is one over it, so that infinitely far is at one end. */
+const formatDistance = (d: number): string => (d <= 0 ? '\u221e' : `${Number((1 / d).toPrecision(2))}\u00d7`);
+/** Typed text for the view distance: a number of radii, with or without a times sign, or inf. Nearer than the nearest is the nearest. */
+function parseDistance(raw: string): number | null {
+  const text = raw.trim().toLowerCase().replace(/[\u00d7x]\s*$/, '').trim();
+  if (text === '\u221e' || text === 'inf' || text === 'infinity') return 0;
+  const distance = text === '' ? NaN : Number(text);
+  if (Number.isNaN(distance)) return null;
+  return distance === Infinity ? 0 : 1 / Math.max(NEAREST_VIEW, distance);
+}
+
 const degrees = { format: formatDegrees, parse: parseDegrees };
 
 const conicParallel = (key: string, label: string): ParamControl => ({
@@ -54,6 +65,21 @@ const conicParallel = (key: string, label: string): ParamControl => ({
 const conic = [conicParallel('p1', 'First parallel'), conicParallel('p2', 'Second parallel')];
 
 const CONTROLS: Record<string, ParamControl[]> = {
+  globe: [
+    {
+      key: 'd',
+      label: 'View distance',
+      tip: "The eye's distance from the Earth's centre, in Earth radii. From nearer, less of the globe is in sight; 6.6 is a geostationary satellite's",
+      min: 0,
+      max: 1 / NEAREST_VIEW,
+      step: 0.005,
+      stops: [0, 1 / 6.6, 0.5],
+      snap: 0.02,
+      format: formatDistance,
+      valueText: (d) => (d <= 0 ? 'infinitely far' : `${formatDistance(d).replace('\u00d7', '')} Earth radii`),
+      parse: parseDistance,
+    },
+  ],
   perspective: [
     {
       key: 'x',
@@ -81,11 +107,12 @@ const CONTROLS: Record<string, ParamControl[]> = {
 export const controlsFor = (defId: string): ParamControl[] => CONTROLS[defId] ?? [];
 
 /**
- * What the map on screen is called: the named projection it sits on, "Custom" between names, or, for a conic whose sliders have
- * reached a limit, the projection it has become there.
+ * What the map on screen is called: the named projection it sits on, "Custom" between names, or, where a slider has reached a
+ * limit at which the map is another projection (a conic become a cylinder, the viewpoint gone infinitely far), that projection.
  */
 export function nameOf(state: ProjectionState): string {
   const match = matchStop(state);
   if (!match) return 'Custom';
-  return match.defId === state.defId ? match.name : `${match.name} (cone limit)`;
+  if (match.defId === state.defId) return match.name;
+  return `${match.name} (${getDef(state.defId).family === 'conic' ? 'cone' : 'slider'} limit)`;
 }

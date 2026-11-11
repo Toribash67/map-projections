@@ -34,6 +34,7 @@ import {
   VIEW,
   world,
 } from './sceneSupport';
+import { stopOf } from './stopOf';
 
 test('at t=0 src equals projectPoint under the source; at t=1 dst under the target', () => {
   const pairs: [Member, Member][] = [
@@ -503,7 +504,7 @@ function allPairs(): SweepResult {
 
 test('no NaN in any array for any pair of stops (all ordered pairs)', () => {
   const result = allPairs();
-  expect(result.pairs).toBe(21 * 20);
+  expect(result.pairs).toBe(stops.length * (stops.length - 1));
   expect(result.nan).toEqual([]);
 }, 180_000);
 
@@ -654,7 +655,7 @@ test('the viewpoint slider gives a whole, unstreaked map at every step, live and
     sweepScene(buildScene(world, [settled], null, true), `x = ${x}`, out);
   }
   // Morphs into and out of views in the band that used to run to infinity, and either side of it.
-  const others = ['globe', 'gnomonic', 'stereographic', 'orthographic', 'mercator', 'mollweide', 'goode'].map((id) => stops.find((s) => s.id === id)!);
+  const others = ['globe', 'gnomonic', 'stereographic', 'orthographic', 'mercator', 'mollweide', 'goode'].map(stopOf);
   for (const x of [0.3, 0.38, 0.43, 0.47, 0.55, 0.8]) {
     for (const o of others) {
       sweepScene(buildScene(world, [memberOf(view(x))], memberOf(stateForStop(o, view(x))), true), `x = ${x} to ${o.id}`, out);

@@ -4,7 +4,6 @@ import {
   geoConicConformalRaw,
   geoConicEqualAreaRaw,
   geoEqualEarthRaw,
-  geoOrthographicRaw,
 } from 'd3-geo';
 import {
   geoHammerRaw,
@@ -13,7 +12,7 @@ import {
   geoSinusoidalRaw,
   geoWinkel3Raw,
 } from 'd3-geo-projection';
-import { cylindricalRaw, goodeRaw, perspectiveRaw } from './raws';
+import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from './raws';
 import type { ExcludedCap, Lobe, Orientation, Params, Preserves, ProjectionDef, Seam, Stop } from './types';
 
 const rad = Math.PI / 180;
@@ -72,6 +71,9 @@ function conformalN(p1: number, p2: number): number {
 /** The cone constant of a conic definition at standard parallels `p1` and `p2`: 0 is a cylinder, 1 a disc. */
 export const coneConstant = (defId: string, p1: number, p2: number): number =>
   defId === 'conic-conformal' ? conformalN(p1, p2) : equalAreaN(p1, p2);
+
+/** The nearest the eye comes to the globe, in Earth radii from its centre. */
+export const NEAREST_VIEW = 1.1;
 
 /** The parallels of a conic stop at the pole, which the conic sliders reach but do not pass. */
 export const POLAR_PARALLEL = 89.9;
@@ -143,12 +145,14 @@ const defList: ProjectionDef[] = [
   {
     id: 'globe',
     family: 'globe',
-    defaultParams: {},
+    // One over the eye's distance from the Earth's centre, in Earth radii: 0 is infinitely far, which is the orthographic globe.
+    defaultParams: { d: 0 },
     defaultOrientation: origin,
     tiltEnabled: false,
     latEnabled: true,
-    raw: () => geoOrthographicRaw,
-    caps: () => [cap(ANTIPODE, 90, 'behind')],
+    raw: (p) => nearPerspectiveRaw(p.d! > 0 ? 1 / p.d! : Infinity),
+    // The far side is all that is beyond the limb, which from nearer than infinity is more than a hemisphere.
+    caps: (p) => [cap(ANTIPODE, 180 - Math.acos(Math.min(1, Math.max(0, p.d!))) / rad, 'behind')],
     seam: noSeam,
   },
   {
@@ -242,11 +246,10 @@ const stop = (
 ): Stop => ({ id, name, family, note, preserves, defId, params, ...extra });
 
 export const stops: Stop[] = [
-  stop('globe', 'Globe', 'globe', 'globe', {}, 'none', 'Keeps every shape, area and distance true at once, but shows only one hemisphere at a time.'),
+  stop('globe', 'Globe', 'globe', 'globe', {}, 'none', 'Keeps every shape, area and distance true at once, but shows only one hemisphere at a time, and less from close by.', { ignoreParams: ['d'] }),
 
   stop('gnomonic', 'Gnomonic', 'azimuthal', 'perspective', { x: 0 }, 'none', 'Keeps every straight line a great circle, the shortest route, but stretches shapes and areas ever more toward the edge and cannot show a full hemisphere.'),
   stop('stereographic', 'Stereographic', 'azimuthal', 'perspective', { x: 0.5 }, 'conformal', 'Keeps angles and small shapes true and turns circles into circles, but inflates areas away from the centre.'),
-  stop('orthographic', 'Orthographic', 'azimuthal', 'perspective', { x: 1 }, 'none', 'Looks like the Earth seen from far away, but squeezes shapes and areas toward the rim.'),
   stop('azimuthal-equidistant', 'Azimuthal equidistant', 'azimuthal', 'azimuthal-equidistant', {}, 'equidistant', 'Keeps distances and directions true from the centre, but distorts shapes and areas far from it.'),
   stop('lambert-azimuthal', 'Lambert azimuthal equal-area', 'azimuthal', 'lambert-azimuthal', {}, 'equal-area', 'Keeps areas true and directions from the centre right, but bends shapes toward the edge.'),
 

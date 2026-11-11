@@ -16,6 +16,19 @@ export function perspectiveRaw(P: number): RawFn {
   };
 }
 
+/**
+ * The globe as seen from `D` Earth radii from its centre, on a frame whose centre is [0, 0], with scale 1 at the centre. From
+ * infinitely far it is orthographic. From nearer, less than a hemisphere is in sight: the limb is where cos c = 1 / D, and what lies
+ * beyond it, the far side, falls inside the limb, as on the orthographic globe, where the near side covers it.
+ */
+export function nearPerspectiveRaw(D: number): RawFn {
+  return (lambda, phi) => {
+    const cosPhi = Math.cos(phi);
+    const k = D === Infinity ? 1 : (D - 1) / (D - cosPhi * Math.cos(lambda));
+    return [k * cosPhi * Math.sin(lambda), k * Math.sin(phi)];
+  };
+}
+
 function mercatorY(phi: number): number {
   return Math.log(Math.tan(Math.PI / 4 + phi / 2));
 }

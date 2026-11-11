@@ -8,6 +8,7 @@ import { compile, stateForStop } from '../src/projections/compile';
 import type { LonLat, Orientation, ProjectionState } from '../src/projections/types';
 import { computeScreen } from '../src/screen/screen';
 import type { Member } from '../src/tissot/indicatrix';
+import { stopOf } from './stopOf';
 
 export const rad = Math.PI / 180;
 export const VIEW = { width: 1000, height: 600 };
@@ -25,7 +26,7 @@ export function memberOf(state: ProjectionState, weight = 1): Member {
 }
 
 export function member(id: string, orientation?: Partial<Orientation>, weight = 1): Member {
-  const state = stateForStop(stops.find((s) => s.id === id)!);
+  const state = stateForStop(stopOf(id));
   return memberOf({ ...state, orientation: { ...state.orientation, ...orientation } }, weight);
 }
 

@@ -7,6 +7,7 @@ import { stops } from '../src/projections/catalog';
 import { compile, stateForStop } from '../src/projections/compile';
 import { computeScreen, projectPoint } from '../src/screen/screen';
 import type { CompiledProjection, LonLat, Orientation } from '../src/projections/types';
+import { stopOf } from './stopOf';
 
 const LAND_AREA = 3.62789;
 const TAU = 2 * Math.PI;
@@ -18,7 +19,7 @@ const graticule = geoGraticule10() as GeoJSON.GeoJsonObject;
 const sphere = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
 
 function member(stopId: string, orientation?: Orientation): CompiledProjection {
-  const stop = stops.find((s) => s.id === stopId);
+  const stop = stopOf(stopId);
   if (!stop) throw new Error(`no stop ${stopId}`);
   const state = stateForStop(stop);
   return compile(orientation ? { ...state, orientation } : state);
@@ -51,7 +52,7 @@ function expectLandArea(pieces: Piece[], label?: string) {
 const allPoints = (pieces: Piece[]) => pieces.flatMap((p) => p.coords.flat());
 
 test('land area is preserved at 3.62789 sr ±1e-3 for one member, each stop, default orientation', () => {
-  expect(stops.length).toBe(21);
+  expect(stops.length).toBe(20);
   for (const s of stops) expectLandArea(cutGeometry(land, [member(s.id)]), s.id);
 });
 
@@ -128,7 +129,7 @@ test('the whole sphere survives a redirect through two Goodes centred apart', ()
   let state = { ...stateForStop(stops.find((s) => s.id === 'globe')!), orientation: { lon: -59, lat: 0, tilt: 0 } };
   const states = [state];
   for (const id of ['goode', 'mercator', 'lambert-conformal', 'goode']) {
-    state = stateForStop(stops.find((s) => s.id === id)!, state);
+    state = stateForStop(stopOf(id), state);
     states.push(state);
   }
   const members = states.map(compile);
@@ -319,7 +320,7 @@ function clicks(from: Orientation, ids: string[]): CompiledProjection[] {
   let state = { ...stateForStop(stops.find((s) => s.id === ids[0])!), orientation: from };
   const states = [state];
   for (const id of ids.slice(1)) {
-    state = stateForStop(stops.find((s) => s.id === id)!, state);
+    state = stateForStop(stopOf(id), state);
     states.push(state);
   }
   return states.map(compile);

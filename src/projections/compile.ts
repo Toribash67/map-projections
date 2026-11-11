@@ -70,6 +70,9 @@ export function stateForStop(stop: Stop, from?: ProjectionState, memory: SwitchM
 
 const stopById = (id: string): Stop => stops.find((s) => s.id === id)!;
 
+// The viewpoint this close to infinitely far (on the slider's axis, where 1 is infinity) is the orthographic view, which is the globe.
+const GLOBE_FROM = 0.999;
+
 /**
  * The named projection that a conic becomes at a limit of its sliders, or null. A cone with
  * n = 0 is a cylinder: Mercator if conformal, the cylindrical equal-area stop at the same
@@ -95,7 +98,7 @@ function conicLimit(state: ProjectionState): Stop | null {
  * aspect, not another projection, so a tilted Mollweide is Mollweide. The one exception is a stop
  * that brings its own tilt: Mercator at tilt 90 (within 0.01) is Transverse Mercator. A conic
  * that has reached a limit of its sliders sits on the stop it becomes, which belongs to
- * another definition.
+ * another definition, and so does the perspective view from infinitely far, which is the globe.
  */
 export function matchStop(state: ProjectionState): Stop | null {
   const def = getDef(state.defId);
@@ -112,5 +115,16 @@ export function matchStop(state: ProjectionState): Stop | null {
   const tilt = def.tiltEnabled ? state.orientation.tilt : 0;
   const aspect = matching.find((stop) => stop.tilt !== undefined && Math.abs(tilt - stop.tilt) <= TOLERANCE);
   const plain = matching.find((stop) => stop.tilt === undefined);
-  return aspect ?? plain ?? (def.family === 'conic' ? conicLimit(state) : null);
+  return aspect ?? plain ?? limitStop(state);
+}
+
+/**
+ * The named projection that a map has become at a limit of its sliders, which belongs to another definition, or null. A conic becomes
+ * a cylinder or a disc; the perspective view from infinitely far is the globe.
+ */
+function limitStop(state: ProjectionState): Stop | null {
+  const def = getDef(state.defId);
+  if (def.family === 'conic') return conicLimit(state);
+  if (def.id === 'perspective' && (state.params.x ?? def.defaultParams.x!) >= GLOBE_FROM) return stopById('globe');
+  return null;
 }

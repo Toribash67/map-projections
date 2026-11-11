@@ -84,7 +84,7 @@ test('moving the spacing slider to 0 highlights Mercator; 0.5 shows Custom', asy
   expect(await isCurrent(page, '[data-stop="lambert-cylindrical"]')).toBe(true);
 });
 
-test('moving the viewpoint slider through gnomonic, stereographic and orthographic highlights each', async ({ page }) => {
+test('moving the viewpoint slider through gnomonic and stereographic highlights each, and at its far end the map is the globe', async ({ page }) => {
   await open(page);
   await pick(page, 'stereographic');
   await settle(page);
@@ -97,7 +97,9 @@ test('moving the viewpoint slider through gnomonic, stereographic and orthograph
   await move(page, 'Viewpoint', 0.51);
   expect(await isCurrent(page, '[data-stop="stereographic"]')).toBe(true);
   await move(page, 'Viewpoint', 0.99);
-  expect(await isCurrent(page, '[data-stop="orthographic"]')).toBe(true);
+  // Seen from infinitely far it is the orthographic view, which is the globe: the heading says so, and the list marks neither.
+  await expect(mapName(page)).toHaveText('Globe (slider limit)');
+  expect(await isCurrent(page, '[data-stop="globe"]')).toBe(false);
   await expect(page.getByRole('textbox', { name: 'Viewpoint, value' })).toHaveValue('∞');
   await move(page, 'Viewpoint', 0.25);
   await expect(mapName(page)).toHaveText('Custom');
@@ -170,7 +172,8 @@ test('slider reaching a stop gives the same map as selecting it, by comparing po
   await viaSlider('mercator', 'Vertical spacing', 2, 'lambert-cylindrical');
   await viaSlider('lambert-cylindrical', 'Standard parallel', 45, 'gall-peters');
   await viaSlider('stereographic', 'Viewpoint', 0, 'gnomonic');
-  await viaSlider('gnomonic', 'Viewpoint', 1, 'orthographic');
+  // The far end of the viewpoint is the globe from infinitely far.
+  await viaSlider('gnomonic', 'Viewpoint', 1, 'globe');
 });
 
 test('a conic slider reaching a limit gives the same map as selecting what it becomes, up to turning, shift and scale', async ({ page }) => {
@@ -502,4 +505,56 @@ test.describe('on a phone', () => {
     // The map was refitted to the narrower canvas.
     expect(await page.evaluate(() => (window as any).__app.viewport.width)).toBe(390);
   });
+});
+
+test('the globe has a view distance: from nearer, less of it is in sight, and it still drags, slides and morphs', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await open(page);
+  const visible = () => page.evaluate(() => 180 - (window as any).__app.live.compiled.caps[0].radius);
+  expect(await visible()).toBeCloseTo(90, 9);
+  await move(page, 'View distance', 0.5);
+  expect((await state(page)).params.d).toBe(0.5);
+  expect(await visible()).toBeCloseTo(60, 9);
+  await expect(numberBox(page, 'View distance')).toHaveValue('2×');
+  await expect(mapName(page)).toHaveText('Globe');
+  expect(await isCurrent(page, '[data-stop="globe"]')).toBe(true);
+  // The globe still fills the window: the limb is fitted, not the whole sphere.
+  const { screen, viewport } = await page.evaluate(() => ({ screen: (window as any).__app.live.screen, viewport: (window as any).__app.viewport }));
+  const limb = screen.k * (Math.sin(Math.PI / 3) / 1.5);
+  expect(Math.abs(2 * limb - (viewport.height - 32))).toBeLessThan(1);
+
+  // The land under the cursor follows a drag.
+  const at = (xy: [number, number]) =>
+    page.evaluate(async (xy) => {
+      const { screenToLonLat } = await import('/src/screen/screen.ts' as string);
+      const live = (window as any).__app.live;
+      return screenToLonLat(live.compiled, live.screen, xy) as [number, number] | null;
+    }, xy);
+  const box = (await page.locator('#map').boundingBox())!;
+  const held = (await at([500, 300]))!;
+  await page.mouse.move(box.x + 500, box.y + 300);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(box.x + 500 + 12 * i, box.y + 300 - 6 * i);
+  await page.mouse.up();
+  const now = (await at([572, 264]))!;
+  expect(Math.abs(now[0] - held[0]) + Math.abs(now[1] - held[1])).toBeLessThan(0.05);
+
+  // A typed distance slides there, and the reset slides back to infinitely far.
+  await type(page, 'View distance', '6.6');
+  expect((await state(page)).params.d).toBeCloseTo(1 / 6.6, 9);
+  await page.getByRole('button', { name: 'Reset view distance', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__app.isSliding)).toBe(true);
+  await settle(page);
+  expect((await state(page)).params.d).toBe(0);
+  await expect(numberBox(page, 'View distance')).toHaveValue('∞');
+
+  // From close by, it opens into a map and comes back.
+  await move(page, 'View distance', 0.7);
+  await pick(page, 'mollweide');
+  await settle(page);
+  await pick(page, 'globe');
+  await settle(page);
+  expect((await state(page)).params.d).toBe(0);
+  expect(errors).toEqual([]);
 });

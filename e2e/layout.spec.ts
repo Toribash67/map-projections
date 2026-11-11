@@ -23,7 +23,7 @@ test('the sidebar has no descriptions: no hints, no notes, no explainers', async
 
 test('the parameters are those of the map on screen and no others: what does not apply is absent, not greyed out', async ({ page }) => {
   await open(page);
-  expect(await sliderNames(page)).toEqual(['Longitude', 'Latitude']);
+  expect(await sliderNames(page)).toEqual(['View distance', 'Longitude', 'Latitude']);
   const expected: Record<string, string[]> = {
     mollweide: ['Longitude', 'Latitude', 'Tilt'],
     albers: ['First parallel', 'Second parallel', 'Longitude'],

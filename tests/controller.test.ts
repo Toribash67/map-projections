@@ -6,11 +6,12 @@ import { compile, stateForStop } from '../src/projections/compile';
 import type { LonLat, Orientation, ProjectionState } from '../src/projections/types';
 import { computeScreen, projectPoint, type Viewport } from '../src/screen/screen';
 import type { Member } from '../src/tissot/indicatrix';
+import { stopOf } from './stopOf';
 
 const VIEW: Viewport = { width: 1000, height: 600 };
 
 function stateOf(id: string, orientation?: Partial<Orientation>): ProjectionState {
-  const state = stateForStop(stops.find((s) => s.id === id)!);
+  const state = stateForStop(stopOf(id));
   return { ...state, orientation: { ...state.orientation, ...orientation } };
 }
 

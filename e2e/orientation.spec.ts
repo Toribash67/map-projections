@@ -166,7 +166,7 @@ test('tilt snaps at 0 and 90, and there is no tilt control on the globe, the azi
   expect((await orientation(page)).tilt).toBe(89);
 
   // On these a tilt would only spin the page, or the cone's axis is held to the pole: the control is not there at all.
-  for (const id of ['globe', 'gnomonic', 'stereographic', 'orthographic', 'azimuthal-equidistant', 'lambert-azimuthal', 'albers', 'lambert-conformal']) {
+  for (const id of ['globe', 'gnomonic', 'stereographic', 'azimuthal-equidistant', 'lambert-azimuthal', 'albers', 'lambert-conformal']) {
     await pick(page, id);
     await settle(page);
     await expect(slider(page, 'Tilt'), id).toHaveCount(0);
