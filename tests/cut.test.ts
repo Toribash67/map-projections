@@ -52,7 +52,7 @@ function expectLandArea(pieces: Piece[], label?: string) {
 const allPoints = (pieces: Piece[]) => pieces.flatMap((p) => p.coords.flat());
 
 test('land area is preserved at 3.62789 sr ±1e-3 for one member, each stop, default orientation', () => {
-  expect(stops.length).toBe(26);
+  expect(stops.length).toBe(29);
   for (const s of stops) expectLandArea(cutGeometry(land, [member(s.id)]), s.id);
 });
 
@@ -607,15 +607,18 @@ test('flags and lobes describe where each piece lies, for rotated member sets', 
             expect(piece.lobes[i], label).toBeUndefined();
             return;
           }
-          const lobe = seam.lobes.find((l) => l.id === piece.lobes[i])!;
-          expect(lobe, label).toBeDefined();
-          const escapes = frame.filter(
-            ([lon, lat]) =>
-              lat < lobe.latMin - TOLERANCE ||
-              lat > lobe.latMax + TOLERANCE ||
-              // Longitude means nothing right at a pole.
-              (Math.abs(lat) <= 89.9 && (lon < lobe.lonMin - TOLERANCE || lon > lobe.lonMax + TOLERANCE)),
-          );
+          // A lobe may be in more than one rectangle, with no seam between them; a piece lies within one of them.
+          const rectangles = seam.lobes.filter((l) => l.id === piece.lobes[i]);
+          expect(rectangles.length, label).toBeGreaterThan(0);
+          const escapesFrom = (lobe: (typeof rectangles)[number]) =>
+            frame.filter(
+              ([lon, lat]) =>
+                lat < lobe.latMin - TOLERANCE ||
+                lat > lobe.latMax + TOLERANCE ||
+                // Longitude means nothing right at a pole.
+                (Math.abs(lat) <= 89.9 && (lon < lobe.lonMin - TOLERANCE || lon > lobe.lonMax + TOLERANCE)),
+            );
+          const escapes = rectangles.map(escapesFrom).sort((x, y) => x.length - y.length)[0]!;
           expect(escapes, label).toEqual([]);
         });
       }

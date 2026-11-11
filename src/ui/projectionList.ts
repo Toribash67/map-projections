@@ -9,6 +9,7 @@ const FAMILY_NAMES: Record<string, string> = {
   conic: 'Conic',
   compromise: 'Compromise',
   'equal-area': 'Equal-area',
+  hemispheres: 'Double hemisphere',
 };
 
 export interface ProjectionList {

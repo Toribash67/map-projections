@@ -5,6 +5,7 @@ import {
   geoConicEqualAreaRaw,
   geoEqualEarthRaw,
   geoNaturalEarth1Raw,
+  geoStereographicRaw,
 } from 'd3-geo';
 import {
   geoBonneRaw,
@@ -12,10 +13,12 @@ import {
   geoHammerRaw,
   geoMillerRaw,
   geoMollweideRaw,
+  geoNicolosiRaw,
   geoRobinsonRaw,
   geoVanDerGrintenRaw,
   geoWinkel3Raw,
 } from 'd3-geo-projection';
+import { hemispheresDef } from './hemispheres';
 import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from './raws';
 import type { ExcludedCap, Lobe, Orientation, Params, Preserves, ProjectionDef, Seam, Stop } from './types';
 
@@ -234,6 +237,9 @@ const defList: ProjectionDef[] = [
   plain('eckert4', 'equal-area', () => geoEckert4Raw),
   plain('hammer', 'equal-area', () => geoHammerRaw(2)),
   plain('goode', 'equal-area', () => goodeRaw, { kind: 'lobes', lobes: goodeLobes, smoothEquator: true }),
+  hemispheresDef('hemispheres-nicolosi', geoNicolosiRaw),
+  hemispheresDef('hemispheres-stereographic', geoStereographicRaw),
+  hemispheresDef('hemispheres-equal-area', geoAzimuthalEqualAreaRaw),
 ];
 
 const defsById = new Map(defList.map((d) => [d.id, d]));
@@ -287,4 +293,8 @@ export const stops: Stop[] = [
   stop('eckert4', 'Eckert IV', 'equal-area', 'eckert4', {}, 'equal-area', 'Keeps areas true between rounded sides, with each pole a line half the length of the equator, but stretches the tropics tall.'),
   stop('hammer', 'Hammer', 'equal-area', 'hammer', {}, 'equal-area', 'Keeps areas true in a smooth ellipse, but bends shapes toward the edges.'),
   stop('goode', 'Goode homolosine', 'equal-area', 'goode', {}, 'equal-area', 'Keeps areas true with little shape distortion on land, but cuts the oceans into separate lobes.'),
+
+  stop('nicolosi', 'Nicolosi globular', 'hemispheres', 'hemispheres-nicolosi', {}, 'compromise', 'Draws each hemisphere in a circle, with every meridian and parallel an arc of a circle, as atlases long did, but keeps nothing exactly.'),
+  stop('stereographic-hemispheres', 'Stereographic hemispheres', 'hemispheres', 'hemispheres-stereographic', {}, 'conformal', 'Keeps angles and small shapes true in two circles, one for each hemisphere, but inflates areas toward their rims.'),
+  stop('equal-area-hemispheres', 'Equal-area hemispheres', 'hemispheres', 'hemispheres-equal-area', {}, 'equal-area', 'Keeps areas true in two circles, one for each hemisphere, but squeezes shapes toward their rims.'),
 ];

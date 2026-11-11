@@ -9,6 +9,7 @@ declare module 'd3-geo-projection' {
   export const geoVanDerGrintenRaw: Raw;
   export const geoMillerRaw: Raw;
   export const geoEckert4Raw: Raw;
+  export const geoNicolosiRaw: Raw;
   /** Bonne's pseudoconic, with its standard parallel at `phi0` radians. At 0 it is the sinusoidal projection itself. */
   export function geoBonneRaw(phi0: number): Raw;
   export function geoHammerRaw(a: number, b?: number): Raw;
