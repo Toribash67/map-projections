@@ -6,8 +6,25 @@ import type { Style } from './style';
 /** How far a weight `w` of the maps that cannot show something hides it: slow to start, so what arrives or leaves is faint for long. */
 const hiding = (w: number) => 1 - (1 - w) ** 3;
 
+/** Whether any map of the morph shows a piece. One that some map shows is drawn at full strength throughout: what a map cannot show is folded onto its edge, where it has no area, so nothing needs to fade. */
+const shows = (piece: ScenePiece): boolean => piece.alphaSrc > 0 || piece.alphaDst > 0;
+
+// The share of a morph, at the end where a line is folded onto a map's edge, over which it thins away to nothing.
+const FOLD = 0.05;
+
 /**
- * How visible a piece or indicatrix is at morph progress `t`. What every map shows keeps its alpha. Whatever
+ * How wide a line is stroked at `t`, of its full `width`. A line that the target cannot show ends the morph folded onto the target's
+ * edge, and one that no source shows begins it so: drawn there it would trace the edge for the frames next to rest, and vanish when the
+ * map settles. So over the last twentieth of the way it thins to nothing. A fill needs none of this, as folded it has no area.
+ */
+function widthAt(piece: ScenePiece, t: number, width: number): number {
+  if (piece.alphaDst === 0) width *= Math.min(1, (1 - t) / FOLD);
+  if (piece.alphaSrc === 0) width *= Math.min(1, t / FOLD);
+  return width;
+}
+
+/**
+ * How visible an indicatrix is at morph progress `t`. What every map shows keeps its alpha. Whatever
  * some map cannot show is hidden by that map's weight, which is (1 - t) times its weight at the start for a
  * source and t for the target, through `hiding`: it arrives as t^3 and leaves as (1 - t)^3, so while it is
  * folded onto an edge, at the start or the end, it is faint. A weight of zero hides nothing and each map hides on its
@@ -70,57 +87,54 @@ function signedArea(piece: ScenePiece, t: number): number {
 function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, outline: number | null, skipOut = false): void {
   ctx.fillStyle = colour;
   ctx.strokeStyle = colour;
-  if (outline !== null) ctx.lineWidth = outline;
+  ctx.globalAlpha = 1;
   for (const piece of pieces) {
-    if (piece.behind !== behind || !piece.closed || (skipOut && piece.out)) continue;
-    const alpha = alphaOf(piece, t);
-    if (alpha <= 0) continue;
-    ctx.globalAlpha = Math.min(1, alpha);
+    if (piece.behind !== behind || !piece.closed || (skipOut && piece.out) || !shows(piece)) continue;
     ctx.beginPath();
     trace(ctx, piece, t);
     ctx.fill();
-    if (outline !== null) ctx.stroke();
+    // Folded onto an edge the fill has no area, but its outline would still trace the edge.
+    const width = outline === null ? 0 : widthAt(piece, t, outline);
+    if (width > 0) {
+      ctx.lineWidth = width;
+      ctx.stroke();
+    }
   }
 }
 
 /**
- * Fills cells that may be folded over, as one path for each run of cells at the same alpha. A cell
+ * Fills cells that may be folded over, as one path. A cell
  * that comes out wound the other way on screen is traced backwards, so every cell winds the same
  * way: where folded cells overlap their windings add up instead of cancelling, and there is no
  * hairline between neighbours, as they are filled together.
  */
 function fillCells(ctx: CanvasRenderingContext2D, cells: ScenePiece[], behind: boolean, t: number, colour: string): void {
   ctx.fillStyle = colour;
-  let current = -1;
+  ctx.globalAlpha = 1;
+  let any = false;
   for (const cell of cells) {
-    if (cell.behind !== behind || !cell.closed) continue;
-    const alpha = Math.min(1, alphaOf(cell, t));
-    if (alpha <= 0) continue;
-    if (alpha !== current) {
-      if (current > 0) ctx.fill();
-      ctx.globalAlpha = alpha;
-      ctx.beginPath();
-      current = alpha;
-    }
+    if (cell.behind !== behind || !cell.closed || !shows(cell)) continue;
+    if (!any) ctx.beginPath();
+    any = true;
     trace(ctx, cell, t, signedArea(cell, t) < 0);
   }
-  if (current > 0) ctx.fill();
+  if (any) ctx.fill();
 }
 
-/** Strokes the lines among `pieces`, one path for each run of pieces at the same alpha. */
+/** Strokes the lines among `pieces`, one path for each run of pieces of the same width. */
 function strokePieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, width: number): void {
   ctx.strokeStyle = colour;
-  ctx.lineWidth = width;
+  ctx.globalAlpha = 1;
   let current = -1;
   for (const piece of pieces) {
-    if (piece.behind !== behind || piece.closed) continue;
-    const alpha = Math.min(1, alphaOf(piece, t));
-    if (alpha <= 0) continue;
-    if (alpha !== current) {
+    if (piece.behind !== behind || piece.closed || !shows(piece)) continue;
+    const w = widthAt(piece, t, width);
+    if (w <= 0) continue;
+    if (w !== current) {
       if (current > 0) ctx.stroke();
-      ctx.globalAlpha = alpha;
+      ctx.lineWidth = w;
       ctx.beginPath();
-      current = alpha;
+      current = w;
     }
     trace(ctx, piece, t);
   }
@@ -190,18 +204,18 @@ function drawIndicatrices(ctx: CanvasRenderingContext2D, indicatrices: SceneIndi
 const shownBy = (piece: ScenePiece, member: number) => (((piece.shownBy ?? 1) >> member) & 1) === 1;
 
 /** The pieces of the outline at `t`: ocean that is filled as pieces, and the cells that stand in for the rest. */
-function* outlinePieces(scene: Scene, t: number): Generator<ScenePiece> {
+function* outlinePieces(scene: Scene): Generator<ScenePiece> {
   const cells = scene.layers.capOcean;
   for (const piece of scene.layers.ocean ?? []) {
-    if (piece.closed && !(cells !== undefined && piece.out) && alphaOf(piece, t) > 0) yield piece;
+    if (piece.closed && !(cells !== undefined && piece.out) && shows(piece)) yield piece;
   }
-  for (const cell of cells ?? []) if (cell.closed && alphaOf(cell, t) > 0) yield cell;
+  for (const cell of cells ?? []) if (cell.closed && shows(cell)) yield cell;
 }
 
 /** The clip for what `member` shows, or undefined where that is the whole outline, so that the two are one clip. */
 function clipKey(scene: Scene, t: number, member: number | undefined): number | undefined {
   if (member === undefined) return undefined;
-  for (const piece of outlinePieces(scene, t)) if (!shownBy(piece, member)) return member;
+  for (const piece of outlinePieces(scene)) if (!shownBy(piece, member)) return member;
   return undefined;
 }
 
@@ -220,7 +234,7 @@ function clipToOutline(ctx: CanvasRenderingContext2D, scene: Scene, frame: Frame
   if (kept) return ctx.clip(kept);
   const path: CanvasPath = typeof Path2D === 'function' ? new Path2D() : ctx;
   ctx.beginPath();
-  for (const piece of outlinePieces(scene, frame.t)) {
+  for (const piece of outlinePieces(scene)) {
     if (member === undefined || shownBy(piece, member)) trace(path, piece, frame.t, signedArea(piece, frame.t) < 0);
   }
   if (path === ctx) return ctx.clip();

@@ -68,7 +68,7 @@ const open = async (page: Page) => {
 
 const select = (page: Page, id: string) => page.evaluate((s) => (window as any).__app.select(s), stop(id));
 const isMorphing = (page: Page): Promise<boolean> => page.evaluate(() => (window as any).__app.isMorphing);
-const settle = (page: Page) => page.waitForFunction(() => !(window as any).__app.isMorphing);
+const settle = (page: Page) => page.waitForFunction(() => !(window as any).__app.isMorphing && !(window as any).__app.isSliding);
 
 /** Opens the app on a clock that only moves when told to, and leaves it paused. */
 const openPaused = async (page: Page) => {
@@ -359,3 +359,42 @@ test('frames run only while something is pending', async ({ page }) => {
   await idle();
   expect(await requests()).toBe(settled);
 });
+
+/** Keeps the canvas as it is now, and later counts the pixels that have changed by more than 8 in any channel since. */
+const keepCanvas = (page: Page) =>
+  page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#map')!;
+    (window as any).__kept = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+  });
+const changedSince = (page: Page) =>
+  page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#map')!;
+    const now = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+    const kept = (window as any).__kept as Uint8ClampedArray;
+    let changed = 0;
+    for (let i = 0; i < now.length; i += 4) {
+      if (Math.abs(now[i]! - kept[i]!) > 8 || Math.abs(now[i + 1]! - kept[i + 1]!) > 8 || Math.abs(now[i + 2]! - kept[i + 2]!) > 8) changed++;
+    }
+    return changed / (now.length / 4);
+  });
+
+for (const [from, to] of [['mollweide', 'gnomonic'], ['gnomonic', 'mollweide'], ['mercator', 'stereographic']] as const) {
+  test(`${from} to ${to}: nothing fades, and what folds onto an edge leaves no trace there as the morph starts or settles`, async ({ page }) => {
+    await openPaused(page);
+    await select(page, from);
+    await page.clock.runFor(1600);
+    await keepCanvas(page);
+    await select(page, to);
+    // One frame in: the map has hardly moved, and nothing has appeared along its edge.
+    await page.clock.runFor(16);
+    expect(await isMorphing(page)).toBe(true);
+    expect(await changedSince(page), 'first frame').toBeLessThan(0.0005);
+    // One frame from the end, against the map at rest.
+    await page.clock.runFor(1364);
+    expect(await isMorphing(page)).toBe(true);
+    await keepCanvas(page);
+    await page.clock.runFor(100);
+    expect(await isMorphing(page)).toBe(false);
+    expect(await changedSince(page), 'last frame').toBeLessThan(0.0005);
+  });
+}

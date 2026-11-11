@@ -24,10 +24,9 @@ export type ScenePiece = {
   dst: Float32Array;
   /** The point (not array) index where each ring or line begins; each one ends where the next begins. */
   ringStarts: Uint32Array;
+  /** The share of the sources, by weight, that show it, and whether the target does (1 or 0). It is drawn at full strength if either is above zero. */
   alphaSrc: number;
   alphaDst: number;
-  /** The weights of the source members that cannot show it, which with `alphaDst` set how it fades. See `alphaOf`. */
-  hidden?: number[];
   behind: boolean;
   /** Beyond what a map can show at one end or the other: past a clip cap, or behind a globe's limb. Its ocean is filled from cells. */
   out: boolean;
@@ -170,7 +169,6 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   const out = behind || piece.celled.some(Boolean);
   if (alphaSrc <= 0 && alphaDst <= 0) return null;
   if (!target && behind) return null;
-  const hidden = source.filter((_, i) => !shownBy(i)).map((m) => m.weight);
   const shown = members.reduce((bits, _, i) => (shownBy(i) ? bits | (1 << i) : bits), 0);
 
   const axes = members.map((m, i) => (piece.inside[i] ? null : capHolding(m.compiled, m.compiled.toFrame(piece.coords[0]![0]!))));
@@ -203,7 +201,7 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
   };
   const src = fill(source, 0);
   const dst = target ? fill([{ ...target, weight: 1 }], source.length) : src;
-  return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, hidden, behind, out, shownBy: shown };
+  return { closed: piece.closed, src, dst, ringStarts, alphaSrc, alphaDst, behind, out, shownBy: shown };
 }
 
 /** What a live build cut from a geometry, and the map it cut it for. */

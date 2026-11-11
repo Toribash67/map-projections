@@ -7,7 +7,7 @@ import { INDICATRIX_RADIUS } from '../src/tissot/indicatrix';
 // The tests run in light mode, as the browser is told to, unless one says otherwise.
 const LIGHT_STYLE = mapStyle('light');
 
-type Op = { op: string; args: number[]; style?: string; alpha: number; transform: number[]; path: number[][] };
+type Op = { op: string; args: number[]; style?: string; alpha: number; width?: number; transform: number[]; path: number[][] };
 
 /** A context that writes down what is painted, with what, and through which transform each path point went. */
 function recordingContext(base = [2, 0, 0, 2, 0, 0]) {
@@ -40,7 +40,7 @@ function recordingContext(base = [2, 0, 0, 2, 0, 0]) {
     },
     fillRect: (...args: number[]) => void ops.push({ op: 'fillRect', args, style: ctx.fillStyle, alpha: ctx.globalAlpha, transform: [...transform], path: [] }),
     fill: () => void ops.push({ op: 'fill', args: [], style: ctx.fillStyle, alpha: ctx.globalAlpha, transform: [...transform], path: [...path] }),
-    stroke: () => void ops.push({ op: 'stroke', args: [], style: ctx.strokeStyle, alpha: ctx.globalAlpha, transform: [...transform], path: [...path] }),
+    stroke: () => void ops.push({ op: 'stroke', args: [], style: ctx.strokeStyle, alpha: ctx.globalAlpha, width: ctx.lineWidth, transform: [...transform], path: [...path] }),
   };
   return { ctx: ctx as unknown as CanvasRenderingContext2D, ops, transform: () => transform };
 }
@@ -70,23 +70,58 @@ test('draw: pieces are positioned at the blend of their two ends', () => {
   expect(fill.style).toBe(LIGHT_STYLE.land);
 });
 
-test('draw: a piece is drawn at the blend of its alphas, and not at all at alpha 0', () => {
-  const { ctx, ops } = recordingContext();
-  const fading = piece(square(0), square(0), { alphaSrc: 1, alphaDst: 0 });
+test('draw: a piece that either end shows is drawn at full strength at every moment of a morph, and one that neither shows is not drawn', () => {
+  const leaving = piece(square(0), square(0), { alphaSrc: 1, alphaDst: 0 });
   const gone = piece(square(50), square(50), { alphaSrc: 0, alphaDst: 0 });
   const arriving = piece(square(100), square(100), { alphaSrc: 0, alphaDst: 1 });
-  drawScene(ctx, { layers: { ...emptyLayers(), land: [fading, gone, arriving] }, indicatrices: [] }, 0, LIGHT_STYLE);
-  const land = painted(ops).filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.land);
-  // At t = 0 only the first shows.
-  expect(land.map((o) => o.path[0]![0])).toEqual([0]);
-  expect(land[0]!.alpha).toBe(1);
+  const partly = piece(square(150), square(150), { alphaSrc: 0.25, alphaDst: 1 });
+  for (const t of [0, 0.01, 0.25, 0.5, 0.99, 1]) {
+    const { ctx, ops } = recordingContext();
+    drawScene(ctx, { layers: { ...emptyLayers(), land: [leaving, gone, arriving, partly] }, indicatrices: [] }, t, LIGHT_STYLE);
+    const land = painted(ops).filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.land);
+    // Nothing fades: what a map cannot show is folded onto its edge, where it has no area.
+    expect(land.map((o) => [o.path[0]![0], o.alpha]), `t ${t}`).toEqual([[0, 1], [100, 1], [150, 1]]);
+    expect(ctx.globalAlpha).toBe(1);
+  }
+});
 
-  const later = recordingContext();
-  drawScene(later.ctx, { layers: { ...emptyLayers(), land: [fading, gone, arriving] }, indicatrices: [] }, 0.25, LIGHT_STYLE);
-  const shown = painted(later.ops).filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.land);
-  expect(shown.map((o) => [o.path[0]![0], o.alpha])).toEqual([[0, alphaOf({ alphaSrc: 1, alphaDst: 0 }, 0.25)], [100, alphaOf({ alphaSrc: 0, alphaDst: 1 }, 0.25)]]);
-  // Whatever is painted later is not left at a fading piece's alpha.
-  expect(later.ctx.globalAlpha).toBe(1);
+test('draw: no fill or stroke of a piece is ever painted at less than full strength', () => {
+  const { ctx, ops } = recordingContext();
+  const open = { closed: false };
+  const layers = {
+    ocean: [piece(square(0), square(0), { alphaSrc: 0, alphaDst: 1 })],
+    land: [piece(square(0), square(20), { alphaSrc: 1, alphaDst: 0 })],
+    graticule: [piece(square(0), square(0), { ...open, alphaSrc: 0, alphaDst: 1 })],
+    coast: [piece(square(0), square(0), { ...open, alphaSrc: 1, alphaDst: 0 })],
+    drawings: [piece(square(0), square(0), { ...open, alphaSrc: 0.4, alphaDst: 0 })],
+    capOcean: [piece(square(0), square(0), { alphaSrc: 0, alphaDst: 1, out: true })],
+  };
+  drawScene(ctx, { layers, indicatrices: [] }, 0.5, LIGHT_STYLE);
+  expect(painted(ops).length).toBeGreaterThanOrEqual(6);
+  for (const op of painted(ops)) expect(op.alpha).toBe(1);
+});
+
+test('draw: a line the target cannot show thins away over the last twentieth of the morph, and one no source shows thickens over the first', () => {
+  const open = { closed: false };
+  const leaving = piece(square(0), square(0), { ...open, alphaSrc: 1, alphaDst: 0 });
+  const arriving = piece(square(100), square(100), { ...open, alphaSrc: 0, alphaDst: 1 });
+  const staying = piece(square(200), square(200), open);
+  const widthsAt = (t: number) => {
+    const { ctx, ops } = recordingContext();
+    drawScene(ctx, { layers: { ...emptyLayers(), coast: [leaving, arriving, staying] }, indicatrices: [] }, t, LIGHT_STYLE);
+    const strokes = painted(ops).filter((o) => o.op === 'stroke' && o.style === LIGHT_STYLE.coast);
+    // By where each stroke's path starts: a line folded onto an edge leaves no trace there on the frame next to rest.
+    return Object.fromEntries(strokes.flatMap((o) => [0, 100, 200].filter((x) => o.path.some((point) => point[0] === x)).map((x) => [x, o.width])));
+  };
+  const full = LIGHT_STYLE.coastWidth;
+  expect(widthsAt(0.5)).toEqual({ 0: full, 100: full, 200: full });
+  expect(widthsAt(0.975)[0]).toBeCloseTo(full / 2, 9);
+  expect(widthsAt(0.975)[100]).toBe(full);
+  expect(widthsAt(0.025)[100]).toBeCloseTo(full / 2, 9);
+  expect(widthsAt(0.025)[0]).toBe(full);
+  // At the very ends it is not drawn at all.
+  expect(widthsAt(1)).toEqual({ 100: full, 200: full });
+  expect(widthsAt(0)).toEqual({ 0: full, 200: full });
 });
 
 test('draw: each group paints ocean, land, graticule, coast, drawings, in order, behind group first', () => {
@@ -267,7 +302,7 @@ test('draw: cells of ocean beyond a map\'s coverage replace the ocean pieces tha
   drawScene(ctx, scene, 0.5, LIGHT_STYLE);
   const oceanFills = ops.filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.ocean);
   expect(oceanFills.map((o) => o.path[0]![0])).toEqual([0, 200]);
-  expect(oceanFills[0]!.alpha).toBe(alphaOf({ alphaSrc: 0, alphaDst: 1 }, 0.5));
+  expect(oceanFills[0]!.alpha).toBe(1);
 });
 
 // Indicatrices are clipped to the outline of the map, which is its ocean: the pieces of ocean shown now, or the cells that stand in for them.
