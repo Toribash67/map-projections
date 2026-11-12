@@ -116,6 +116,19 @@ Notes on how it might work:
 - Export: PNG is straightforward. SVG would have to embed the warped picture as an image under the vector layers.
 - Open questions: which layers stay on over it by default (coast and borders, probably in a lighter colour); whether the themes apply; night lights as a second picture.
 
+## Biomes layer (Martin)
+
+A map of the world's biomes (tundra, taiga, desert, rainforest and so on) as a layer, like the political map: filled areas in a colour each.
+
+Notes on how it might work:
+
+- It is vector, so it fits what is there: one MultiPolygon to a biome, cut and morphed like the political colours, and exported in both formats with no new machinery.
+- Source: not in Natural Earth or `world-atlas`. The usual one is WWF's Terrestrial Ecoregions of the World (14 biomes, 867 ecoregions), or its successor RESOLVE Ecoregions 2017 (CC BY 4.0, so it needs a credit line). Köppen climate zones are a close cousin and could be a second layer of the same kind.
+- The data is far too detailed as published (tens of megabytes). It would be dissolved to the 14 biomes, simplified to about the 1:110m and 1:50m levels, and stored as TopoJSON in the repo or as its own small package, fetched when the layer is first turned on.
+- Each political colour is one cut per morph; 14 biomes are 14, so the frame time in a morph needs measuring. Simplifying harder for the morph and swapping in the finer shapes at rest, as the coastlines do, is the fallback.
+- Needs a legend: 14 colours mean nothing without names. A small key on the map, shown while the layer is on, and included in exports.
+- Open questions: 14 colours for each theme, distinct from each other and from the sea; whether it replaces the land fill and the political map or can sit under borders; lakes, ice and rock.
+
 ## Shareable links
 
 Put the projection, parameters, centre, zoom, layers and drawings in the URL, so that a link opens exactly the map that was on screen.
