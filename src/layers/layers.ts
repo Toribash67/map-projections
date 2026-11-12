@@ -14,7 +14,7 @@ export type GraticuleStep = 10 | 15 | 30;
 export type Corner = 'tl' | 'tr' | 'bl' | 'br';
 export const CORNERS: readonly Corner[] = ['tl', 'tr', 'bl', 'br'];
 /** The limits of the smallest lettering a name may have, in pixels of the screen, and how long a title may be. */
-export const SMALLEST_NAME = { min: 2, max: 10 } as const;
+export const SMALLEST_NAME = { min: 1, max: 10 } as const;
 export const TITLE_LENGTH = 80;
 
 /** Which layers the map shows, how fine its graticule is and whether it lies under the land, how small a name may be, and what the title box says and where it sits. */

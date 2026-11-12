@@ -1,8 +1,8 @@
-import { geoLength } from 'd3-geo';
+import { geoArea, geoLength } from 'd3-geo';
 import { neighbors } from 'topojson-client';
 import { describe, expect, test } from 'vitest';
 import { COAST, GRATICULE, LAND } from '../src/data/land';
-import { BORDERS, colourIndex, POLITICAL } from '../src/data/countries';
+import { BORDERS, colourIndex, POLITICAL, politicalOf } from '../src/data/countries';
 import { loadDetail } from '../src/data/detail';
 import { lakeEdgesOf, loadWater } from '../src/data/water';
 import { COARSE } from '../src/layers/layers';
@@ -258,5 +258,14 @@ describe('drawing the layers', () => {
     // At the ends only one of them is drawn at all.
     expect(widths(0)).toEqual([style.standardWidth]);
     expect(widths(1)).toEqual([style.standardWidth]);
+  });
+});
+
+describe('the countries by colour, at the finest scale', () => {
+  test('no country covers more than half the world: an islet too small to have an inside is not turned into everything but itself', async () => {
+    const topology = (await loadDetail('10m')).topology;
+    for (const colour of politicalOf(topology)) {
+      for (const polygon of colour.coordinates) expect(geoArea({ type: 'Polygon', coordinates: polygon })).toBeLessThan(2 * Math.PI);
+    }
   });
 });

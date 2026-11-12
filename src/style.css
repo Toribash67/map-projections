@@ -93,11 +93,15 @@ input {
 .toolbar,
 .zoom-control,
 #actions > .map-button {
-  display: flex;
   background: var(--panel);
   border-radius: 6px;
   box-shadow: 0 0 0 1px var(--line), 0 1px 5px var(--shadow);
   overflow: hidden;
+}
+
+.toolbar,
+.zoom-control {
+  display: flex;
 }
 
 .zoom-control {

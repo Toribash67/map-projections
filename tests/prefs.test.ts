@@ -50,7 +50,7 @@ describe('preferences', () => {
     const read = (layers: unknown) => loadPrefs(stored({ layers })).layers;
     expect(read({ corner: 'middle', smallestName: 'x', graticuleUnder: 1, title: 7, subtitle: null })).toEqual(DEFAULT_LAYERS);
     expect(read({ smallestName: 50 }).smallestName).toBe(10);
-    expect(read({ smallestName: -3 }).smallestName).toBe(2);
+    expect(read({ smallestName: -3 }).smallestName).toBe(1);
     expect(read({ smallestName: 7.5 }).smallestName).toBe(7.5);
     expect(read({ title: 'x'.repeat(500), subtitle: 'y'.repeat(500) })).toMatchObject({ title: 'x'.repeat(80), subtitle: 'y'.repeat(80) });
     expect(read({ title: '', corner: 'tl' })).toMatchObject({ title: '', corner: 'tl' });
