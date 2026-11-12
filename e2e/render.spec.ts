@@ -279,6 +279,8 @@ test('indicatrices and drawn shapes appear in the accent colour, and a changed s
   const shapes: Shape[] = [{ kind: 'line', points: [[-40, -30], [40, 30]] }];
   await page.evaluate((shapes) => {
     const app = (window as any).__app;
+    // The drawing model holds the shapes, and gives them to the app again when the way of drawing changes, as it does on leaving the globe.
+    (window as any).__drawing.shapes = shapes;
     app.shapes = shapes;
     app.invalidateGeometry();
   }, shapes);
