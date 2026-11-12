@@ -6,6 +6,7 @@ import type { CompiledProjection, ExcludedCap, Lobe, LonLat } from '../projectio
 import { destination, isClipped, lobeOf, projectFrame, projectPoint, type Margin } from '../screen/screen';
 import { INDICATRIX_RADIUS, jacobian, singularValues, type Mat2, type Member } from './indicatrix';
 import { boundaryFade, capMargin } from './pastCap';
+import { smooth } from '../geo/numbers';
 
 const rad = Math.PI / 180;
 
@@ -63,7 +64,6 @@ export type RestImage = { pos: Pair; mat: Mat2; alpha: number; own: boolean; cut
  */
 export type MorphImage = { pos: Pair; mat: Mat2 | null; alpha: number | null; own: boolean; cuts: Cut[] };
 
-const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const finite = (q: Pair) => Number.isFinite(q[0]) && Number.isFinite(q[1]);
 
 type Vec = readonly [number, number, number];

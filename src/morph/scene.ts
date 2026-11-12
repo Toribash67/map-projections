@@ -1,6 +1,6 @@
 import { cutGeometry, type Piece } from '../geo/cut';
-import { capAxes, clipCaps, directionsOf, dot, edgePoint, positionOn, wrapAngle, type CapAxes } from '../geo/capEdge';
-import { toVector } from '../geo/densify';
+import { capAxes, clipCaps, directionsOf, edgePoint, positionOn, wrapAngle, type CapAxes } from '../geo/capEdge';
+import { dot, toVector } from '../geo/densify';
 import { cutFront } from '../geo/frontCut';
 import type { CompiledProjection, LonLat } from '../projections/types';
 import { projectFrame, type ScreenTransform } from '../screen/screen';

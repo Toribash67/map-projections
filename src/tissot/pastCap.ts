@@ -2,6 +2,7 @@ import { geoDistance, geoInterpolate } from 'd3-geo';
 import type { ExcludedCap, LonLat } from '../projections/types';
 import { projectPoint } from '../screen/screen';
 import { jacobian, singularValues, type Mat2, type Member } from './indicatrix';
+import { ramp, smooth } from '../geo/numbers';
 
 const rad = Math.PI / 180;
 
@@ -29,9 +30,6 @@ const LEAD_IN = 1;
 // A step shorter than this (pixels) has no direction worth reading.
 const NO_STEP = 1e-6;
 
-const ramp = (v: number, from: number, to: number) => Math.min(1, Math.max(0, (v - from) / (to - from)));
-/** 0 up to 0, 1 from 1, and smooth in between, with no kink at either end. */
-const smooth = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 /** How far (degrees) past a clip cap's edge indicatrices are computed: none for a small cap, `FADE_BAND` for a large one. */
 export const capMargin = (cap: ExcludedCap): number => (cap.mode === 'clip' && !cap.regular ? FADE_BAND * ramp(cap.radius, SMALL_CAP, LARGE_CAP) : 0);

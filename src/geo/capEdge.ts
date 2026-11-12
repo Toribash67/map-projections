@@ -1,6 +1,6 @@
 import type { CompiledProjection, ExcludedCap, LonLat } from '../projections/types';
 import { lobeOf, projectFrame, type ScreenTransform } from '../screen/screen';
-import { toVector, type Vector } from './densify';
+import { cross, dot, toVector, type Vector } from './densify';
 
 const rad = Math.PI / 180;
 const TAU = 2 * Math.PI;
@@ -10,8 +10,6 @@ const NO_DIRECTION = 1e-12;
 
 type Pair = [number, number];
 
-export const dot = (a: Vector, b: Vector) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-export const cross = (a: Vector, b: Vector): Vector => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 /** An angle wrapped to [-π, π]: the way a straight segment sweeps round a point not on it. */
 export const wrapAngle = (a: number) => a - TAU * Math.round(a / TAU);
 

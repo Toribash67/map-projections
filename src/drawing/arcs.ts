@@ -1,4 +1,4 @@
-import { toVector, type Vector } from '../geo/densify';
+import { cross, dot, toVector, type Vector } from '../geo/densify';
 import type { LonLat } from '../projections/types';
 
 const rad = Math.PI / 180;
@@ -13,8 +13,6 @@ const FOLDED = 1e-6;
 // Great circles meeting at less than this angle (radians) are taken for one.
 const SAME_CIRCLE = 1e-9;
 
-const dot = (a: Vector, b: Vector) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vector, b: Vector): Vector => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 const length = (a: Vector) => Math.hypot(a[0], a[1], a[2]);
 const scale = (a: Vector, k: number): Vector => [a[0] * k, a[1] * k, a[2] * k];
 const unit = (a: Vector) => scale(a, 1 / length(a));

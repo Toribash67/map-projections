@@ -105,9 +105,9 @@ describe('the light palette\'s accent as text', () => {
   });
 });
 
-test('the accent as text is only for text and glyphs: the notice and the icon of a pressed button use it, and nothing else does', () => {
+test('the accent as text is only for text and glyphs: the notices, the words of the Export button and the icon of a pressed button use it, and nothing else does', () => {
   const uses = (token: string) => [...styleCss.replace(/\/\*[^]*?\*\//g, '').matchAll(new RegExp(`([^{}]+)\\{[^}]*var\\(--${token}\\)`, 'g'))].map((m) => m[1]!.trim().replace(/\s+/g, ' '));
-  expect(uses('accent-text').sort()).toEqual(['.draw-notice', ".map-button[aria-pressed='true'], .map-button[aria-expanded='true']"]);
+  expect(uses('accent-text').sort()).toEqual(['.draw-notice', '.export-go', '.export-notice', ".map-button[aria-pressed='true'], .map-button[aria-expanded='true']"]);
   // Its border is the accent, as a line; its words are not.
   expect(styleCss).toMatch(/\.draw-notice \{[^}]*color: var\(--accent-text\)/);
 });

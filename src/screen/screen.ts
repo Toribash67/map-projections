@@ -1,6 +1,7 @@
 import { geoDistance } from 'd3-geo';
 import { compile } from '../projections/compile';
 import type { CompiledProjection, ExcludedCap, LonLat, Orientation } from '../projections/types';
+import { normaliseLon } from '../geo/angles';
 
 const rad = Math.PI / 180;
 
@@ -23,11 +24,6 @@ const PIXEL_TOLERANCE = 0.5;
 const DRAG_STEPS = 6;
 const SETTLED_PX = 0.01;
 const DRAG_FD_STEP = 0.01; // degrees
-
-/** Wraps a longitude to [-180, 180). */
-function wrapLon(d: number): number {
-  return ((((d + 180) % 360) + 360) % 360) - 180;
-}
 
 function effectiveTilt(c: CompiledProjection): number {
   return c.def.tiltEnabled ? c.state.orientation.tilt : 0;
@@ -402,7 +398,7 @@ export function dragTo(c: CompiledProjection, s: ScreenTransform, grabbed: LonLa
     settle: (prev, next) => {
       const nextLat = clamp(next[1], -90, 90);
       // At a pole the longitude only spins the map, so it stays where it was.
-      return [Math.abs(nextLat) >= 90 ? prev[0] : wrapLon(next[0]), nextLat];
+      return [Math.abs(nextLat) >= 90 ? prev[0] : normaliseLon(next[0]), nextLat];
     },
   });
   return { lon: result.at[0], lat: result.at[1], tilt };

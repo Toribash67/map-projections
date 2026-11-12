@@ -1,4 +1,4 @@
-import type { Vector } from '../geo/densify';
+import { dot, type Vector } from '../geo/densify';
 import type { LonLat } from '../projections/types';
 
 const rad = Math.PI / 180;
@@ -28,8 +28,7 @@ function axes({ lon, lat }: Camera): [Vector, Vector, Vector] {
 /** A point of space about the Earth as the camera sees it: x to the right, y up, z towards the viewer, in Earth radii. */
 export function toView(camera: Camera, v: Vector): Vector {
   const [right, up, near] = axes(camera);
-  const dot = (a: Vector) => v[0] * a[0] + v[1] * a[1] + v[2] * a[2];
-  return [dot(right), dot(up), dot(near)];
+  return [dot(v, right), dot(v, up), dot(v, near)];
 }
 
 /** The camera after a drag of the globe by `dx`, `dy` pixels, on a globe `radiusPx` pixels in radius: the globe turns with the pointer. */

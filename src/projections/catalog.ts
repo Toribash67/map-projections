@@ -22,6 +22,7 @@ import { hemispheresDef } from './hemispheres';
 import { peirceCorners, peirceLobes, peirceRaw } from './peirce';
 import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw, vanDerGrintenRaw } from './raws';
 import type { ExcludedCap, Lobe, Orientation, Params, Preserves, ProjectionDef, Seam, Stop } from './types';
+import { ramp } from '../geo/numbers';
 
 const rad = Math.PI / 180;
 
@@ -86,8 +87,6 @@ export const NEAREST_VIEW = 1.1;
 /** The parallels of a conic stop at the pole, which the conic sliders reach but do not pass. */
 export const POLAR_PARALLEL = 89.9;
 
-/** 0 up to `from`, 1 from `to`, linear between. */
-const ramp = (v: number, from: number, to: number): number => Math.min(1, Math.max(0, (v - from) / (to - from)));
 const mix = (a: number, b: number, w: number): number => a * (1 - w) + b * w;
 
 // Where a cone has become close enough to a cylinder, or to a disc, that its caps are those of the projection it is becoming.
