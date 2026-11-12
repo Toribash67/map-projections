@@ -13,6 +13,7 @@ import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, 
 import { loadMapData } from './layers/mapData';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
+import { visibleCap } from './screen/visible';
 import { indicatrixStep, type Member } from './tissot/indicatrix';
 import { currentScheme, watchScheme } from './theme/scheme';
 import { applyToPage, chromeScheme, resolvePalette, type ColourKey, type Overrides, type ThemeId } from './theme/themes';
@@ -21,9 +22,13 @@ type Pair = [number, number];
 
 // How long (ms) a zoom from a button or a key takes.
 const ZOOM_TIME = 150;
-// Zoomed in this far and left alone this long (ms), the map is drawn again with finer coastlines. They are too many to cut on every frame of a drag.
+// Zoomed in this far, the map is drawn with finer coastlines. They are too many to cut whole on every frame of a drag, so only what is in the window is cut.
 const FINE_FROM = 3;
+// Where even that takes longer than this (ms), as where the window shows most of a map that is slow to work out, a map that is moving
+// has the coarse coastlines, and the finer ones come when it has been left alone this long (ms).
+const FINE_BUDGET = 40;
 const FINE_AFTER = 250;
+const REST_SHARE = 0.6;
 
 /** Whether two states are the same map, number for number. */
 const sameState = (a: ProjectionState, b: ProjectionState): boolean => {
@@ -72,10 +77,14 @@ export class App {
   // The fit under the view, kept so that a map that has not changed keeps the very same screen.
   private viewed: { fit: ScreenTransform; view: View; screen: ScreenTransform } | null = null;
   private zoomTween: { from: View; at: Pair; factor: number; startedAt: number } | null = null;
-  // The finer coastlines, once fetched, and whether the scene on screen is drawn with them.
+  // The finer coastlines, once fetched, and whether they have been asked for.
   private fine: MapData | null = null;
-  private useFine = false;
-  private fineTimer = 0;
+  private fineAsked = false;
+  // How long a frame with them last took, about, the layers it was timed with, and whether the map has been left alone since it last changed.
+  private fineCost = 0;
+  private fineTimed: LayerState | null = null;
+  private rested = false;
+  private restTimer = 0;
   // What choosing a projection needs to know that the state does not say. See stateForStop.
   private centreBeforeConic: LonLat | undefined;
   private tiltByHand = false;
@@ -345,24 +354,31 @@ export class App {
 
   private invalidate(): void {
     this.stale = true;
-    // Whatever has changed, the next frame is drawn with the coarse coastlines, and the finer ones wait for the map to be left alone.
-    this.useFine = false;
-    window.clearTimeout(this.fineTimer);
-    this.fineTimer = this.view.zoom >= FINE_FROM ? window.setTimeout(() => void this.refine(), FINE_AFTER) : 0;
+    if (this.view.zoom >= FINE_FROM && !this.fine && !this.fineAsked) void this.fetchFine();
+    this.rested = false;
+    window.clearTimeout(this.restTimer);
+    this.restTimer = this.fine && this.view.zoom >= FINE_FROM && this.fineCost > FINE_BUDGET ? window.setTimeout(this.rest, FINE_AFTER) : 0;
     this.request();
   }
 
-  /** Draws the map at rest again with the finer coastlines, unless it has changed, or begun to, while they were fetched. */
-  private async refine(): Promise<void> {
-    const timer = this.fineTimer;
+  /** The map has been left alone: if it was too slow to have the finer coastlines while it moved, it is drawn with them now. */
+  private readonly rest = (): void => {
+    if (this.controller.tick() || this.slide || this.zoomTween) return;
+    this.rested = true;
+    this.stale = true;
+    this.request();
+  };
+
+  /** Fetches the finer coastlines, the first time the map is looked at closely, and draws the map again with them. */
+  private async fetchFine(): Promise<void> {
+    this.fineAsked = true;
     try {
-      this.fine ??= await loadMapData('50m');
+      this.fine = await loadMapData('50m');
     } catch {
       // The finer coast could not be fetched: the map stays as it is, and it is asked for again the next time.
+      this.fineAsked = false;
       return;
     }
-    if (timer !== this.fineTimer || this.controller.tick() || this.slide || this.zoomTween) return;
-    this.useFine = true;
     this.stale = true;
     this.request();
   }
@@ -388,19 +404,32 @@ export class App {
     }
     const morphing = this.controller.tick();
     const settled = this.sceneIsMorph && !morphing;
+    // When a frame with the finer coastlines began to be built, if this is one.
+    let began: number | null = null;
     if (this.stale || settled) {
       const [source, target] = [this.controller.source(), this.controller.target()];
       const maps = (target ? [...source, target] : source).map((m) => m.compiled);
-      const layers = sceneLayers(this.layers, maps, this.drawings, this.useFine && this.fine && !target ? this.fine : COARSE);
+      // A map looked at closely has the finer coastlines, whether it is still or moving, so they do not come and go. A morph is cut
+      // whole and at once, which they are too many for: it has the coarse ones.
+      const fine = !target && this.view.zoom >= FINE_FROM && (this.fineCost <= FINE_BUDGET || this.rested) ? this.fine : null;
+      if (fine) began = performance.now();
+      const layers = sceneLayers(this.layers, maps, this.drawings, fine ?? COARSE);
       // What a map cannot show is only seen in a morph, where it folds over as it moves to its place on the other map: its ocean comes as cells too.
       const cells = target ? capOceanLayer([...source, target]) : null;
       if (cells) layers.capOcean = cells;
       // Zoomed in, the indicatrices are closer together and smaller, and only those in or near the window are worked out.
-      this.scene = buildScene(layers, source, target, this.tissot && { step: indicatrixStep(this.view.zoom), viewport: this.viewport });
+      this.scene = buildScene(layers, source, target, this.tissot && { step: indicatrixStep(this.view.zoom), viewport: this.viewport }, fine ? visibleCap(source[0]!.compiled, source[0]!.screen, this.viewport) : null);
       this.sceneIsMorph = morphing;
       this.stale = false;
     }
     drawScene(this.ctx, this.scene, this.controller.t(), this.colours);
+    if (began !== null) {
+      // The first frame with a layer is not timed, as it has the layer to make ready. A quick frame is believed at once, and a slow one a quarter, as one frame can be slow by chance.
+      // A frame after a rest takes nearly twice as long as the same frame in a run of them, and it is a run that is asked about.
+      const took = (performance.now() - began) * (this.rested ? REST_SHARE : 1);
+      if (this.fineTimed === this.layers) this.fineCost += took < this.fineCost ? took - this.fineCost : (took - this.fineCost) / 4;
+      this.fineTimed = this.layers;
+    }
     if (morphing || this.slide || this.zoomTween) this.request();
     if (settled || slide) this.notify();
   };

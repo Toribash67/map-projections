@@ -2,7 +2,7 @@ import { geoArea, geoClipAntimeridian, geoClipCircle, geoClipRectangle, geoRotat
 import type { GeoStream } from 'd3-geo';
 import type { CompiledProjection, LonLat } from '../projections/types';
 import { CLIP_SPIN, collector, cutGeometry, LOBE_PULL, mapPoints, OFF_EDGE, offLobeEdges, offSeamSide, type Path } from './cut';
-import { densify, SINGULAR_REACH, toVector, type Vector } from './densify';
+import { densify, dot, SINGULAR_REACH, toVector, type Vector } from './densify';
 
 const rad = Math.PI / 180;
 
@@ -58,12 +58,22 @@ function regionOf(m: CompiledProjection): Region {
   };
 }
 
-/** Geometry made ready for cutting under any rotation: unit vectors, at most `SEGMENT` apart, x, y, z per point. */
+/** A round part of the Earth: all within `radius` (radians) of `centre`. */
+export type Cap = { centre: Vector; radius: number };
+
+/** Geometry made ready for cutting under any rotation: unit vectors, at most `SEGMENT` apart, x, y, z per point. `within` is a cap that holds all of it, or null where none is known to. */
 type Prepared =
   | { kind: 'sphere' }
   /** With the polygon itself and its true area, for checking a clip and for a cut the long way. */
-  | { kind: 'polygon'; rings: Float64Array[]; polygon: GeoJSON.Polygon; area: number }
-  | { kind: 'line'; path: Float64Array };
+  | { kind: 'polygon'; rings: Float64Array[]; polygon: GeoJSON.Polygon; area: number; within: Cap | null; stretches: Stretches[] }
+  | { kind: 'line'; path: Float64Array; within: Cap | null; stretches: Stretches };
+
+/**
+ * A path as stretches, each of points no farther than `SEGMENT` from its first, and each ending on the point the next begins on:
+ * `starts` is where each begins, and then the path's last point. `slivers` is the area between each stretch and the straight
+ * line across it.
+ */
+type Stretches = { starts: Uint32Array; slivers: Float64Array };
 
 // By object, so a shape that changes has to be a new object.
 const preparedCache = new WeakMap<object, Prepared[]>();
@@ -75,16 +85,99 @@ function vectors(path: LonLat[]): Float64Array {
   return out;
 }
 
+/** The cap round the middle of a path's points that holds them all, or null for a path with no middle, as one right round the Earth. */
+function capOf(path: Float64Array): Cap | null {
+  const centre: Vector = [0, 0, 0];
+  for (let i = 0; i < path.length; i++) centre[i % 3]! += path[i]!;
+  const length = Math.hypot(...centre);
+  if (length < 1e-6 * (path.length / 3)) return null;
+  for (let k = 0; k < 3; k++) centre[k]! /= length;
+  let least = 1;
+  for (let i = 0; i < path.length; i += 3) least = Math.min(least, path[i]! * centre[0] + path[i + 1]! * centre[1] + path[i + 2]! * centre[2]);
+  // Points at most `SEGMENT` apart have the line between them within half that of one of them.
+  return { centre, radius: Math.acos(Math.max(-1, least)) + (SEGMENT / 2) * rad };
+}
+
+/**
+ * The cap that holds a polygon: the one that holds its outer ring, if that is under half the Earth and so is the polygon. Then its
+ * inside is the side of the ring within the cap, as the other side is more than half the Earth.
+ */
+function polygonCap(outer: Float64Array, area: number): Cap | null {
+  const cap = area < FULL_SPHERE / 2 ? capOf(outer) : null;
+  return cap && cap.radius < Math.PI / 2 ? cap : null;
+}
+
+/** Whether a part of the geometry may reach into the part of the Earth in view. */
+const mayShow = (within: Cap | null, view: Cap | null): boolean =>
+  !view || !within || within.radius + view.radius >= Math.PI || dot(within.centre, view.centre) >= Math.cos(within.radius + view.radius);
+
+const COS_SEGMENT = Math.cos(SEGMENT * rad);
+
+function stretchesOf(path: Float64Array): Stretches {
+  const n = path.length / 3;
+  const starts = [0];
+  const slivers: number[] = [];
+  let [first, sliver] = [0, 0];
+  for (let i = 1; i < n; i++) {
+    const [sx, sy, sz] = [path[3 * first]!, path[3 * first + 1]!, path[3 * first + 2]!];
+    const [x, y, z] = [path[3 * i]!, path[3 * i + 1]!, path[3 * i + 2]!];
+    if (i - 1 > first && sx * x + sy * y + sz * z < COS_SEGMENT) {
+      starts.push(i - 1);
+      slivers.push(Math.abs(sliver) / 2);
+      [first, sliver] = [i - 1, 0];
+      continue;
+    }
+    // The triangle from the stretch's first point to this segment, which is flat enough this close by.
+    const [px, py, pz] = [path[3 * i - 3]!, path[3 * i - 2]!, path[3 * i - 1]!];
+    sliver += sx * (py * z - pz * y) + sy * (pz * x - px * z) + sz * (px * y - py * x);
+  }
+  starts.push(n - 1);
+  slivers.push(Math.abs(sliver) / 2);
+  return { starts: Uint32Array.from(starts), slivers: Float64Array.from(slivers) };
+}
+
+/**
+ * A path with each stretch that lies outside the view drawn straight across, from its first point to its last, and how much area
+ * that moved, and whether any of it was left as it was. What shows in the view is as it was: a stretch and the line across it are both
+ * within `SEGMENT` of its first point, so neither comes into the view, and nothing in the view changes sides of the path. The
+ * path is still in steps of `SEGMENT` at most.
+ */
+function seenFrom(path: Float64Array, { starts, slivers }: Stretches, view: Cap): { path: Float64Array; moved: number; shown: boolean } {
+  const reach = view.radius + SEGMENT * rad;
+  const near = reach >= Math.PI ? -Infinity : Math.cos(reach);
+  const [vx, vy, vz] = view.centre;
+  const out = new Float64Array(path.length);
+  let [n, moved, shown] = [0, 0, false];
+  for (let k = 0; k + 1 < starts.length; k++) {
+    const from = 3 * starts[k]!;
+    if (path[from]! * vx + path[from + 1]! * vy + path[from + 2]! * vz >= near) {
+      const part = path.subarray(from, 3 * starts[k + 1]!);
+      out.set(part, n);
+      n += part.length;
+      shown = true;
+    } else {
+      out.set(path.subarray(from, from + 3), n);
+      n += 3;
+      moved += slivers[k]!;
+    }
+  }
+  out.set(path.subarray(path.length - 3), n);
+  return { path: out.subarray(0, n + 3), moved, shown };
+}
+
 /** A polygon needs a ring with an inside, and a line two points, or a full cut draws nothing of them either. */
 function preparePolygon(coordinates: LonLat[][], out: Prepared[]): void {
   const rings = coordinates.filter((ring) => ring.length >= 4);
   if (rings.length === 0 || rings[0] !== coordinates[0]) return;
   const polygon: GeoJSON.Polygon = { type: 'Polygon', coordinates: rings };
-  out.push({ kind: 'polygon', rings: rings.map(vectors), polygon, area: geoArea(polygon) });
+  const [turned, area] = [rings.map(vectors), geoArea(polygon)];
+  out.push({ kind: 'polygon', rings: turned, polygon, area, within: polygonCap(turned[0]!, area), stretches: turned.map(stretchesOf) });
 }
 
 function prepareLine(path: LonLat[], out: Prepared[]): void {
-  if (path.length >= 2) out.push({ kind: 'line', path: vectors(path) });
+  if (path.length < 2) return;
+  const points = vectors(path);
+  out.push({ kind: 'line', path: points, within: capOf(points), stretches: stretchesOf(points) });
 }
 
 function prepareInto(geom: any, out: Prepared[]): void {
@@ -341,7 +434,8 @@ function fullCut(polygon: GeoJSON.Polygon, m: CompiledProjection): FramePiece[] 
     .map((piece) => ({ closed: piece.closed, rings: piece.coords.map((ring) => ring.map((p) => m.toFrame(p))), lobe: piece.lobes[0] }));
 }
 
-function polygonInRects(rings: Turned[], rects: Rect[], item: PolygonItem, m: CompiledProjection, out: FramePiece[]): void {
+/** `moved` is how much area the rings may have gained or lost on the way here, by being drawn straight across where they are out of view. */
+function polygonInRects(rings: Turned[], rects: Rect[], item: PolygonItem, m: CompiledProjection, out: FramePiece[], moved = 0): void {
   const points = rings.map((ring) => ring.points);
   // A ring going round its inside, clear of the seam, has that inside in the plane as well. Anything else is d3's to sort out.
   const plain = !points.some(crossesSeam) && planeArea(points[0]!) < 0;
@@ -359,7 +453,7 @@ function polygonInRects(rings: Turned[], rects: Rect[], item: PolygonItem, m: Co
   }
   // Clear of a rectangle's sides by more than any segment, so the polygon must show there.
   const inRect = ([x, y]: LonLat) => rects.some((r) => x > r.x0 + SEGMENT && x < r.x1 - SEGMENT && y > r.y0 + SEGMENT && y < r.y1 - SEGMENT);
-  if (clipped && !isPlausible(pieces, item.area, rectsArea(rects), points[0]!.some(inRect), cylinderArea)) out.push(...fullCut(item.polygon, m));
+  if (clipped && !isPlausible(pieces, item.area, rectsArea(rects), points[0]!.some(inRect), cylinderArea, moved)) out.push(...fullCut(item.polygon, m));
   else out.push(...pieces);
 }
 
@@ -426,7 +520,7 @@ function pointAtBearing(distance: number, bearing: number): LonLat {
   return [Math.atan2(sine * Math.sin(bearing), Math.cos(distance)) / rad, Math.asin(sine * Math.cos(bearing)) / rad];
 }
 
-function polygonInCircle(rings: Turned[], visible: number, item: PolygonItem, m: CompiledProjection, out: FramePiece[]): void {
+function polygonInCircle(rings: Turned[], visible: number, item: PolygonItem, m: CompiledProjection, out: FramePiece[], moved = 0): void {
   const clear = Math.cos(visible * rad - CIRCLE_MARGIN);
   const points = rings.map((ring) => ring.points);
   if (rings[0]!.stereoArea < 0 && rings.every((ring) => ring.minCos > clear)) {
@@ -437,7 +531,7 @@ function polygonInCircle(rings: Turned[], visible: number, item: PolygonItem, m:
   const pieces: FramePiece[] = kept.length > 0 ? [{ closed: true, rings: kept, lobe: undefined }] : [];
   const regionArea = 2 * Math.PI * (1 - Math.cos(visible * rad));
   const showsSome = rings[0]!.maxCos > clear;
-  if (isPlausible(pieces, item.area, regionArea, showsSome, azimuthalArea, ROUND_ANTIPODE * regionArea)) out.push(...pieces);
+  if (isPlausible(pieces, item.area, regionArea, showsSome, azimuthalArea, ROUND_ANTIPODE * regionArea + moved)) out.push(...pieces);
   else out.push(...fullCut(item.polygon, m));
 }
 
@@ -472,8 +566,12 @@ function regionPieces(region: Region, out: FramePiece[]): void {
  * in the frame, where the seams and caps are straight lines. A path clear of them, which is most of
  * them, is not clipped at all, and those that are go through one clip each. A clip has no second
  * attempt here, so a polygon's result is checked, and on a wrong reading it is cut the long way.
+ *
+ * With `view`, a part of the Earth that holds all the window shows, whatever lies wholly outside it is left out uncut, and a path
+ * that runs out of it is drawn straight across where it does. Zoomed in that is nearly everything, which is what lets a coast many
+ * times finer be cut in the time of a frame.
  */
-export function cutFront(geom: GeoJSON.GeoJsonObject, m: CompiledProjection): FramePiece[] {
+export function cutFront(geom: GeoJSON.GeoJsonObject, m: CompiledProjection, view: Cap | null = null): FramePiece[] {
   const region = regionOf(m);
   const matrix = frameMatrix(m);
   const singular = [...m.caps.map((cap) => cap.frameCenter), ...(m.def.singular ?? [])].map(toVector);
@@ -485,13 +583,25 @@ export function cutFront(geom: GeoJSON.GeoJsonObject, m: CompiledProjection): Fr
       regionPieces(region, out);
       continue;
     }
+    if (!mayShow(item.within, view)) continue;
     if (item.kind === 'polygon') {
-      const rings = item.rings.map((ring) => turn(ring, matrix, singular));
-      if (region.rects) polygonInRects(rings, region.rects, item, m, out);
-      else polygonInCircle(rings, region.visible, item, m, out);
+      let [paths, moved] = [item.rings, 0];
+      if (view) {
+        // A ring wholly out of view still has the view on one side of it or the other, so it is kept, drawn straight across, unless
+        // that leaves it no inside. Without its outer ring a polygon is nothing.
+        const seen = item.rings.map((ring, r) => seenFrom(ring, item.stretches[r]!, view));
+        if (seen[0]!.path.length < 12) continue;
+        paths = seen.filter((ring) => ring.path.length >= 12).map((ring) => ring.path);
+        moved = seen.reduce((sum, ring) => sum + ring.moved, 0);
+      }
+      const rings = paths.map((ring) => turn(ring, matrix, singular));
+      if (region.rects) polygonInRects(rings, region.rects, item, m, out, moved);
+      else polygonInCircle(rings, region.visible, item, m, out, moved);
       continue;
     }
-    const line = turn(item.path, matrix, singular);
+    const seen = view ? seenFrom(item.path, item.stretches, view) : null;
+    if (seen && !seen.shown) continue;
+    const line = turn(seen ? seen.path : item.path, matrix, singular);
     if (region.rects) lineInRects(line, region.rects, offEdges, out);
     else lineInCircle(line, region.visible, out);
   }

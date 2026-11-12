@@ -272,13 +272,79 @@ test('with Tissot on, zooming in shows more indicatrices, each smaller on the Ea
   expect(close.count).toBeLessThan(400);
 });
 
-test('zoomed well in and left alone, the coast is redrawn in finer detail, and coarser again once the map moves', async ({ page }) => {
+test('zoomed well in, the coast is drawn in finer detail, and stays so while the map moves', async ({ page }) => {
   await onMap(page, 'mollweide');
+  // The points of the land that are in the window: several times as many with the finer coast.
+  const inWindow = () =>
+    page.evaluate(() => {
+      const app = (window as any).__app;
+      let count = 0;
+      for (const { src } of app.scene.layers.land as { src: Float32Array }[]) {
+        for (let i = 0; i < src.length; i += 2) if (src[i]! >= 0 && src[i]! <= app.viewport.width && src[i + 1]! >= 0 && src[i + 1]! <= app.viewport.height) count++;
+      }
+      return count;
+    });
   const landPoints = () => page.evaluate(() => ((window as any).__app.scene.layers.land as { src: Float32Array }[]).reduce((sum, piece) => sum + piece.src.length / 2, 0));
-  const coarse = await landPoints();
-  await wheel(page, [520, 200], -100, 9);
+  // Just short of where the finer coast comes, and then just past it, which changes the window little.
+  await wheel(page, [520, 200], -100, 7);
+  expect((await view(page)).zoom).toBeLessThan(3);
+  const coarse = await inWindow();
+  await wheel(page, [520, 200], -100, 1);
   expect((await view(page)).zoom).toBeGreaterThanOrEqual(3);
-  await expect.poll(landPoints, { timeout: 10_000 }).toBeGreaterThan(3 * coarse);
-  await drag(page, [500, 300], [520, 300]);
-  expect(await landPoints()).toBeLessThan(2 * coarse);
+  await expect.poll(inWindow, { timeout: 10_000 }).toBeGreaterThan(3 * coarse);
+  // Closer in, every frame of a drag has the finer coast: none goes back to the coarse one, of which the whole is cut.
+  await wheel(page, [520, 200], -100, 6);
+  const [fine, whole] = [await inWindow(), await landPoints()];
+  const seen = await page.evaluate(async () => {
+    const app = (window as any).__app;
+    const canvas = document.querySelector('canvas')!;
+    const box = canvas.getBoundingClientRect();
+    const fire = (type: string, x: number, y: number) =>
+      canvas.dispatchEvent(new PointerEvent(type, { pointerId: 7, isPrimary: true, button: 0, buttons: 1, clientX: box.left + x, clientY: box.top + y, bubbles: true }));
+    const counts: number[] = [];
+    fire('pointerdown', 500, 300);
+    for (let i = 1; i <= 12; i++) {
+      fire('pointermove', 500 + 2 * i, 300 + i);
+      await new Promise((done) => requestAnimationFrame(done));
+      let count = 0;
+      for (const { src } of app.scene.layers.land as { src: Float32Array }[]) {
+        for (let k = 0; k < src.length; k += 2) if (src[k]! >= 0 && src[k]! <= app.viewport.width && src[k + 1]! >= 0 && src[k + 1]! <= app.viewport.height) count++;
+      }
+      counts.push(count);
+    }
+    fire('pointerup', 524, 312);
+    return counts;
+  });
+  expect(seen).toHaveLength(12);
+  for (const count of seen) expect(count).toBeGreaterThan(0.6 * fine);
+  // And only what the window shows, and what is near it, is cut: a small share of the sixty thousand points the finer land has.
+  expect(whole).toBeLessThan(15_000);
+});
+
+test('where the finer coast is too slow for a moving map, the map moves with the coarse one and has the finer when left alone', async ({ page }) => {
+  await onMap(page, 'mollweide');
+  // The points of the land that are in the window: several times as many with the finer coast.
+  const inWindow = () =>
+    page.evaluate(() => {
+      const app = (window as any).__app;
+      let count = 0;
+      for (const { src } of app.scene.layers.land as { src: Float32Array }[]) {
+        for (let i = 0; i < src.length; i += 2) if (src[i]! >= 0 && src[i]! <= app.viewport.width && src[i + 1]! >= 0 && src[i + 1]! <= app.viewport.height) count++;
+      }
+      return count;
+    });
+  await wheel(page, [520, 200], -100, 14);
+  await page.waitForFunction(() => (window as any).__app.fine !== null);
+  // A few frames with it first, as the first of them are slow, the browser not having made the code quick yet.
+  for (let i = 0; i < 3; i++) await drag(page, [500, 300], [505, 300]);
+  const fine = await inWindow();
+  expect(fine).toBeGreaterThan(100);
+  // As a slow machine would have found it.
+  await page.evaluate(() => ((window as any).__app.fineCost = 1000));
+  await drag(page, [500, 300], [505, 300]);
+  expect(await inWindow()).toBeLessThan(fine / 3);
+  await expect.poll(inWindow, { timeout: 10_000 }).toBeGreaterThan(0.8 * fine);
+  // That frame was quick, which is believed at once: the next drag has the finer coast all the way.
+  await drag(page, [500, 300], [505, 300]);
+  expect(await inWindow()).toBeGreaterThan(0.8 * fine);
 });

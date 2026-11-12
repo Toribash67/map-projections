@@ -1,7 +1,7 @@
 import { cutGeometry, type Piece } from '../geo/cut';
 import { capAxes, clipCaps, directionsOf, edgePoint, positionOn, wrapAngle, type CapAxes } from '../geo/capEdge';
 import { dot, toVector } from '../geo/densify';
-import { cutFront } from '../geo/frontCut';
+import { cutFront, type Cap } from '../geo/frontCut';
 import type { CompiledProjection, LonLat } from '../projections/types';
 import { projectFrame, type ScreenTransform } from '../screen/screen';
 import type { Viewport } from '../screen/screen';
@@ -170,14 +170,14 @@ function morphPiece(piece: Piece, source: Member[], target: Member | null): Scen
 }
 
 /** What a live build cut from a geometry, and the map it cut it for. */
-type LiveCut = { compiled: CompiledProjection; screen: ScreenTransform; weight: number; pieces: ScenePiece[] };
+type LiveCut = { compiled: CompiledProjection; screen: ScreenTransform; weight: number; view: Cap | null; pieces: ScenePiece[] };
 // By geometry object. A preview changes the drawings every pointer move and nothing else, so the layers
 // that did not change are not cut again, nor are the shapes in a collection that did not change.
 const liveCache = new WeakMap<object, LiveCut>();
 
-function cutLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
+function cutLive(geom: GeoJSON.GeoJsonObject, m: Member, view: Cap | null): ScenePiece[] {
   const { compiled: c, screen: s } = m;
-  return cutFront(geom, c).map((piece) => {
+  return cutFront(geom, c, view).map((piece) => {
     const ringStarts = new Uint32Array(piece.rings.length);
     let total = 0;
     piece.rings.forEach((ring, r) => {
@@ -201,20 +201,21 @@ function cutLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
  * What the full cut gives for one member at rest: the slower way, for a geometry the live cut could not cut. It throws only where a
  * clip of d3's meets a case it cannot read, and a frame must still be drawn.
  */
-function safeLive(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
+function safeLive(geom: GeoJSON.GeoJsonObject, m: Member, view: Cap | null): ScenePiece[] {
   try {
-    return cutLive(geom, m);
+    return cutLive(geom, m, view);
   } catch {
     return cutGeometry(geom, [m.compiled]).flatMap((piece) => morphPiece(piece, [m], null) ?? []);
   }
 }
 
-/** A map at rest or being dragged: one member, and only what it shows. */
-function livePieces(geom: GeoJSON.GeoJsonObject, m: Member): ScenePiece[] {
+/** A map at rest or being dragged: one member, and only what it shows, or only what it shows of the part of the Earth in `view`. */
+function livePieces(geom: GeoJSON.GeoJsonObject, m: Member, view: Cap | null): ScenePiece[] {
   const cached = liveCache.get(geom);
-  if (cached && cached.compiled === m.compiled && cached.screen === m.screen && cached.weight === m.weight) return cached.pieces;
-  const pieces = geom.type === 'GeometryCollection' ? (geom as GeoJSON.GeometryCollection).geometries.flatMap((part) => livePieces(part, m)) : safeLive(geom, m);
-  liveCache.set(geom, { compiled: m.compiled, screen: m.screen, weight: m.weight, pieces });
+  if (cached && cached.compiled === m.compiled && cached.screen === m.screen && cached.weight === m.weight && cached.view === view) return cached.pieces;
+  const pieces =
+    geom.type === 'GeometryCollection' ? (geom as GeoJSON.GeometryCollection).geometries.flatMap((part) => livePieces(part, m, view)) : safeLive(geom, m, view);
+  liveCache.set(geom, { compiled: m.compiled, screen: m.screen, weight: m.weight, view, pieces });
   return pieces;
 }
 
@@ -321,14 +322,24 @@ function nearView(p: LonLat, source: Member[], target: Member | null, v: Viewpor
  * dragged, rebuilt per frame, by a much cheaper cut. That cut keeps what it can reuse by geometry
  * object, including the parts of a geometry collection, so a shape that changes has to be passed as
  * a new object, never mutated in place.
+ *
+ * `view` is what the window shows of a map at rest, where that is less than the whole map: what lies wholly outside it is then
+ * left out. A morph is always built whole, as what it shows moves.
  */
-export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source: Member[], target: Member | null, tissot: boolean | TissotOptions): Scene {
+export function buildScene(
+  layers: Record<string, GeoJSON.GeoJsonObject>,
+  source: Member[],
+  target: Member | null,
+  tissot: boolean | TissotOptions,
+  view: Cap | null = null,
+): Scene {
   const compiled = (target ? [...source, target] : source).map((m) => m.compiled);
   const scene: Scene = { layers: {}, indicatrices: [] };
+  const live = !target && source.length === 1;
   for (const [name, geom] of Object.entries(layers)) {
     const pieces =
-      !target && source.length === 1
-        ? livePieces(geom, source[0]!)
+      live
+        ? livePieces(geom, source[0]!, view)
         : cutGeometry(geom, compiled).flatMap((piece) => morphPiece(piece, source, target) ?? []);
     // Cells of ocean are only for what some map cannot show; the rest of them are drawn by the ocean itself.
     scene.layers[name] = name === 'capOcean' ? pieces.filter((piece) => piece.out) : pieces;
