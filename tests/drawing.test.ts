@@ -3,7 +3,8 @@ import { geoArea, geoContains, geoDistance } from 'd3-geo';
 import { cutGeometry } from '../src/geo/cut';
 import { densify, toVector } from '../src/geo/densify';
 import { cutFront } from '../src/geo/frontCut';
-import { DrawingModel, radiusKm, shapeToGeoJSON, type Shape } from '../src/drawing/model';
+import { DrawingModel, radiusKm, shapeToGeoJSON, type Shape, type Tracer } from '../src/drawing/model';
+import { straightPath } from '../src/drawing/straight';
 import { buildScene } from '../src/morph/scene';
 import type { LonLat } from '../src/projections/types';
 import { projectPoint } from '../src/screen/screen';
@@ -415,6 +416,204 @@ test('a line with an end at a pole, or from one pole to the other, draws finite,
       const m = member(id);
       expect(finiteEverywhere(cutGeometry(geometry, [m.compiled]).map((p) => p.coords)), `${JSON.stringify(points)} full cut, ${id}`).toBe(true);
       expect(finiteEverywhere(cutFront(geometry, m.compiled).map((p) => p.rings)), `${JSON.stringify(points)} front cut, ${id}`).toBe(true);
+    }
+  }
+});
+
+// Shapes that follow the map: the model is told how to trace on the map on screen with each click.
+
+/** A tracer that joins two points by a few points along a straight line of longitude and latitude, as an equirectangular map would, and refuses anything past 100 degrees east. */
+const flat: Tracer = {
+  line(a, b) {
+    if (Math.max(a[0], b[0]) > 100) return null;
+    return [0, 0.25, 0.5, 0.75, 1].map((u) => (u === 0 ? a : u === 1 ? b : [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u])) as LonLat[];
+  },
+  circle(centre, edge) {
+    const r = Math.hypot(edge[0] - centre[0], edge[1] - centre[1]);
+    if (centre[0] + r > 100) return null;
+    // Clockwise seen from outside the Earth: east, south, west, north.
+    const ring = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => [centre[0] + r * Math.cos((k * Math.PI) / 4), centre[1] - r * Math.sin((k * Math.PI) / 4)] as LonLat);
+    return [...ring, ring[0]!];
+  },
+};
+function traced(tool: 'line' | 'polygon' | 'circle', ...points: LonLat[]): DrawingModel {
+  const model = new DrawingModel();
+  model.setMode('map');
+  model.setTool(tool);
+  for (const p of points) model.addPoint(p, flat);
+  return model;
+}
+
+test('a model follows the globe until told to follow the map, and changing which drops a shape half drawn', () => {
+  const model = new DrawingModel();
+  expect(model.mode).toBe('globe');
+  model.setTool('line');
+  model.addPoint([0, 0]);
+  model.setMode('map');
+  expect(model.mode).toBe('map');
+  expect(model.draft).toBeNull();
+  expect(model.tool).toBe('line');
+  // The same again changes nothing, and keeps a draft.
+  model.addPoint([0, 0], flat);
+  model.setMode('map');
+  expect(model.draft).not.toBeNull();
+});
+
+test('following the map, a line is the paths traced between its points, joined, and is kept as a path of points on the Earth', () => {
+  const model = traced('line', [0, 0], [20, 10], [40, 0]);
+  model.finish(flat);
+  expect(model.shapes).toHaveLength(1);
+  const shape = model.shapes[0]!;
+  expect(shape.kind).toBe('path');
+  if (shape.kind !== 'path') return;
+  expect(shape.closed).toBe(false);
+  // Two traces of five points, sharing the point where they join.
+  expect(shape.points).toHaveLength(9);
+  expect(shape.points[0]).toEqual([0, 0]);
+  expect(shape.points[2]).toEqual([10, 5]);
+  expect(shape.points[4]).toEqual([20, 10]);
+  expect(shape.points.at(-1)).toEqual([40, 0]);
+  expect(shapeToGeoJSON(shape)).toEqual({ type: 'LineString', coordinates: shape.points });
+});
+
+test('following the map, an edge that the map cannot trace is refused with a notice, and the draft is as it was', () => {
+  const model = traced('line', [0, 0], [20, 10]);
+  const before = model.draft;
+  model.addPoint([120, 0], flat);
+  expect(model.draft).toBe(before);
+  expect(model.notice).toBe('A straight line there would leave the map.');
+  // The next point that can be traced clears it.
+  model.addPoint([30, 0], flat);
+  expect(model.notice).toBeNull();
+  expect(model.canFinish).toBe(true);
+});
+
+test('following the map, undo takes back a point with the path traced to it', () => {
+  const model = traced('line', [0, 0], [20, 10], [40, 0]);
+  model.undo();
+  model.finish(flat);
+  const shape = model.shapes[0]!;
+  expect(shape.kind === 'path' && shape.points).toHaveLength(5);
+  expect(shape.kind === 'path' && shape.points.at(-1)).toEqual([20, 10]);
+});
+
+test('following the map, a polygon is closed by one more traced edge and wound round its inside, whichever way it was drawn', () => {
+  for (const corners of [[[0, 0], [30, 0], [30, 20], [0, 20]], [[0, 0], [0, 20], [30, 20], [30, 0]]] as LonLat[][]) {
+    const model = traced('polygon', ...corners);
+    model.finish(flat);
+    const shape = model.shapes[0]!;
+    expect(shape.kind).toBe('path');
+    if (shape.kind !== 'path') return;
+    expect(shape.closed).toBe(true);
+    expect(shape.points.at(-1)).toEqual(shape.points[0]);
+    expect(shape.points).toHaveLength(17);
+    const [fill, outline] = parts(shape);
+    expect(fill!.type).toBe('Polygon');
+    expect(outline).toEqual({ type: 'LineString', coordinates: shape.points });
+    expect(geoArea(fill as GeoJSON.Polygon)).toBeLessThan(HEMISPHERE);
+    expect(geoContains(fill as GeoJSON.Polygon, [15, 10])).toBe(true);
+  }
+});
+
+test('following the map, a polygon whose new edge or closing edge would cross it, or leave the map, is refused', () => {
+  const crossing = traced('polygon', [0, 0], [30, 0], [30, 20]);
+  crossing.addPoint([15, -10], flat);
+  expect(crossing.notice).toBe('That point would make the polygon cross itself.');
+  expect((crossing.draft as { points: LonLat[] }).points).toHaveLength(3);
+
+  // A spiral: each edge clear of those before it, and the way back to the start across one of them.
+  const bowtie = traced('polygon', [0, 0], [30, 0], [30, 30], [0, 30], [0, 10], [20, 10], [20, 20]);
+  expect((bowtie.draft as { points: LonLat[] }).points).toHaveLength(7);
+  bowtie.finish(flat);
+  expect(bowtie.shapes).toEqual([]);
+  expect(bowtie.notice).toBe('The edge that closes the polygon would cross it. Undo a point, or place the last one elsewhere.');
+  expect(bowtie.draft).not.toBeNull();
+
+  // The closing edge is traced like any other, and may leave the map.
+  const wide: Tracer = { ...flat, line: (a, b) => (a[0] === 90 && b[0] === 0 ? null : flat.line(a, b)) };
+  const leaves = new DrawingModel();
+  leaves.setMode('map');
+  leaves.setTool('polygon');
+  for (const p of [[0, 0], [45, 30], [90, 0]] as LonLat[]) leaves.addPoint(p, wide);
+  leaves.finish(wide);
+  expect(leaves.shapes).toEqual([]);
+  expect(leaves.notice).toBe('A straight line there would leave the map.');
+});
+
+test('following the map, a circle is the ring the map traces through the second click, and has no radius in kilometres', () => {
+  const model = traced('circle', [10, 10]);
+  model.preview([20, 10], flat);
+  expect(model.radiusKm).toBeNull();
+  const shown = model.drawn().at(-1)!;
+  expect(shown.kind).toBe('path');
+  model.addPoint([20, 10], flat);
+  expect(model.draft).toBeNull();
+  const shape = model.shapes[0]!;
+  expect(shape.kind === 'path' && shape.closed).toBe(true);
+  expect(shape.kind === 'path' && shape.points).toHaveLength(9);
+  // One the map cannot trace is refused, and the centre stays.
+  const refused = traced('circle', [80, 0], [95, 20]);
+  expect(refused.shapes).toEqual([]);
+  expect(refused.notice).toBe('A circle that size would leave the map.');
+  expect(refused.draft).toEqual({ kind: 'circle', center: [80, 0], radiusDeg: 0 });
+});
+
+test('following the map, the rubber band is the path traced on to the cursor, and a polygon is shown closed once it can be', () => {
+  const line = traced('line', [0, 0], [20, 10]);
+  line.preview([40, 0], flat);
+  const band = line.drawn().at(-1)!;
+  expect(band.kind === 'path' && !band.closed && band.points.length).toBe(9);
+  // Where the map cannot trace to the cursor, what is placed is shown and no more.
+  line.preview([120, 0], flat);
+  const held = line.drawn().at(-1)!;
+  expect(held.kind === 'path' && held.points.length).toBe(5);
+  line.preview(null);
+  expect((line.drawn().at(-1) as { points: LonLat[] }).points).toHaveLength(5);
+
+  const polygon = traced('polygon', [0, 0], [30, 0]);
+  polygon.preview([30, 20], flat);
+  const closed = polygon.drawn().at(-1)!;
+  expect(closed.kind === 'path' && closed.closed).toBe(true);
+  // With one corner there is only the line to the cursor.
+  const first = traced('polygon', [0, 0]);
+  first.preview([30, 0], flat);
+  const open = first.drawn().at(-1)!;
+  expect(open.kind === 'path' && open.closed).toBe(false);
+});
+
+test('following the globe, the model is as it was: great-circle shapes, with no tracer asked for', () => {
+  const model = new DrawingModel();
+  model.setMode('map');
+  model.setMode('globe');
+  model.setTool('polygon');
+  for (const p of [[0, 0], [10, 0], [10, 10]] as LonLat[]) model.addPoint(p, flat);
+  model.finish(flat);
+  expect(model.shapes).toEqual([{ kind: 'polygon', points: [[0, 0], [10, 0], [10, 10]] }]);
+});
+
+test('a long path drawn straight on Mercator cuts on the most interrupted maps without a throw, and keeps its length', () => {
+  const mercator = member('mercator');
+  const path = straightPath(mercator.compiled, mercator.screen, [-170, 60], [170, -60])!;
+  expect(path.length).toBeGreaterThan(300);
+  const shape: Shape = { kind: 'path', points: path, closed: false };
+  const geometry = shapeToGeoJSON(shape);
+  const total = (lines: LonLat[][]) => lines.reduce((sum, line) => sum + line.slice(1).reduce((s, p, i) => s + geoDistance(line[i]!, p), 0), 0);
+  const whole = total([path]);
+  for (const id of ['peirce', 'butterfly', 'goode', 'nicolosi']) {
+    for (const o of [{}, { lon: 33, lat: 21, tilt: 40 }]) {
+      const m = member(id, o);
+      const full = cutGeometry(geometry, [m.compiled]);
+      expect(finiteEverywhere(full.map((p) => p.coords)), `${id} full`).toBe(true);
+      expect(total(full.flatMap((p) => p.coords)) / whole, `${id} full`).toBeGreaterThan(0.99);
+      expect(total(full.flatMap((p) => p.coords)) / whole, `${id} full`).toBeLessThan(1.01);
+      const front = cutFront(geometry, m.compiled);
+      const onEarth = front.flatMap((p) => p.rings.map((ring) => ring.map((q) => m.compiled.fromFrame(q))));
+      expect(total(onEarth) / whole, `${id} front`).toBeGreaterThan(0.98);
+      expect(total(onEarth) / whole, `${id} front`).toBeLessThan(1.01);
+      // And in a morph from the map it was drawn on.
+      const scene = buildScene({ drawing: geometry }, [mercator], m, false);
+      expect(scene.layers.drawing!.length, `${id} morph`).toBeGreaterThan(0);
+      for (const piece of scene.layers.drawing!) expect([...piece.src, ...piece.dst].every(Number.isFinite), `${id} morph`).toBe(true);
     }
   }
 });

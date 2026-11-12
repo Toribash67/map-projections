@@ -217,6 +217,8 @@ test('circle tool shows a km readout while previewing', async ({ page }) => {
   await open(page);
   await pick(page, 'mercator');
   await settle(page);
+  // A circle on the globe has a radius in kilometres; one on the map has none.
+  await page.locator('#tools [data-mode]').click();
   await tool(page, 'Circle').click();
   await expect(readout(page)).toBeHidden();
   await clickAt(page, [0, 0]);
@@ -239,6 +241,8 @@ test('a line crossing the antimeridian is broken at the seam: no segment wider t
   await open(page);
   await pick(page, 'mercator');
   await settle(page);
+  // A great circle, the shorter way round: a line that follows the map goes the long way, across the map.
+  await page.locator('#tools [data-mode]').click();
   await tool(page, 'Line').click();
   await clickAt(page, [160, 20]);
   await clickAt(page, [-160, 40]);
@@ -378,4 +382,184 @@ test('a line stays straight in gnomonic while the centre is dragged', async ({ p
     await page.mouse.up();
   }
   expect(samples).toBeGreaterThan(30);
+});
+
+// Shapes that follow the map, which is how a flat map draws them unless told otherwise.
+
+const modeButton = (page: Page) => page.locator('#tools [data-mode]');
+const setMode = (page: Page, mode: 'map' | 'globe') => page.evaluate((mode) => (window as any).__drawing.setMode(mode), mode);
+/** How far the points of the drawn pieces lie from the straight line through two places on the canvas, at most. */
+const farthestFromLine = async (page: Page, a: Pair, b: Pair) => {
+  const pieces = await drawnPieces(page);
+  let worst = 0;
+  for (const piece of pieces) {
+    for (let i = 0; i < piece.points.length; i += 2) {
+      const [x, y] = [piece.points[i]!, piece.points[i + 1]!];
+      worst = Math.max(worst, Math.abs((b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])) / Math.hypot(b[0] - a[0], b[1] - a[1]));
+    }
+  }
+  return worst;
+};
+
+test('on a flat map shapes follow the map by default, and the button on the toolbar says so and changes it', async ({ page }) => {
+  await open(page);
+  // On the globe there is only the globe to follow.
+  await expect(modeButton(page)).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__drawing.mode)).toBe('globe');
+  await pick(page, 'mercator');
+  await settle(page);
+  await expect(modeButton(page)).toBeEnabled();
+  await expect(modeButton(page)).toHaveAttribute('data-mode', 'map');
+  await expect(modeButton(page)).toHaveAttribute('aria-label', 'Shapes follow the map');
+  expect(await page.evaluate(() => (window as any).__drawing.mode)).toBe('map');
+  await modeButton(page).click();
+  await expect(modeButton(page)).toHaveAttribute('data-mode', 'globe');
+  await expect(modeButton(page)).toHaveAttribute('aria-label', 'Shapes follow the globe');
+  expect(await page.evaluate(() => (window as any).__drawing.mode)).toBe('globe');
+  // The choice is kept over a reload, and comes back when a flat map does.
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__app !== undefined);
+  await pick(page, 'mollweide');
+  await settle(page);
+  await expect(modeButton(page)).toHaveAttribute('data-mode', 'globe');
+  await modeButton(page).click();
+  await pick(page, 'globe');
+  await settle(page);
+  await expect(modeButton(page)).toBeDisabled();
+  await pick(page, 'mollweide');
+  await settle(page);
+  await expect(modeButton(page)).toHaveAttribute('data-mode', 'map');
+});
+
+test('a line drawn on Mercator is straight on Mercator, and bends on the globe and on any other map', async ({ page }) => {
+  await open(page);
+  await pick(page, 'mercator');
+  await settle(page);
+  await tool(page, 'Line').click();
+  const [from, to]: [LonLat, LonLat] = [[-100, 20], [60, 60]];
+  const [a, b] = [await whereIs(page, from), await whereIs(page, to)];
+  await clickAt(page, from);
+  await clickAt(page, to);
+  await page.keyboard.press('Enter');
+  await frames(page);
+  const { shapes } = await model(page);
+  expect(shapes).toHaveLength(1);
+  expect(shapes[0]!.kind).toBe('path');
+  expect(await farthestFromLine(page, a, b)).toBeLessThan(0.5);
+  // The canvas has the line: the accent, at places along it.
+  const accent = [1, 3, 5].map((i) => parseInt(LIGHT_STYLE.accent.slice(i, i + 2), 16));
+  const along = await page.evaluate(([a, b, accent]) => {
+    const canvas = document.querySelector<HTMLCanvasElement>('#map')!;
+    const ratio = canvas.width / canvas.clientWidth;
+    const ctx = canvas.getContext('2d')!;
+    let hits = 0;
+    for (let i = 1; i < 20; i++) {
+      const [x, y] = [a![0]! + ((b![0]! - a![0]!) * i) / 20, a![1]! + ((b![1]! - a![1]!) * i) / 20];
+      // The line is two pixels wide and its edges are blended: the pixel nearest the accent within one of the place.
+      const block = ctx.getImageData(Math.round(x * ratio) - 1, Math.round(y * ratio) - 1, 3, 3).data;
+      let nearest = Infinity;
+      for (let k = 0; k < block.length; k += 4) nearest = Math.min(nearest, Math.abs(block[k]! - accent![0]!) + Math.abs(block[k + 1]! - accent![1]!) + Math.abs(block[k + 2]! - accent![2]!));
+      if (nearest < 60) hits++;
+    }
+    return hits;
+  }, [a, b, accent] as const);
+  expect(along).toBeGreaterThanOrEqual(17);
+
+  // On an azimuthal map and on the globe it is no straight line.
+  await pick(page, 'lambert-azimuthal');
+  await settle(page);
+  await frames(page);
+  expect(await farthestFromLine(page, await whereIs(page, from), await whereIs(page, to))).toBeGreaterThan(5);
+  await pick(page, 'globe');
+  await settle(page);
+  await page.evaluate(() => (window as any).__app.setLive({ orientation: { lon: -20, lat: 40, tilt: 0 } }));
+  await frames(page);
+  expect(await farthestFromLine(page, await whereIs(page, from), await whereIs(page, to))).toBeGreaterThan(5);
+});
+
+test('the same line drawn to follow the globe is a great circle, which bends on Mercator', async ({ page }) => {
+  await open(page);
+  await pick(page, 'mercator');
+  await settle(page);
+  await modeButton(page).click();
+  await tool(page, 'Line').click();
+  const [from, to]: [LonLat, LonLat] = [[-100, 20], [60, 60]];
+  const [a, b] = [await whereIs(page, from), await whereIs(page, to)];
+  await clickAt(page, from);
+  await clickAt(page, to);
+  await page.keyboard.press('Enter');
+  await frames(page);
+  const { shapes } = await model(page);
+  expect(shapes[0]!.kind).toBe('line');
+  expect(await farthestFromLine(page, a, b)).toBeGreaterThan(20);
+});
+
+test('a polygon and a circle drawn on a map are a polygon with straight sides and a round circle on it', async ({ page }) => {
+  await open(page);
+  await pick(page, 'equirectangular');
+  await settle(page);
+  await tool(page, 'Polygon').click();
+  for (const p of [[-60, -20], [-10, -20], [-10, 20], [-60, 20]] as LonLat[]) await clickAt(page, p);
+  await page.keyboard.press('Enter');
+  await tool(page, 'Circle').click();
+  const [centre, edge]: [LonLat, LonLat] = [[60, 50], [80, 50]];
+  const [pc, pe] = [await whereIs(page, centre), await whereIs(page, edge)];
+  await clickAt(page, centre);
+  // The readout gives a radius in kilometres only for a circle on the globe.
+  const box = await canvasBox(page);
+  await page.mouse.move(box.x + pe[0], box.y + pe[1]);
+  await expect(readout(page)).toBeHidden();
+  await clickAt(page, edge);
+  await frames(page);
+  const { shapes } = await model(page);
+  expect(shapes.map((s) => [s.kind, (s as { closed?: boolean }).closed])).toEqual([['path', true], ['path', true]]);
+  // On an equirectangular map the polygon's sides are along meridians and parallels: every point of it is within the rectangle.
+  const rectangle = shapes[0] as { points: LonLat[] };
+  for (const [lon, lat] of rectangle.points) {
+    expect(lon).toBeGreaterThan(-60.01);
+    expect(lon).toBeLessThan(-9.99);
+    expect(Math.abs(lat)).toBeLessThan(20.01);
+  }
+  // The circle is round on the map: every point of it as far from the centre.
+  const radius = Math.hypot(pe[0] - pc[0], pe[1] - pc[1]);
+  const { state: s, screen } = await atRest(page);
+  for (const p of (shapes[1] as { points: LonLat[] }).points) {
+    const [x, y] = projectPoint(compile(s), screen, p);
+    expect(Math.abs(Math.hypot(x - pc[0], y - pc[1]) - radius)).toBeLessThan(0.5);
+  }
+  // Both are filled.
+  expect((await drawnPieces(page)).filter((p) => p.closed).length).toBeGreaterThanOrEqual(2);
+});
+
+test('a line that would leave the map is refused, with a notice by the tools', async ({ page }) => {
+  await open(page);
+  await pick(page, 'goode');
+  await settle(page);
+  await tool(page, 'Line').click();
+  await clickAt(page, [-70, 60]);
+  // Across the gap between the northern lobes.
+  await clickAt(page, [-10, 60]);
+  await expect(notice(page)).toBeVisible();
+  await expect(notice(page)).toHaveText('A straight line there would leave the map.');
+  expect(await draftPoints(page)).toHaveLength(1);
+  // Within the lobe it is taken, and the notice goes.
+  await clickAt(page, [-120, 40]);
+  await expect(notice(page)).toBeHidden();
+  expect(await draftPoints(page)).toHaveLength(2);
+});
+
+test('the rubber band follows the cursor as a straight line on the map', async ({ page }) => {
+  await open(page);
+  await pick(page, 'mollweide');
+  await settle(page);
+  await tool(page, 'Line').click();
+  const from: LonLat = [-80, 30];
+  await clickAt(page, from);
+  const [a, b] = [await whereIs(page, from), await whereIs(page, [70, -20])];
+  const box = await canvasBox(page);
+  await page.mouse.move(box.x + b[0], box.y + b[1]);
+  await frames(page);
+  const pieces = await drawnPieces(page);
+  expect(pieces.length).toBeGreaterThan(0);
+  expect(await farthestFromLine(page, a, b)).toBeLessThan(0.5);
 });

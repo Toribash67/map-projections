@@ -1,5 +1,6 @@
 import type { App } from '../app';
-import { DrawingModel, type Tool } from '../drawing/model';
+import { DrawingModel, type Mode, type Tool, type Tracer } from '../drawing/model';
+import { circlePath, straightPath } from '../drawing/straight';
 import { screenToLonLat } from '../screen/screen';
 import { el } from './dom';
 import { icon, type IconName } from './icons';
@@ -26,9 +27,14 @@ const formatKm = (km: number) => `${km < 100 ? km.toFixed(1) : Math.round(km).to
  * The line, polygon and circle tools: their buttons on the map, and what the map does with clicks, the cursor and the keyboard. Clicks
  * reach the model as latitude and longitude, and what it draws is handed to the app as its shapes. Why a point was refused is said in
  * `notice`. Also attaches the map pointer.
+ *
+ * On a flat map shapes follow the map, straight and round on it, or the globe, as great circles: `mode` is which to begin with, and
+ * `onMode` is told when it is changed. On the globe they can only follow the globe.
  */
-export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice: HTMLElement): { el: HTMLElement; model: DrawingModel } {
+export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice: HTMLElement, mode: Mode = 'map', onMode: (mode: Mode) => void = () => {}): { el: HTMLElement; model: DrawingModel } {
   const model = new DrawingModel();
+  // What is wanted on a flat map. The model follows the globe whenever the map is the globe.
+  let wanted = mode;
   const root = el('div', 'toolbar');
   root.setAttribute('role', 'toolbar');
   root.setAttribute('aria-label', 'Drawing tools');
@@ -49,9 +55,18 @@ export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice
     b.dataset.tool = tool;
     return { tool, button: b };
   });
+  const follow = el('button', 'map-button');
+  follow.type = 'button';
+  follow.addEventListener('click', () => {
+    wanted = wanted === 'map' ? 'globe' : 'map';
+    onMode(wanted);
+    follow_();
+  });
+  root.append(follow);
+  tip(follow, '');
   root.append(el('span', 'toolbar-gap'));
   // A phone has no Enter, and a double tap is no surer than two taps: Finish does what Enter does.
-  const finish = button('finish', 'Finish', 'End the line, or close the polygon', 'Enter', 'draw-action', () => model.finish());
+  const finish = button('finish', 'Finish', 'End the line, or close the polygon', 'Enter', 'draw-action', () => model.finish(tracer()));
   const undo = button('undo', 'Undo', 'Take back the last point, then the last shape', undefined, 'draw-action', () => model.undo());
   const clear = button('clear', 'Clear', 'Remove every shape', undefined, 'draw-action', () => model.clear());
 
@@ -69,6 +84,26 @@ export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice
     const box = canvas.getBoundingClientRect();
     return [e.clientX - box.left, e.clientY - box.top];
   };
+  /** How to trace on the map that is on screen now, or nothing while a morph runs, when there is no one map to trace on. */
+  const tracer = (): Tracer | undefined => {
+    const live = app.live;
+    if (!live) return undefined;
+    return { line: (a, b) => straightPath(live.compiled, live.screen, a, b), circle: (centre, edge) => circlePath(live.compiled, live.screen, centre, edge) };
+  };
+  /** Puts the model on the map or the globe, as wanted and as the map allows, and shows which on the button. */
+  function follow_(): void {
+    const onGlobe = app.state.defId === 'globe';
+    const now: Mode = onGlobe ? 'globe' : wanted;
+    model.setMode(now);
+    follow.disabled = onGlobe;
+    follow.dataset.mode = now;
+    follow.setAttribute('aria-label', now === 'map' ? 'Shapes follow the map' : 'Shapes follow the globe');
+    follow.setAttribute(
+      'aria-description',
+      onGlobe ? 'On the globe, shapes follow the globe: straight lines are great circles' : now === 'map' ? 'Shapes are straight and round on this map. Press for shapes that follow the globe' : 'Shapes follow the globe: lines are great circles, and circles are true circles. Press for shapes that are straight on this map',
+    );
+    follow.replaceChildren(icon(now === 'map' ? 'follow-map' : 'follow-globe'));
+  }
 
   let lastClick: { xy: Pair; at: number } | null = null;
   attachMapPointer(canvas, app, {
@@ -78,21 +113,21 @@ export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice
       lastClick = { xy, at: now };
       const p = lonLatAt(xy);
       // A double-click comes as two clicks and then the double-click: the point is placed once.
-      if (p && !again) model.addPoint(p);
+      if (p && !again) model.addPoint(p, tracer());
     },
   });
 
   // After the map pointer, so that a drag has moved the map before the cursor is read from it.
   canvas.addEventListener('pointermove', (e) => {
     if (model.tool === 'none') return;
-    model.preview(lonLatAt(at(e)));
+    model.preview(lonLatAt(at(e)), tracer());
     readout.style.left = `${e.clientX + 14}px`;
     readout.style.top = `${e.clientY + 14}px`;
   });
   canvas.addEventListener('pointerleave', () => model.preview(null));
   canvas.addEventListener('dblclick', () => {
     // A circle is finished by its second click.
-    if (model.tool === 'line' || model.tool === 'polygon') model.finish();
+    if (model.tool === 'line' || model.tool === 'polygon') model.finish(tracer());
   });
   window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return;
@@ -101,7 +136,7 @@ export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice
       model.cancel();
       e.preventDefault();
     } else if (e.key === 'Enter' && model.draft && !(e.target instanceof HTMLButtonElement)) {
-      model.finish();
+      model.finish(tracer());
       e.preventDefault();
     } else if (chosen) {
       choose(chosen.tool);
@@ -112,6 +147,8 @@ export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice
   // The cursor was read from the map that was there. A morph moves it, so the rubber band waits for the next move.
   app.subscribe(() => {
     if (app.isMorphing) model.preview(null);
+    // The globe has only one way to draw, and a flat map has the way that was wanted back.
+    if ((app.state.defId === 'globe') !== follow.disabled) follow_();
   });
 
   function render(): void {
@@ -131,6 +168,7 @@ export function createDrawingToolbar(app: App, canvas: HTMLCanvasElement, notice
     app.invalidateGeometry();
     render();
   });
+  follow_();
   render();
   return { el: root, model };
 }

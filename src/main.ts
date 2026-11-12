@@ -27,7 +27,10 @@ app.subscribe(() => {
   Object.assign(prefs, { theme: app.theme, overrides: app.overrides, layers: app.layers });
   savePrefs(prefs);
 });
-const tools = createDrawingToolbar(app, canvas, find('#notice'));
+const tools = createDrawingToolbar(app, canvas, find('#notice'), prefs.drawMode, (mode) => {
+  prefs.drawMode = mode;
+  savePrefs(prefs);
+});
 find('#tools').append(tools.el);
 createLayersPanel(app, find('#actions'));
 find('#zoom').append(createZoomControl(app));

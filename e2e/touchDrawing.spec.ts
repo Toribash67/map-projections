@@ -30,6 +30,8 @@ test('on a touch screen, Finish ends a line or a polygon, as Enter does, and is 
   await open(page);
   await pick(page, 'mercator');
   await settle(page);
+  // Shapes that follow the globe, which keep their corners as they were tapped.
+  await page.locator('#tools [data-mode]').tap();
   const finish = button(page, 'Finish');
   await expect(finish).toBeDisabled();
   await button(page, 'Line').tap();

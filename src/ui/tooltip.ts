@@ -73,7 +73,13 @@ function show(target: HTMLElement, { text, shortcut }: Tip): void {
  * Escape. A screen reader reads the text as the control's description. Unlike the browser's own `title` it shows on keyboard focus too.
  */
 export function tip(target: HTMLElement, text: string, shortcut?: string): void {
-  const content: Tip = { text, shortcut };
+  // What it says is read from the control when it is shown, so a control whose description changes says the one it has now.
+  const content: Tip = {
+    get text() {
+      return target.getAttribute('aria-description') ?? text;
+    },
+    shortcut,
+  };
   target.setAttribute('aria-description', text);
   if (shortcut) target.setAttribute('aria-keyshortcuts', shortcut);
   target.addEventListener('pointerenter', (e) => {
