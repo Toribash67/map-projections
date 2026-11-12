@@ -14,7 +14,8 @@ import { loadMapData, loadWaterFor, withWater } from './layers/mapData';
 import { LAND } from './data/land';
 import { loadWater, waterNow } from './data/water';
 import { canvasMeasure, fontReady, loadFont } from './labels/font';
-import { buildOverlay, buildPlateOnly, drawOverlay, lettersWanted, overlayWanted, type Overlay, type OverlayInput, type OverlayMeasure } from './overlay/overlay';
+import { buildLetters, buildPlateOnly, drawOverlay, lettersWanted, overlayOf, overlayWanted, type Overlay, type OverlayInput, type OverlayMeasure } from './overlay/overlay';
+import type { Label } from './labels/place';
 import { paddingFor, pictureRect, type Rect } from './plate/plate';
 import { matchStop } from './projections/compile';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
@@ -99,7 +100,8 @@ export class App {
   private rested = false;
   private restTimer = 0;
   // What is over the map, and the map it was worked out for. See `paintOverlay`.
-  private over: { key: string; overlay: Overlay } | null = null;
+  // `letters` are the names and degrees as they were fitted, for the map that `lettersKey` stands for; `overlay` is those with the plate that `key` stands for.
+  private over: { key: string; lettersKey: string; letters: Label[]; overlay: Overlay } | null = null;
   private overShown = false;
   private overTimer = 0;
   private measure: OverlayMeasure | null = null;
@@ -516,8 +518,13 @@ export class App {
     this.fetchLettering();
     this.measure ??= canvasMeasure();
     const input = this.overlayInput(moving);
-    const key = moving ? null : this.overlayKey(input);
-    if (key !== null && this.over?.key !== key && !lettersWanted(this.layers)) this.over = { key, overlay: buildPlateOnly(input, this.measure) };
+    const [key, lettersKey] = moving ? [null, null] : this.overlayKeys(input);
+    if (key !== null && this.over?.key !== key) {
+      // The lettering that was fitted still fits where only the plate has changed, as while a title is typed: it is put under the
+      // new plate at once. And a map with no lettering has nothing to wait for.
+      const letters = this.over?.lettersKey === lettersKey ? this.over.letters : lettersWanted(this.layers) ? null : [];
+      if (letters) this.over = { key, lettersKey, letters, overlay: overlayOf(letters, buildPlateOnly(input, this.measure).plate) };
+    }
     if (key !== null && this.over?.key === key) {
       this.overShown = true;
       drawOverlay(this.ctx, this.over.overlay, this.colours);
@@ -528,7 +535,9 @@ export class App {
     this.overTimer = window.setTimeout(() => {
       if (this.controller.tick() || this.slide || this.zoomTween || !this.measure) return;
       const now = this.overlayInput(false);
-      this.over = { key: this.overlayKey(now), overlay: buildOverlay(now, this.measure, waterNow('seas', '110m'), LAND) };
+      const [key, lettersKey] = this.overlayKeys(now);
+      const letters = buildLetters(now, this.measure, waterNow('seas', '110m'), LAND);
+      this.over = { key, lettersKey, letters, overlay: overlayOf(letters, buildPlateOnly(now, this.measure).plate) };
       this.request();
       this.notify();
     }, LETTER_AFTER);
@@ -549,15 +558,15 @@ export class App {
     return { member, state: this.state, named: this.named(), layers: this.layers, picture, scale: 1 };
   }
 
-  /** Everything the overlay of a map at rest depends on: the map and where it is drawn, what is shown over it, and whether the typeface and the seas have come. */
-  private overlayKey({ member, state, named, layers, picture }: OverlayInput): string {
+  /**
+   * Everything the overlay of a map at rest depends on, and the part of it that the lettering depends on: the map and where it is
+   * drawn, which lettering is shown, and whether the typeface and the seas have come. The rest is the plate's alone.
+   */
+  private overlayKeys({ member, state, named, layers, picture }: OverlayInput): [key: string, lettersKey: string] {
     const { on } = layers;
     const { k, tx, ty } = member.screen;
-    return JSON.stringify([
-      state, named.name, k, tx, ty, picture,
-      [on.countryNames, on.seaNames, on.degrees, on.graticule, on.frame, on.titleBox], layers.graticuleStep, layers.smallestName, layers.title, layers.subtitle, layers.corner,
-      fontReady(), on.seaNames && waterNow('seas', '110m') !== null,
-    ]);
+    const letters = JSON.stringify([state, k, tx, ty, picture, [on.countryNames, on.seaNames, on.degrees, on.graticule], layers.graticuleStep, layers.smallestName, fontReady(), on.seaNames && waterNow('seas', '110m') !== null]);
+    return [letters + JSON.stringify([named.name, on.frame, on.titleBox, layers.title, layers.subtitle, layers.corner]), letters];
   }
 
   /** Fetches the typeface, and the seas if they are to be named, the first time either is wanted, and draws the map again when they come. */

@@ -41,18 +41,29 @@ export function buildPlateOnly({ state, named, layers, picture }: OverlayInput, 
 }
 
 /**
- * Everything over a map at rest. `seas` is null until they have been fetched, and `land` is what counts as land under a sea's name.
- * A name the title box would lie over is left out.
+ * The lettering that is fitted to a map at rest: the names, and then the degrees, which keep clear of the names. `seas` is null
+ * until they have been fetched, and `land` is what counts as land under a sea's name. The title box is not looked at: see `overlayOf`.
  */
-export function buildOverlay(input: OverlayInput, measure: OverlayMeasure, seas: Sea[] | null, land: GeoJSON.GeoJsonObject): Overlay {
-  const { member, layers, picture, scale } = input;
+export function buildLetters({ member, layers, picture, scale }: OverlayInput, measure: OverlayMeasure, seas: Sea[] | null, land: GeoJSON.GeoJsonObject): Label[] {
   const { on } = layers;
-  const { plate } = buildPlateOnly(input, measure);
+  const names = on.countryNames || on.seaNames ? buildNames(member, picture, { countries: on.countryNames, seas: on.seaNames, smallest: layers.smallestName, scale }, measure.label, seas, land) : [];
+  const degrees = lettersDegrees(on) ? buildDegrees(member, picture, layers.graticuleStep, scale, measure.label, names) : [];
+  return [...names, ...degrees];
+}
+
+/**
+ * Lettering and a plate together: a name or a number the title box would lie over is left out. The lettering takes a moment to fit
+ * and the plate none, so that when only the plate changes, as while a title is typed, the same lettering is put under the new one.
+ */
+export function overlayOf(letters: Label[], plate: Plate): Overlay {
   const { box } = plate;
-  const clear = (label: Label) => !box || !label.discs.some(([x, y, r]) => x + r > box.x && x - r < box.x + box.width && y + r > box.y && y - r < box.y + box.height);
-  const names = on.countryNames || on.seaNames ? buildNames(member, picture, { countries: on.countryNames, seas: on.seaNames, smallest: layers.smallestName, scale }, measure.label, seas, land).filter(clear) : [];
-  const degrees = lettersDegrees(on) ? buildDegrees(member, picture, layers.graticuleStep, scale, measure.label, names).filter(clear) : [];
-  return { labels: [...names, ...degrees], plate };
+  if (!box) return { labels: letters, plate };
+  return { labels: letters.filter((label) => !label.discs.some(([x, y, r]) => x + r > box.x && x - r < box.x + box.width && y + r > box.y && y - r < box.y + box.height)), plate };
+}
+
+/** Everything over a map at rest. */
+export function buildOverlay(input: OverlayInput, measure: OverlayMeasure, seas: Sea[] | null, land: GeoJSON.GeoJsonObject): Overlay {
+  return overlayOf(buildLetters(input, measure, seas, land), buildPlateOnly(input, measure).plate);
 }
 
 /** The colour a kind of label is lettered in: the degrees in the page's ink, like the frame. */

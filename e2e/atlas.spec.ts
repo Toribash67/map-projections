@@ -104,6 +104,14 @@ test('the title box says what is typed, in the corner chosen, and the frame give
   await title.fill('Mercator, for the hall');
   await panel(page).getByRole('textbox', { name: 'Subtitle' }).fill('not for navigation');
   await expect.poll(async () => (await plate())?.box?.lines.map((line: { text: string }) => line.text)).toEqual(['MERCATOR, FOR THE HALL', 'NOT FOR NAVIGATION', 'MERCATOR PROJECTION', 'Centre 0°', 'Made with Natural Earth']);
+  // The names are not fitted again for a title: they stay as it is typed. (The letter goes in wherever the caret is.)
+  await box(page, 'Country names').check();
+  await page.waitForFunction(() => ((window as any).__app.overlay?.labels.length ?? 0) > 8);
+  await title.pressSequentially('!');
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+  expect((await names(page))!.length).toBeGreaterThan(8);
+  expect((await plate()).box.lines[0].text).toContain('MERCATOR, FOR THE HALL');
+  await box(page, 'Country names').uncheck();
   const right = (await plate()).box;
   await panel(page).getByRole('combobox', { name: 'Corner' }).selectOption('bl');
   await expect.poll(async () => (await plate()).box.x).toBeLessThan(right.x - 200);

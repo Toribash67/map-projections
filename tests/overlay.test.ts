@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { LAND } from '../src/data/land';
 import { DEFAULT_LAYERS, type LayerState } from '../src/layers/layers';
-import { buildOverlay, buildPlateOnly, drawOverlay, lettersWanted, overlayWanted, type Overlay, type OverlayInput } from '../src/overlay/overlay';
+import { buildLetters, buildOverlay, buildPlateOnly, drawOverlay, lettersWanted, overlayOf, overlayWanted, type Overlay, type OverlayInput } from '../src/overlay/overlay';
 import { pictureRect } from '../src/plate/plate';
 import { mapStyle } from '../src/render/style';
 import { FIT } from '../src/screen/view';
@@ -69,6 +69,22 @@ describe('what is over a map', () => {
     const box = plate.box!;
     for (const label of labels) for (const [x, y] of label.discs) expect(x > box.x && x < box.x + box.width && y > box.y && y < box.y + box.height, label.text).toBe(false);
     expect(buildPlateOnly(input(state), measure)).toEqual({ labels: [], plate });
+  });
+});
+
+describe('the lettering apart from the plate', () => {
+  test('the letters are fitted without regard to the title box, and the box then takes away those it would lie over', () => {
+    const state = layers({ countryNames: true, degrees: true, titleBox: true }, { title: 'A very long title for the north of the map' });
+    const letters = buildLetters(input(state), measure, null, LAND);
+    const { plate } = buildPlateOnly(input(state), measure);
+    const whole = built(state);
+    expect(overlayOf(letters, plate)).toEqual(whole);
+    expect(letters.length).toBeGreaterThan(whole.labels.length);
+    // The same letters under another plate: a box in another corner covers other names, and no box covers none.
+    const elsewhere = buildPlateOnly(input({ ...state, corner: 'bl' }), measure).plate;
+    expect(overlayOf(letters, elsewhere)).toEqual(built({ ...state, corner: 'bl' }));
+    const none = buildPlateOnly(input(layers({ countryNames: true, degrees: true })), measure).plate;
+    expect(overlayOf(letters, none).labels).toEqual(letters);
   });
 });
 
