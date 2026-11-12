@@ -227,8 +227,8 @@ function clipToOutline(ctx: CanvasRenderingContext2D, scene: Scene, frame: Frame
   ctx.clip(frame.outline);
 }
 
-/** What a frame works out once and uses in both groups: the outline, where the canvas has paths to keep. */
-type Frame = { t: number; outline?: Path2D };
+/** What a frame works out once and uses in both groups: the outline, where the canvas has paths to keep. Dashes are `dashScale` times as long as on screen. */
+type Frame = { t: number; dashScale: number; outline?: Path2D };
 
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, frame: Frame, style: Style, base: DOMMatrix): void {
   const { t } = frame;
@@ -241,7 +241,7 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
     if (fill) fillPieces(ctx, pieces, behind, t, fill(style), seam ? style.seamWidth : null, layer === 'ocean' && cells !== undefined);
     if (stroke && width) {
       // A context without dashes, as a test's may be, draws the line whole.
-      if (dash) ctx.setLineDash?.(dash);
+      if (dash) ctx.setLineDash?.(frame.dashScale === 1 ? dash : dash.map((v) => v * frame.dashScale));
       strokePieces(ctx, pieces, behind, t, stroke(style), width(style), taper === 'out' ? 1 - t : taper === 'in' ? t : 1);
       if (dash) ctx.setLineDash?.([]);
     }
@@ -256,22 +256,36 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
   }
 }
 
+/** The widths of a style, each `by` times as wide. */
+function widened(style: Style, by: number): Style {
+  if (by === 1) return style;
+  const { seamWidth, graticuleWidth, coastWidth, drawingWidth, bordersWidth, standardWidth, referenceWidth } = style;
+  return { ...style, seamWidth: seamWidth * by, graticuleWidth: graticuleWidth * by, coastWidth: coastWidth * by, drawingWidth: drawingWidth * by, bordersWidth: bordersWidth * by, standardWidth: standardWidth * by, referenceWidth: referenceWidth * by };
+}
+
 /**
  * Paints a scene at morph progress `t` over the whole canvas. The context's transform maps
  * CSS pixels to the canvas, and is left as it was found. The far side of a globe is painted
  * first, so the near side covers it until the peel opens.
+ *
+ * For a picture larger than the screen, `lineScale` is how many times as wide every line is, and its dashes as long, so that they
+ * look as they do on screen. A `background` of null leaves the canvas clear behind the map, where the style's own is the default.
  */
-export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene, t: number, style: Style): void {
+export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene, t: number, style: Style, { lineScale = 1, background }: { lineScale?: number; background?: string | null } = {}): void {
   const base = ctx.getTransform();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
-  ctx.fillStyle = style.background;
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  if (background === null) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  else {
+    ctx.fillStyle = background ?? style.background;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  }
   ctx.setTransform(base);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  const frame: Frame = { t };
-  drawGroup(ctx, scene, true, frame, style, base);
-  drawGroup(ctx, scene, false, frame, style, base);
+  const frame: Frame = { t, dashScale: lineScale };
+  const widths = widened(style, lineScale);
+  drawGroup(ctx, scene, true, frame, widths, base);
+  drawGroup(ctx, scene, false, frame, widths, base);
   ctx.globalAlpha = 1;
 }

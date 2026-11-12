@@ -12,7 +12,7 @@ export type Viewport = { width: number; height: number };
  */
 export type ScreenTransform = { k: number; tx: number; ty: number; cos: number; sin: number };
 
-const PADDING = 16;
+export const PADDING = 16;
 const EDGE_STEP = 0.25;
 const SEED_STEP = 5;
 const SEED_MARGIN = 1; // degrees
@@ -181,8 +181,8 @@ function remembered<T>(cache: Map<string, T>, key: string, make: () => T): T {
 // Tilt only turns the outline, so it is not part of the key.
 const outlineCache = new Map<string, Float64Array>();
 
-/** Fits the covered map into the viewport with 16 px padding, centred, independent of the centre longitude and latitude. */
-export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransform {
+/** The box round the covered map, in the projection's own units, turned as the map is on screen. */
+function extent(c: CompiledProjection): { minX: number; maxX: number; minY: number; maxY: number; cos: number; sin: number } {
   const { cos, sin } = compensation(c);
   let minX = Infinity;
   let maxX = -Infinity;
@@ -199,6 +199,12 @@ export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransfo
     if (y < minY) minY = y;
     if (y > maxY) maxY = y;
   }
+  return { minX, maxX, minY, maxY, cos, sin };
+}
+
+/** Fits the covered map into the viewport with 16 px padding, centred, independent of the centre longitude and latitude. */
+export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransform {
+  const { minX, maxX, minY, maxY, cos, sin } = extent(c);
   if (!(maxX >= minX)) return { k: 1, tx: v.width / 2, ty: v.height / 2, cos, sin };
   const k = Math.min(
     (v.width - 2 * PADDING) / Math.max(maxX - minX, 1e-12),
@@ -211,6 +217,14 @@ export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransfo
     cos,
     sin,
   };
+}
+
+/** How large the covered map is when fitted into the viewport, in CSS pixels, without the padding round it. */
+export function mapSize(c: CompiledProjection, v: Viewport): Viewport {
+  const { minX, maxX, minY, maxY } = extent(c);
+  if (!(maxX >= minX)) return { width: v.width - 2 * PADDING, height: v.height - 2 * PADDING };
+  const { k } = computeScreen(c, v);
+  return { width: k * (maxX - minX), height: k * (maxY - minY) };
 }
 
 /** Screen position of a geographic point. `lobe` is a lobe's id, and defaults to the lobe that holds the point. */

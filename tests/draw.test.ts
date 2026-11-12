@@ -364,3 +364,29 @@ test('draw: nothing is clipped when no indicatrix is drawn, so a map without Tis
   expect(clipsOf(ops)).toHaveLength(0);
   expect(ops.some((o) => o.op === 'arc')).toBe(false);
 });
+
+test('draw: for a picture larger than the screen every line is as many times as wide, and the shapes are where the scene has them', () => {
+  const open = { closed: false };
+  const layers = { ...emptyLayers(), land: [piece(square(0), square(0))], coast: [piece(square(0), square(0), open)], drawings: [piece(square(20), square(20), open)] };
+  const widths = (lineScale?: number) => {
+    const { ctx, ops } = recordingContext();
+    drawScene(ctx, { layers, indicatrices: [] }, 0, LIGHT_STYLE, lineScale === undefined ? undefined : { lineScale });
+    return ops.filter((o) => o.op === 'stroke').map((o) => [o.width, o.path[0]]);
+  };
+  expect(widths()).toEqual([[LIGHT_STYLE.seamWidth, [0, 0]], [LIGHT_STYLE.coastWidth, [0, 0]], [LIGHT_STYLE.drawingWidth, [20, 0]]]);
+  expect(widths(3)).toEqual([[3 * LIGHT_STYLE.seamWidth, [0, 0]], [3 * LIGHT_STYLE.coastWidth, [0, 0]], [3 * LIGHT_STYLE.drawingWidth, [20, 0]]]);
+});
+
+test('draw: with no background the canvas is cleared and nothing is painted behind the map', () => {
+  const scene: Scene = { layers: { ...emptyLayers(), land: [piece(square(0), square(0))] }, indicatrices: [] };
+  const run = (background?: string | null) => {
+    const { ctx, ops } = recordingContext();
+    const cleared: number[][] = [];
+    (ctx as any).clearRect = (...args: number[]) => void cleared.push(args);
+    drawScene(ctx, scene, 0, LIGHT_STYLE, { background });
+    return { cleared, filled: ops.filter((o) => o.op === 'fillRect').map((o) => o.style) };
+  };
+  expect(run()).toEqual({ cleared: [], filled: [LIGHT_STYLE.background] });
+  expect(run('#123456')).toEqual({ cleared: [], filled: ['#123456'] });
+  expect(run(null)).toEqual({ cleared: [[0, 0, 2000, 1200]], filled: [] });
+});

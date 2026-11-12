@@ -8,9 +8,9 @@ import { compile, stateForStop } from './projections/compile';
 import type { CompiledProjection, LonLat, ProjectionState, Stop } from './projections/types';
 import { drawScene } from './render/draw';
 import { styleOf, type Style } from './render/style';
-import { bordersOf, politicalOf } from './data/countries';
-import { loadDetail } from './data/detail';
+import type { Snapshot } from './export/render';
 import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, type LayerState, type MapData } from './layers/layers';
+import { loadMapData } from './layers/mapData';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
 import { indicatrixStep, type Member } from './tissot/indicatrix';
@@ -115,6 +115,12 @@ export class App {
     if (this.controller.tick()) return null;
     const { compiled, screen } = this.controller.source()[0]!;
     return { compiled, screen };
+  }
+
+  /** What the map shows now, as everything an export needs, or null while a morph, a slide or a zoom is under way: only a map at rest is exported. */
+  snapshot(): Snapshot | null {
+    if (this.controller.tick() || this.slide || this.zoomTween) return null;
+    return { state: this.state, layers: this.layers, style: this.colours, drawings: this.drawings, view: this.view, viewport: this.viewport };
   }
 
   /** Calls `fn` whenever the state, the viewport or the drawings change, and when a morph ends. Returns how to stop. */
@@ -334,22 +340,7 @@ export class App {
   /** Draws the map at rest again with the finer coastlines, unless it has changed, or begun to, while they were fetched. */
   private async refine(): Promise<void> {
     const timer = this.fineTimer;
-    if (!this.fine) {
-      const { land, coast, topology } = await loadDetail('50m');
-      // The countries are worked out only if a layer of them is ever looked at this closely.
-      let countries: Pick<MapData, 'borders' | 'political'> | null = null;
-      const fromTopology = () => (countries ??= { borders: bordersOf(topology), political: politicalOf(topology) });
-      this.fine = {
-        land,
-        coast,
-        get borders() {
-          return fromTopology().borders;
-        },
-        get political() {
-          return fromTopology().political;
-        },
-      };
-    }
+    this.fine ??= await loadMapData('50m');
     if (timer !== this.fineTimer || this.controller.tick() || this.slide || this.zoomTween) return;
     this.useFine = true;
     this.stale = true;
