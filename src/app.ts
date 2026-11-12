@@ -80,8 +80,15 @@ export class App {
   private centreBeforeConic: LonLat | undefined;
   private tiltByHand = false;
 
-  constructor(private readonly canvas: HTMLCanvasElement) {
+  /** `kept` is what was remembered from the last visit of how the map looks and what it shows. */
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    kept: { theme?: ThemeId; overrides?: Overrides; layers?: LayerState } = {},
+  ) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
+    this.theme = kept.theme ?? this.theme;
+    this.overrides = kept.overrides ?? this.overrides;
+    this.layers = kept.layers ?? this.layers;
     this.selected = stops.find((s) => s.id === 'globe')!;
     this.state = stateForStop(this.selected);
     this.viewport = { width: canvas.clientWidth, height: canvas.clientHeight };
@@ -90,6 +97,8 @@ export class App {
     this.watchPixelRatio();
     // The scene holds no colours, so a change of scheme only repaints it.
     watchScheme(() => this.restyle());
+    // The colours of what was remembered, on the map and the page, before the first frame.
+    this.restyle();
     this.resize();
   }
 

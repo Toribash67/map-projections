@@ -158,3 +158,36 @@ test('a colour set by hand is laid over the theme, on the map and the page, and 
   expect(rgb(await body(page))).toEqual(rgb(LIGHT.paper));
   expect(await page.evaluate(() => (window as any).__app.overrides)).toEqual({});
 });
+
+test('the theme, the colours set by hand and the layers are remembered over a reload, and a store that cannot be read is the defaults', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.emulateMedia({ colorScheme: 'light' });
+  await open(page);
+  await page.evaluate(() => {
+    const app = (window as any).__app;
+    app.setTheme('atlas');
+    app.setOverride('ocean', '#224466');
+    app.setLayer('borders', true);
+    app.setLayer('coast', false);
+    app.setGraticuleStep(30);
+  });
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__app !== undefined);
+  await frames(page);
+  const kept = await page.evaluate(() => {
+    const app = (window as any).__app;
+    return { theme: app.theme, overrides: app.overrides, borders: app.layers.on.borders, coast: app.layers.on.coast, step: app.layers.graticuleStep };
+  });
+  expect(kept).toEqual({ theme: 'atlas', overrides: { ocean: '#224466' }, borders: true, coast: false, step: 30 });
+  // And they are on the page from the first frame: the sea on the globe, and the page's own colours.
+  expect(near(await pixel(page, '#map', 520, 322), [0x22, 0x44, 0x66])).toBe(true);
+  const { resolvePalette } = await import('../src/theme/themes');
+  expect(rgb(await sidebar(page))).toEqual(rgb(resolvePalette('atlas', {}, 'light').panel));
+
+  await page.evaluate(() => localStorage.setItem('map-projections:prefs:v1', '{"theme": "neon", "layers": 7, "overrides": {"ocean": "red"}'));
+  await page.reload();
+  await page.waitForFunction(() => (window as any).__app !== undefined);
+  expect(await page.evaluate(() => [(window as any).__app.theme, (window as any).__app.overrides, (window as any).__app.layers.on.borders])).toEqual(['auto', {}, false]);
+  expect(errors).toEqual([]);
+});
