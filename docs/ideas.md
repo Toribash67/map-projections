@@ -144,6 +144,8 @@ Notes on how it might work:
 
 What an atlas plate has that this map does not yet. Suggested by Claude when Martin asked what would look good on a wall.
 
+**Done (2026-11): the first print round and the names.** Rivers, lakes and a sea shaded by depth in four steps are layers. Countries and seas are named, each name fitted and bent along its shape on the map on screen; the names step aside while the map moves and come back fitted when it rests. The graticule can have its degrees written where each line leaves the map, and can lie under the land. A frame and a title box (a title and subtitle of one's own, the projection and its settings filled in) go round the picture. A Poster theme has the look. All of it is in the Layers panel, kept between visits, and exported as PNG and SVG. **Left out:** capitals and mountain ranges; shaded relief (it waits for the picture layer of the satellite map); the indicatrices as an inset; a note on scale. The thematic layers below are still to do.
+
 **A first print round: all vector, all fit what is built.**
 
 - Rivers and lakes. In Natural Earth, and in the 1:50m and 1:10m files already fetched on demand. Makes the land far less bare.

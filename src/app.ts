@@ -160,7 +160,7 @@ export class App {
 
   /** What is written and drawn over the map now: its names, degrees, frame and title box. Null while the lettering is off the map, as it is while the map moves. */
   get overlay(): Overlay | null {
-    return this.overShown ? this.over!.overlay : null;
+    return this.overShown && !this.controller.tick() && !this.slide && !this.zoomTween ? this.over!.overlay : null;
   }
 
   /** Calls `fn` whenever the state, the viewport or the drawings change, and when a morph ends. Returns how to stop. */

@@ -54,8 +54,11 @@ test('the Layers button opens a panel with every layer, as it is on the map', as
   await layersButton(page).click();
   const names = await page.locator('#layers-panel').getByRole('checkbox').evaluateAll((els) => els.map((el) => [(el as HTMLInputElement).labels![0]!.textContent!.trim(), (el as HTMLInputElement).checked]));
   expect(names).toEqual([
-    ['Land', true], ['Coastline', true], ['Graticule', true], ['Country borders', false], ['Political colours', false],
+    ['Land', true], ['Coastline', true], ['Graticule', true], ['Degrees', false], ['Under the land', false], ['Country borders', false], ['Political colours', false],
+    ['Rivers', false], ['Lakes', false], ['Sea depth', false],
     ['Tissot indicatrices', false], ['Standard lines', false], ['Reference circles', false], ['Drawings', true],
+    // And what is written and drawn over the map.
+    ['Country names', false], ['Sea names', false], ['Frame', false], ['Title box', false],
   ]);
   // Each says what it is in a tip.
   for (const box of await page.locator('#layers-panel label.layer').all()) expect(await box.getAttribute('aria-description')).toBeTruthy();

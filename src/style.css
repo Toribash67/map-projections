@@ -534,9 +534,56 @@ h1 {
   cursor: pointer;
 }
 
-.layer.disabled {
+.layer.disabled,
+.option-row.disabled {
   color: var(--muted);
   cursor: default;
+}
+
+/* A choice that goes with the layer above it. */
+.layer-row.sub {
+  padding-left: 19px;
+}
+
+/* A choice that is not a yes or no: its name, and then the control. */
+.option-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.option-row .smallest {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.option-value {
+  flex: none;
+  width: 38px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.plate-text {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 5px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  color: inherit;
+}
+
+.plate-text:disabled,
+.option-row .theme:disabled {
+  opacity: 0.55;
 }
 
 .layer input,

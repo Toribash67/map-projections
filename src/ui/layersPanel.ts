@@ -1,5 +1,5 @@
 import type { App } from '../app';
-import { LAYER_NAMES, type GraticuleStep, type LayerId } from '../layers/layers';
+import { LAYER_NAMES, SMALLEST_NAME, TITLE_LENGTH, type Corner, type GraticuleStep, type LayerId } from '../layers/layers';
 import { hasStandardLines } from '../layers/standardLines';
 import { PALETTES } from '../theme/palette';
 import { currentScheme } from '../theme/scheme';
@@ -30,6 +30,13 @@ const TIPS: Record<LayerId, string> = {
 };
 const NO_STANDARD = 'This map has no parallel where its scale is true everywhere along it';
 const STEPS: GraticuleStep[] = [10, 15, 30];
+// What is written and drawn over the map, in the order it is listed for choosing.
+const NAME_LAYERS: [LayerId, string][] = [['countryNames', 'Country names'], ['seaNames', 'Sea names']];
+const PLATE_LAYERS: [LayerId, string][] = [['frame', 'Frame'], ['titleBox', 'Title box']];
+const CORNER_NAMES: [Corner, string][] = [['tl', 'Top left'], ['tr', 'Top right'], ['bl', 'Bottom left'], ['br', 'Bottom right']];
+const UNDER = 'The graticule under the land: over the sea only';
+const SMALLEST = 'The smallest lettering a name may have, in pixels of the screen. The smaller, the more countries are named; an export is the screen enlarged, so lettering too small to read here can be read in print';
+const NO_GRATICULE = 'The graticule is off';
 
 /** A colour as '#rrggbb', which is all a colour box can hold: an 'rgba(...)' colour without its opacity. */
 function asHex(colour: string): string {
@@ -39,8 +46,9 @@ function asHex(colour: string): string {
 }
 
 /**
- * The Layers button on the map, and the panel it opens: a box for each layer, how fine the graticule is, the theme, and the map's
- * colours, each of which can be set by hand over the theme's and reset to it. The key T turns the indicatrices on and off. The
+ * The Layers button on the map, and the panel it opens: a box for each layer, how fine the graticule is, the names and how small they
+ * may be, the frame and the title box with what the box says, the theme, and the map's colours, each of which can be set by hand over
+ * the theme's and reset to it. The key T turns the indicatrices on and off. The
  * button is put in `container`, with the panel beside it.
  */
 export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonElement {
@@ -71,19 +79,79 @@ export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonE
     steps.append(label);
     return input;
   });
-  for (const [id, name] of LAYER_NAMES) {
+  /** A row with a box that shows or hides a layer. */
+  const layerRow = (id: LayerId, name: string, className = 'layer-row'): HTMLDivElement => {
     const label = el('label', 'layer');
     const input = el('input', '');
     input.type = 'checkbox';
     input.addEventListener('change', () => app.setLayer(id, input.checked));
     label.append(input, document.createTextNode(name));
     tip(label, TIPS[id], id === 'tissot' ? 'T' : undefined);
-    const row = el('div', 'layer-row');
+    const row = el('div', className);
     row.append(label);
+    boxes.set(id, { input, label });
+    return row;
+  };
+  // What goes with the graticule, under it: its degrees, and whether it lies under the land.
+  const under = el('input', '');
+  under.type = 'checkbox';
+  under.addEventListener('change', () => app.setLayerOptions({ graticuleUnder: under.checked }));
+  const underLabel = el('label', 'layer');
+  underLabel.append(under, document.createTextNode('Under the land'));
+  tip(underLabel, UNDER);
+  const underRow = el('div', 'layer-row sub');
+  underRow.append(underLabel);
+  for (const [id, name] of LAYER_NAMES) {
+    const row = layerRow(id, name);
     if (id === 'graticule') row.append(steps);
     list.append(row);
-    boxes.set(id, { input, label });
+    if (id === 'graticule') list.append(layerRow('degrees', 'Degrees', 'layer-row sub'), underRow);
   }
+
+  // Names.
+  const names = el('div', 'layer-list');
+  for (const [id, name] of NAME_LAYERS) names.append(layerRow(id, name));
+  const smallestRow = el('label', 'option-row', 'Smallest name');
+  const smallest = el('input', 'smallest');
+  smallest.type = 'range';
+  smallest.min = String(SMALLEST_NAME.min);
+  smallest.max = String(SMALLEST_NAME.max);
+  smallest.step = '0.5';
+  smallest.setAttribute('aria-label', 'Smallest name');
+  const smallestValue = el('output', 'option-value');
+  smallest.addEventListener('input', () => app.setLayerOptions({ smallestName: Number(smallest.value) }));
+  smallestRow.append(smallest, smallestValue);
+  tip(smallestRow, SMALLEST);
+  names.append(smallestRow);
+
+  // The plate: the frame, and the title box with what it says and where it sits.
+  const plate = el('div', 'layer-list');
+  for (const [id, name] of PLATE_LAYERS) plate.append(layerRow(id, name));
+  const textRow = (name: string, key: 'title' | 'subtitle', hint: string) => {
+    const row = el('label', 'option-row', name);
+    const input = el('input', 'plate-text');
+    input.type = 'text';
+    input.maxLength = TITLE_LENGTH;
+    input.spellcheck = false;
+    input.addEventListener('input', () => app.setLayerOptions({ [key]: input.value }));
+    row.append(input);
+    tip(row, hint);
+    plate.append(row);
+    return input;
+  };
+  const title = textRow('Title', 'title', 'The title in the box, lettered in capitals. Left empty, the box has none');
+  const subtitle = textRow('Subtitle', 'subtitle', 'A line under the title. Left empty, the box has none');
+  const cornerRow = el('label', 'option-row', 'Corner');
+  const corner = el('select', 'theme');
+  for (const [id, name] of CORNER_NAMES) {
+    const option = el('option', '', name);
+    option.value = id;
+    corner.append(option);
+  }
+  corner.addEventListener('change', () => app.setLayerOptions({ corner: corner.value as Corner }));
+  cornerRow.append(corner);
+  tip(cornerRow, 'The corner of the picture the title box sits in. It does not keep clear of the map: choose a corner the map leaves empty');
+  plate.append(cornerRow);
 
   // Theme and colours.
   const themeRow = el('label', 'theme-row', 'Theme');
@@ -123,7 +191,7 @@ export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonE
     for (const [key] of COLOUR_NAMES) app.setOverride(key, null);
   });
 
-  panel.append(el('h2', 'panel-heading', 'Layers'), list, el('h2', 'panel-heading', 'Colours'), themeRow, colours, resetAll);
+  panel.append(el('h2', 'panel-heading', 'Layers'), list, el('h2', 'panel-heading', 'Names'), names, el('h2', 'panel-heading', 'Plate'), plate, el('h2', 'panel-heading', 'Colours'), themeRow, colours, resetAll);
   container.append(button);
   popover(button, panel, 'below-right');
 
@@ -140,6 +208,12 @@ export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonE
     const { on, graticuleStep } = app.layers;
     for (const [id, { input, label }] of boxes) {
       input.checked = on[id];
+      if (id === 'degrees') {
+        // The degrees are the graticule's: without it there are none.
+        input.disabled = !on.graticule;
+        label.setAttribute('aria-description', input.disabled ? NO_GRATICULE : TIPS.degrees);
+        label.classList.toggle('disabled', input.disabled);
+      }
       if (id !== 'standard') continue;
       // A layer that this map cannot show stays as it was asked for, and says why it is not seen.
       input.disabled = !hasStandardLines(app.state.defId);
@@ -149,6 +223,22 @@ export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonE
     for (const input of stepInputs) {
       input.checked = Number(input.value) === graticuleStep;
       input.disabled = !on.graticule;
+    }
+    under.checked = app.layers.graticuleUnder;
+    under.disabled = !on.graticule;
+    underLabel.classList.toggle('disabled', under.disabled);
+    smallest.disabled = !on.countryNames && !on.seaNames;
+    smallest.value = String(app.layers.smallestName);
+    smallestValue.textContent = `${app.layers.smallestName} px`;
+    smallest.setAttribute('aria-valuetext', `${app.layers.smallestName} pixels`);
+    smallestRow.classList.toggle('disabled', smallest.disabled);
+    // Not under the hand of someone typing.
+    if (document.activeElement !== title) title.value = app.layers.title;
+    if (document.activeElement !== subtitle) subtitle.value = app.layers.subtitle;
+    corner.value = app.layers.corner;
+    for (const control of [title, subtitle, corner]) {
+      control.disabled = !on.titleBox;
+      control.parentElement!.classList.toggle('disabled', control.disabled);
     }
     theme.value = app.theme;
     let any = false;
