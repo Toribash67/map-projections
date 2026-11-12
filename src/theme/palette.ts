@@ -31,6 +31,12 @@ export type Palette = {
   standard: string;
   reference: string;
   political: readonly [string, string, string, string, string];
+  // The atlas layers: rivers and the shores of lakes, the sea at its deepest (the steps between are mixed from the sea's own colour
+  // to this), and the lettering of countries and of seas.
+  rivers: string;
+  deep: string;
+  labels: string;
+  seaLabels: string;
 };
 export type Scheme = 'light' | 'dark';
 
@@ -57,6 +63,10 @@ export const LIGHT: Palette = {
   standard: '#1c7c8c',
   reference: 'rgba(43, 58, 68, 0.5)',
   political: ['#ecd9a4', '#c9dcb4', '#f0c4b0', '#d8cbe6', '#f2e6c8'],
+  rivers: '#6f9bb5',
+  deep: '#9db9c9',
+  labels: '#2b3a44',
+  seaLabels: '#4f7389',
 };
 
 /**
@@ -87,6 +97,10 @@ export const DARK: Palette = {
   standard: '#5fc6d8',
   reference: 'rgba(228, 233, 236, 0.5)',
   political: ['#6b6238', '#3f5e45', '#74483a', '#584a70', '#3a5f74'],
+  rivers: '#6fa3c4',
+  deep: '#0a121a',
+  labels: '#eef2f4',
+  seaLabels: '#8fb3cc',
 };
 
 export const SCHEMES: readonly Scheme[] = ['light', 'dark'];

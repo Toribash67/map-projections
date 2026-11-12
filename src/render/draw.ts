@@ -256,8 +256,8 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
 /** The widths of a style, each `by` times as wide. */
 function widened(style: Style, by: number): Style {
   if (by === 1) return style;
-  const { seamWidth, graticuleWidth, coastWidth, drawingWidth, bordersWidth, standardWidth, referenceWidth } = style;
-  return { ...style, seamWidth: seamWidth * by, graticuleWidth: graticuleWidth * by, coastWidth: coastWidth * by, drawingWidth: drawingWidth * by, bordersWidth: bordersWidth * by, standardWidth: standardWidth * by, referenceWidth: referenceWidth * by };
+  const { seamWidth, graticuleWidth, coastWidth, drawingWidth, bordersWidth, standardWidth, referenceWidth, riversWidth, lakeEdgeWidth } = style;
+  return { ...style, seamWidth: seamWidth * by, graticuleWidth: graticuleWidth * by, coastWidth: coastWidth * by, drawingWidth: drawingWidth * by, bordersWidth: bordersWidth * by, standardWidth: standardWidth * by, referenceWidth: referenceWidth * by, riversWidth: riversWidth * by, lakeEdgeWidth: lakeEdgeWidth * by };
 }
 
 /**

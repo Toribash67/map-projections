@@ -22,6 +22,13 @@ export type Style = {
   reference: string;
   /** The fills of the political map, by colour number. */
   political: readonly string[];
+  /** Rivers, and the shores of lakes. */
+  rivers: string;
+  /** The sea by depth, the shallowest step first: from the sea's own colour evenly to its deepest. */
+  depth: readonly string[];
+  /** The lettering of countries and of seas. */
+  labels: string;
+  seaLabels: string;
   seamWidth: number;
   graticuleWidth: number;
   coastWidth: number;
@@ -29,14 +36,25 @@ export type Style = {
   bordersWidth: number;
   standardWidth: number;
   referenceWidth: number;
+  riversWidth: number;
+  lakeEdgeWidth: number;
 };
 
 // Fills of neighbouring pieces meet at a seam; a stroke this wide in their own colour hides the hairline between them.
-const WIDTHS = { seamWidth: 0.5, graticuleWidth: 0.75, coastWidth: 0.6, drawingWidth: 2, bordersWidth: 0.7, standardWidth: 1.6, referenceWidth: 0.9 };
+const WIDTHS = { seamWidth: 0.5, graticuleWidth: 0.75, coastWidth: 0.6, drawingWidth: 2, bordersWidth: 0.7, standardWidth: 1.6, referenceWidth: 0.9, riversWidth: 0.7, lakeEdgeWidth: 0.4 };
+
+// How many steps the sea is shaded in. See DEPTHS in data/water.ts.
+const DEPTH_STEPS = 4;
+
+/** A colour `t` of the way from one to another, all as '#rrggbb'. */
+export function mix(a: string, b: string, t: number): string {
+  const channel = (i: number) => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - t) + parseInt(b.slice(i, i + 2), 16) * t);
+  return `#${[1, 3, 5].map((i) => channel(i).toString(16).padStart(2, '0')).join('')}`;
+}
 
 /** The style of the map for a palette: its colours, with the map's line widths. */
 export function styleOf(p: Palette): Style {
-  return { background: p.paper, ocean: p.ocean, land: p.land, graticule: p.graticule, coast: p.coast, accent: p.accent, accentFill: p.accentFill, indicatrix: p.indicatrix, tint: p.tint, halo: p.halo, ink: p.ink, borders: p.borders, standard: p.standard, reference: p.reference, political: p.political, ...WIDTHS };
+  return { background: p.paper, ocean: p.ocean, land: p.land, graticule: p.graticule, coast: p.coast, accent: p.accent, accentFill: p.accentFill, indicatrix: p.indicatrix, tint: p.tint, halo: p.halo, ink: p.ink, borders: p.borders, standard: p.standard, reference: p.reference, political: p.political, rivers: p.rivers, depth: Array.from({ length: DEPTH_STEPS }, (_, i) => mix(p.ocean, p.deep, (i + 1) / DEPTH_STEPS)), labels: p.labels, seaLabels: p.seaLabels, ...WIDTHS };
 }
 
 const styles = new Map<Scheme, Style>();

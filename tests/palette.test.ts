@@ -5,7 +5,7 @@ import drawSource from '../src/render/draw.ts?raw';
 import locatorSource from '../src/locator/locator.ts?raw';
 import styleSource from '../src/render/style.ts?raw';
 import styleCss from '../src/style.css?raw';
-import { mapStyle, styleOf } from '../src/render/style';
+import { mapStyle, mix, styleOf } from '../src/render/style';
 import { chromeScheme, resolvePalette, THEME_NAMES, type ThemeId } from '../src/theme/themes';
 import { DARK, LIGHT, paletteCss, SCHEMES, themeColors, type Palette } from '../src/theme/palette';
 import { currentScheme, watchScheme } from '../src/theme/scheme';
@@ -47,8 +47,8 @@ describe('the palette', () => {
   test('light mode has the colours it had before there was a dark mode, and a darker red for text', () => {
     // The indicatrix's own fill came with its losing its outline.
     // And the layers that came later have colours of their own.
-    const { accentText, indicatrix, borders, standard, reference, political, ...rest } = LIGHT;
-    expect([borders, standard, reference].every((c) => typeof c === 'string')).toBe(true);
+    const { accentText, indicatrix, borders, standard, reference, political, rivers, deep, labels, seaLabels, ...rest } = LIGHT;
+    expect([borders, standard, reference, rivers, deep, labels, seaLabels].every((c) => typeof c === 'string')).toBe(true);
     expect(political).toHaveLength(5);
     expect(indicatrix).toBe('rgba(217, 71, 43, 0.34)');
     expect(rest).toEqual(LIGHT_BEFORE);
@@ -206,22 +206,22 @@ function lab(colour: string): [number, number, number] {
 const deltaE = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]!));
 
 describe('themes', () => {
-  const ids: ThemeId[] = ['auto', 'light', 'dark', 'atlas', 'blueprint', 'print'];
+  const ids: ThemeId[] = ['auto', 'light', 'dark', 'atlas', 'blueprint', 'print', 'poster'];
   const cases = ids.flatMap((id) => SCHEMES.map((system) => [id, system] as const));
 
-  test('there are six, each with a name, and auto is the palette of the system\'s scheme', () => {
+  test('there are seven, each with a name, and auto is the palette of the system\'s scheme', () => {
     expect(Object.keys(THEME_NAMES)).toEqual(ids);
     expect(resolvePalette('auto', {}, 'light')).toEqual(LIGHT);
     expect(resolvePalette('auto', {}, 'dark')).toEqual(DARK);
     expect(resolvePalette('light', {}, 'dark')).toEqual(LIGHT);
     expect(resolvePalette('dark', {}, 'light')).toEqual(DARK);
     // The others are the same whatever the system says.
-    for (const id of ['atlas', 'blueprint', 'print'] as const) expect(resolvePalette(id, {}, 'light')).toEqual(resolvePalette(id, {}, 'dark'));
+    for (const id of ['atlas', 'blueprint', 'print', 'poster'] as const) expect(resolvePalette(id, {}, 'light')).toEqual(resolvePalette(id, {}, 'dark'));
   });
 
   test('the page round the map is light or dark with the theme', () => {
     expect(ids.map((id) => [chromeScheme(id, 'light'), chromeScheme(id, 'dark')])).toEqual([
-      ['light', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'],
+      ['light', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['light', 'light'],
     ]);
   });
 
@@ -249,9 +249,33 @@ describe('themes', () => {
     p.political.forEach((a, i) => {
       for (const b of p.political.slice(i + 1)) expect(deltaE(a, b), `${a} and ${b}`).toBeGreaterThan(10);
       expect(deltaE(a, p.ocean), `${a} and the sea`).toBeGreaterThan(10);
-      expect(ratio(solid(p.borders), solid(a)), `borders on ${a}`).toBeGreaterThanOrEqual(3);
+      // The poster's borders are white, and part two countries of different colours without being seen on either.
+      if (id !== 'poster') expect(ratio(solid(p.borders), solid(a)), `borders on ${a}`).toBeGreaterThanOrEqual(3);
       expect(ratio(solid(p.accent), solid(a)), `accent on ${a}`).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  test.each(cases)('%s, with the system %s: rivers, depths and names are seen', (id, system) => {
+    const p = resolvePalette(id, {}, system);
+    const style = styleOf(p);
+    // Names are read on the land and on every colour a country can have, and sea names on the sea, shallow and deep.
+    for (const under of [p.land, ...p.political]) expect(ratio(solid(p.labels), solid(under)), `names on ${under}`).toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(p.seaLabels), solid(p.ocean)), 'sea names on the sea').toBeGreaterThanOrEqual(3);
+    expect(ratio(solid(p.seaLabels), solid(p.deep)), 'sea names on the deep').toBeGreaterThanOrEqual(1.8);
+    // A river is seen on the land, and is not the land's own colour on any country.
+    for (const under of [p.land, ...p.political]) expect(deltaE(p.rivers, under), `rivers on ${under}`).toBeGreaterThan(15);
+    // Four depths, each a step on from the last, ending at the deepest.
+    expect(style.depth).toHaveLength(4);
+    expect(style.depth[3]).toBe(p.deep);
+    [p.ocean, ...style.depth].forEach((colour, i, all) => i > 0 && expect(deltaE(colour, all[i - 1]!), `depth ${i}`).toBeGreaterThan(1.5));
+  });
+
+  test('colours are mixed evenly, and the depths follow a sea or a deep of one\'s own', () => {
+    expect(mix('#000000', '#ffffff', 0.5)).toBe('#808080');
+    expect(mix('#102030', '#102030', 0.3)).toBe('#102030');
+    const style = styleOf(resolvePalette('light', { ocean: '#ffffff', deep: '#000000' }, 'light'));
+    expect(style.depth).toEqual(['#bfbfbf', '#808080', '#404040', '#000000']);
+    expect([style.rivers, style.labels, style.seaLabels]).toEqual([LIGHT.rivers, LIGHT.labels, LIGHT.seaLabels]);
   });
 
   test('a colour of one\'s own is laid over the theme\'s, and what is made from it follows', () => {
