@@ -617,3 +617,19 @@ test('a long path drawn straight on Mercator cuts on the most interrupted maps w
     }
   }
 });
+
+test('following the map, a polygon is shown closed just after a corner is placed, while the cursor is still on it', () => {
+  const polygon = traced('polygon', [0, 0], [30, 0], [30, 20]);
+  // Right after the click, before the cursor has moved.
+  const placed = polygon.drawn().at(-1)!;
+  expect(placed.kind === 'path' && placed.closed).toBe(true);
+  // And with the cursor reported where the corner is.
+  polygon.preview([30, 20], flat);
+  const resting = polygon.drawn().at(-1)!;
+  expect(resting.kind === 'path' && resting.closed).toBe(true);
+  expect(resting).toEqual(placed);
+  // Two corners are not yet a polygon: a line.
+  const two = traced('polygon', [0, 0], [30, 0]);
+  const open = two.drawn().at(-1)!;
+  expect(open.kind === 'path' && open.closed).toBe(false);
+});

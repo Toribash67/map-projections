@@ -95,6 +95,16 @@ export function shapeToGeoJSON(shape: Shape): GeoJSON.Geometry {
 }
 
 /**
+ * How a polygon that follows the map is shown closed while the cursor is still on its last corner, as just after a click: by the
+ * edge from that corner back to the first, with nothing drawn out to the cursor. Null for anything that is not yet a polygon.
+ */
+function closingBand(d: Draft, tracer: Tracer): { out: LonLat[] | null; back: LonLat[] | null } | null {
+  if (d.kind !== 'polygon' || !d.traced || d.points.length < 3) return null;
+  const back = tracer.line(d.points.at(-1)!, d.points[0]!);
+  return back ? { out: null, back } : null;
+}
+
+/**
  * The shapes drawn so far and the one being drawn. Clicks add points to the draft, and a finished draft becomes a shape. While it
  * follows the map, each click and each move of the cursor comes with a tracer for the map on screen; while it follows the globe, as
  * it does to begin with, none is asked for.
@@ -189,6 +199,9 @@ export class DrawingModel {
         const traced = [...d.traced, path];
         if (d.kind === 'polygon' && !isSimple(joined(traced), false)) return this.refuse(CROSSES);
         this.draft = { kind: d.kind, points: [...d.points, p], traced };
+        this.band = closingBand(this.draft, tracer);
+        this.notice = null;
+        return this.notify();
       } else {
         if (d.kind === 'polygon' && !isSimple([...d.points, p], false)) return this.refuse(CROSSES);
         this.draft = { kind: d.kind, points: [...d.points, p] };
@@ -211,7 +224,7 @@ export class DrawingModel {
         const out = tracer.line(d.points.at(-1)!, p);
         // A polygon is shown closed once it has two corners and the cursor for a third.
         this.band = { out, back: out && d.kind === 'polygon' && d.points.length >= 2 ? tracer.line(p, d.points[0]!) : null };
-      }
+      } else this.band = closingBand(d, tracer);
     }
     // With no draft there is nothing to draw out to the cursor.
     if (d) this.notify();
