@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { buildDegrees, degreeText } from '../src/labels/degrees';
 import { setLevel, touches, type Label, type Measure } from '../src/labels/place';
-import { isCovered, mapSize, screenToLonLat } from '../src/screen/screen';
+import { isShown, mapSize, screenToLonLat } from '../src/screen/screen';
 import { member, VIEW } from './sceneSupport';
 
 const measure: Measure = (text) => 0.6 * text.length;
@@ -67,7 +67,7 @@ describe('degrees on a map', () => {
     expect(labels.length).toBeGreaterThan(6);
     for (const label of labels) {
       const place = screenToLonLat(globe.compiled, globe.screen, middle(label));
-      expect(place === null || !isCovered(globe.compiled, place), label.text).toBe(true);
+      expect(place === null || !isShown(globe.compiled, place), label.text).toBe(true);
     }
   });
 
@@ -78,6 +78,15 @@ describe('degrees on a map', () => {
       labels.forEach((label, i) => expect(touches(label, labels.slice(i + 1)), `${id} ${label.text}`).toBe(false));
       expect(labels.length, id).toBeGreaterThan(8);
       for (const label of labels) for (const [x, y] of label.discs) expect(x > -1 && x < VIEW.width + 1 && y > -1 && y < VIEW.height + 1, `${id} ${label.text}`).toBe(true);
+    }
+  });
+
+  test('a pole in the middle of a map, where the lines stop but the map goes on, has none', () => {
+    for (const id of ['peirce', 'butterfly', 'azimuthal-equidistant']) {
+      const m = member(id);
+      const labels = buildDegrees(m, PICTURE, 30, 1, measure, []);
+      const [cx, cy] = [VIEW.width / 2, VIEW.height / 2];
+      for (const label of labels) expect(Math.hypot(middle(label)[0] - cx, middle(label)[1] - cy), `${id} ${label.text}`).toBeGreaterThan(60);
     }
   });
 

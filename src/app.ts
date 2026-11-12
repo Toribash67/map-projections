@@ -11,7 +11,12 @@ import { styleOf, type Style } from './render/style';
 import type { Snapshot } from './export/render';
 import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, type LayerState, type MapData } from './layers/layers';
 import { loadMapData, loadWaterFor, withWater } from './layers/mapData';
-import { paddingFor } from './plate/plate';
+import { LAND } from './data/land';
+import { loadWater, waterNow } from './data/water';
+import { canvasMeasure, fontReady, loadFont } from './labels/font';
+import { buildOverlay, buildPlateOnly, drawOverlay, lettersWanted, overlayWanted, type Overlay, type OverlayInput, type OverlayMeasure } from './overlay/overlay';
+import { paddingFor, pictureRect, type Rect } from './plate/plate';
+import { matchStop } from './projections/compile';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
 import { visibleCap } from './screen/visible';
@@ -31,6 +36,8 @@ const FINE_BUDGET = 40;
 const FINE_AFTER = 250;
 const REST_SHARE = 0.6;
 const WATER_LAYERS = ['rivers', 'lakes', 'depth'] as const;
+// How long (ms) the map has to have been still before its names and degrees are fitted to it.
+const LETTER_AFTER = 140;
 
 /** Whether two states are the same map, number for number. */
 const sameState = (a: ProjectionState, b: ProjectionState): boolean => {
@@ -84,11 +91,21 @@ export class App {
   private fineAsked = false;
   // The rivers, lakes and depths being fetched now, by scale and layers, so that none is asked for twice at once.
   private readonly waterAsked = new Set<string>();
+  private fontAsked = false;
+  private seasAsked = false;
   // How long a frame with them last took, about, the layers it was timed with, and whether the map has been left alone since it last changed.
   private fineCost = 0;
   private fineTimed: LayerState | null = null;
   private rested = false;
   private restTimer = 0;
+  // What is over the map, and the map it was worked out for. See `paintOverlay`.
+  private over: { key: string; overlay: Overlay } | null = null;
+  private overShown = false;
+  private overTimer = 0;
+  private measure: OverlayMeasure | null = null;
+  // The picture the frame was last drawn round, and the one it had when the morph under way began: in a morph it goes from one to the other.
+  private picture: Rect | null = null;
+  private pictureFrom: Rect | null = null;
   // What choosing a projection needs to know that the state does not say. See stateForStop.
   private centreBeforeConic: LonLat | undefined;
   private tiltByHand = false;
@@ -133,7 +150,17 @@ export class App {
   /** What the map shows now, as everything an export needs, or null while a morph, a slide or a zoom is under way: only a map at rest is exported. */
   snapshot(): Snapshot | null {
     if (this.controller.tick() || this.slide || this.zoomTween) return null;
-    return { state: this.state, layers: this.layers, style: this.colours, drawings: this.drawings, view: this.view, viewport: this.viewport };
+    return { state: this.state, named: this.named(), layers: this.layers, style: this.colours, drawings: this.drawings, view: this.view, viewport: this.viewport };
+  }
+
+  /** The projection the map is called by: the one chosen from the list while the map is still a setting of it, or the one it has become. */
+  private named(): { name: string; params: ProjectionState['params'] } {
+    return this.selected.defId === this.state.defId ? this.selected : (matchStop(this.state) ?? { name: 'Custom', params: {} });
+  }
+
+  /** What is written and drawn over the map now: its names, degrees, frame and title box. Null while the lettering is off the map, as it is while the map moves. */
+  get overlay(): Overlay | null {
+    return this.overShown ? this.over!.overlay : null;
   }
 
   /** Calls `fn` whenever the state, the viewport or the drawings change, and when a morph ends. Returns how to stop. */
@@ -461,6 +488,7 @@ export class App {
       this.stale = false;
     }
     drawScene(this.ctx, this.scene, this.controller.t(), this.colours);
+    this.paintOverlay(morphing || this.slide !== null || this.zoomTween !== null);
     if (began !== null) {
       // The first frame with a layer is not timed, as it has the layer to make ready. A quick frame is believed at once, and a slow one a quarter, as one frame can be slow by chance.
       // A frame after a rest takes nearly twice as long as the same frame in a run of them, and it is a run that is asked about.
@@ -471,6 +499,83 @@ export class App {
     if (morphing || this.slide || this.zoomTween) this.request();
     if (settled || slide) this.notify();
   };
+
+  /**
+   * Draws what is over the map. The frame and the title box are drawn on every frame. The names and the degrees are fitted to a
+   * map at rest, which takes a moment: they are drawn only while the map is the very one they were fitted to. When it is not, as
+   * while it moves, they are left off, and they are fitted afresh once it has been still for a moment. Nothing fades.
+   */
+  private paintOverlay(moving: boolean): void {
+    window.clearTimeout(this.overTimer);
+    this.overShown = false;
+    if (!overlayWanted(this.layers)) {
+      this.over = null;
+      this.picture = this.pictureFrom = null;
+      return;
+    }
+    this.fetchLettering();
+    this.measure ??= canvasMeasure();
+    const input = this.overlayInput(moving);
+    const key = moving ? null : this.overlayKey(input);
+    if (key !== null && this.over?.key !== key && !lettersWanted(this.layers)) this.over = { key, overlay: buildPlateOnly(input, this.measure) };
+    if (key !== null && this.over?.key === key) {
+      this.overShown = true;
+      drawOverlay(this.ctx, this.over.overlay, this.colours);
+      return;
+    }
+    drawOverlay(this.ctx, buildPlateOnly(input, this.measure), this.colours);
+    if (key === null) return;
+    this.overTimer = window.setTimeout(() => {
+      if (this.controller.tick() || this.slide || this.zoomTween || !this.measure) return;
+      const now = this.overlayInput(false);
+      this.over = { key: this.overlayKey(now), overlay: buildOverlay(now, this.measure, waterNow('seas', '110m'), LAND) };
+      this.request();
+      this.notify();
+    }, LETTER_AFTER);
+  }
+
+  /** The map on screen as what is over it is worked out from. In a morph the picture, which the frame is drawn round, goes from the one the morph began with to the one it ends with. */
+  private overlayInput(moving: boolean): OverlayInput {
+    const member = this.controller.target() ?? this.controller.source()[0]!;
+    const padding = paddingFor(this.layers);
+    let picture = pictureRect(member.compiled, this.viewport, this.view, padding);
+    if (this.controller.tick()) {
+      const from = (this.pictureFrom ??= this.picture ?? picture);
+      const t = this.controller.t();
+      const mix = (a: number, b: number) => a + t * (b - a);
+      picture = { x: mix(from.x, picture.x), y: mix(from.y, picture.y), width: mix(from.width, picture.width), height: mix(from.height, picture.height) };
+    } else this.pictureFrom = null;
+    if (!moving || !this.controller.tick()) this.picture = picture;
+    return { member, state: this.state, named: this.named(), layers: this.layers, picture, scale: 1 };
+  }
+
+  /** Everything the overlay of a map at rest depends on: the map and where it is drawn, what is shown over it, and whether the typeface and the seas have come. */
+  private overlayKey({ member, state, named, layers, picture }: OverlayInput): string {
+    const { on } = layers;
+    const { k, tx, ty } = member.screen;
+    return JSON.stringify([
+      state, named.name, k, tx, ty, picture,
+      [on.countryNames, on.seaNames, on.degrees, on.graticule, on.frame, on.titleBox], layers.graticuleStep, layers.smallestName, layers.title, layers.subtitle, layers.corner,
+      fontReady(), on.seaNames && waterNow('seas', '110m') !== null,
+    ]);
+  }
+
+  /** Fetches the typeface, and the seas if they are to be named, the first time either is wanted, and draws the map again when they come. */
+  private fetchLettering(): void {
+    const again = () => this.request();
+    if (!this.fontAsked) {
+      this.fontAsked = true;
+      void loadFont().then(() => {
+        // If it did not come, it is asked for again the next time something is over the map.
+        if (!fontReady()) this.fontAsked = false;
+        else again();
+      });
+    }
+    if (this.layers.on.seaNames && !this.seasAsked) {
+      this.seasAsked = true;
+      loadWater('seas', '110m').then(again, () => void (this.seasAsked = false));
+    }
+  }
 
   /** Sizes the canvas store by the pixel ratio and refits every map on screen to a new viewport, then draws at once, as resizing clears the canvas. */
   private resize(): void {

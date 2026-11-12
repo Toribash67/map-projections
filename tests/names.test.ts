@@ -9,7 +9,9 @@ import { buildNames, piecesOf, seaName, type NameOptions } from '../src/labels/n
 import { touches, type Label, type Measure } from '../src/labels/place';
 import { screenToLonLat } from '../src/screen/screen';
 import { geoContains } from 'd3-geo';
-import { member, VIEW } from './sceneSupport';
+import { member, VIEW as SIZE } from './sceneSupport';
+
+const VIEW = { x: 0, y: 0, ...SIZE };
 
 // Every letter 0.62 of its height wide.
 const measure: Measure = (text) => 0.62 * text.length;
@@ -109,7 +111,7 @@ describe('country names on a map', () => {
 
   test('in a picture twice the size, the names are twice the size and the same names', () => {
     const twice = { ...mercator, screen: { ...mercator.screen, k: mercator.screen.k * 2, tx: mercator.screen.tx * 2, ty: mercator.screen.ty * 2 } };
-    const large = buildNames(twice, { width: 2 * VIEW.width, height: 2 * VIEW.height }, { ...COUNTRIES, scale: 2 }, measure, null, LAND);
+    const large = buildNames(twice, { x: 0, y: 0, width: 2 * VIEW.width, height: 2 * VIEW.height }, { ...COUNTRIES, scale: 2 }, measure, null, LAND);
     expect(named(large)).toEqual(named(labels));
     large.forEach((label, i) => expect(label.size, label.text).toBeCloseTo(2 * labels[i]!.size, 3));
   });

@@ -32,6 +32,8 @@ export const SIZE_PRESETS: { id: string; label: string; width: number | 'screen'
 /** What the app shows now, as everything an export needs, taken at one moment. */
 export interface Snapshot {
   state: ProjectionState;
+  /** The projection the map is called by: its name in the list, and its parameters there. */
+  named: { name: string; params: ProjectionState['params'] };
   layers: LayerState;
   style: Style;
   drawings: GeoJSON.GeometryCollection;

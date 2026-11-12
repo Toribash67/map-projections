@@ -38,6 +38,15 @@ export function isCovered(c: CompiledProjection, p: LonLat): boolean {
   return frameCovered(c.caps, c.toFrame(p));
 }
 
+/**
+ * Whether the map shows a point: it lies in no cap but, at most, the speck of a `regular` one, where the map is as good as anywhere.
+ * The far side of a globe is not shown.
+ */
+export function isShown(c: CompiledProjection, p: LonLat): boolean {
+  const frame = c.toFrame(p);
+  return !c.caps.some((cap) => !cap.regular && geoDistance(frame, cap.frameCenter) / rad < cap.radius);
+}
+
 /** How far (degrees) past each cap's edge a map is taken to reach: one number for every cap, or one for each. */
 export type Margin = number | ((cap: ExcludedCap) => number);
 

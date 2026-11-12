@@ -10,7 +10,7 @@ import { stopOf } from './stopOf';
 
 const VIEWPORT = { width: 1000, height: 600 };
 const NO_DRAWINGS: GeoJSON.GeometryCollection = { type: 'GeometryCollection', geometries: [] };
-const snapshotOf = (id: string, view: View = FIT): Snapshot => ({ state: stateForStop(stopOf(id)), layers: DEFAULT_LAYERS, style: mapStyle('light'), drawings: NO_DRAWINGS, view, viewport: VIEWPORT });
+const snapshotOf = (id: string, view: View = FIT): Snapshot => ({ state: stateForStop(stopOf(id)), named: stopOf(id), layers: DEFAULT_LAYERS, style: mapStyle('light'), drawings: NO_DRAWINGS, view, viewport: VIEWPORT });
 const OPTIONS: ExportOptions = { format: 'png', extent: 'map', width: 2000, detail: '110m', background: 'screen' };
 
 /** The box round the shown pieces of a layer. */
