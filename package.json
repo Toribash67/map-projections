@@ -9,7 +9,8 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "e2e": "playwright test",
-    "colours": "node scripts/political-colours.mjs"
+    "colours": "node scripts/political-colours.mjs",
+    "natural-earth": "node scripts/natural-earth.mjs"
   },
   "repository": {
     "type": "git",
@@ -21,6 +22,7 @@
   },
   "homepage": "https://github.com/Toribash67/map-projections#readme",
   "dependencies": {
+    "@fontsource/jost": "^5.3.0",
     "d3-geo": "^3.1.2",
     "d3-geo-polygon": "^2.0.1",
     "d3-geo-projection": "^4.0.0",
