@@ -5,7 +5,7 @@ import { loadPrefs, savePrefs, type Prefs } from './prefs';
 import { createLocator } from './render/locator';
 import { createDrawingToolbar } from './ui/drawingToolbar';
 import { createSidebar } from './ui/sidebar';
-import { createTissotToggle } from './ui/tissotToggle';
+import { createLayersPanel } from './ui/layersPanel';
 import { createZoomControl } from './ui/zoomControl';
 
 declare global {
@@ -29,7 +29,7 @@ app.subscribe(() => {
 });
 const tools = createDrawingToolbar(app, canvas, find('#notice'));
 find('#tools').append(tools.el);
-find('#actions').append(createTissotToggle(app));
+createLayersPanel(app, find('#actions'));
 find('#zoom').append(createZoomControl(app));
 createLocator(find('#locator'), app);
 createSidebar(app, find('#sidebar'));

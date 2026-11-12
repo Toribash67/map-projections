@@ -448,6 +448,114 @@ h1 {
   flex: none;
 }
 
+/* The Layers panel */
+.layers-panel {
+  width: 236px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+}
+
+.panel-heading {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.layer-list {
+  margin-bottom: 10px;
+}
+
+.layer-row,
+.colour-row,
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.layer {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.layer.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.layer input,
+.step input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.graticule-steps {
+  display: flex;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.theme-row {
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.theme {
+  padding: 1px 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  color: inherit;
+}
+
+.colour {
+  flex: 1;
+}
+
+.colour-row input[type='color'] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.colour-row .slider-reset[hidden] + *,
+.colour-row .slider-reset {
+  flex: none;
+}
+
+/* A colour with no reset keeps the reset's place, so the boxes stay in a column. */
+.colour-row input[type='color']:last-child,
+.colour-row .slider-reset[hidden] {
+  margin-right: 0;
+}
+
+.colour-row:has(.slider-reset[hidden]) input[type='color'] {
+  margin-right: 28px;
+}
+
+.layers-panel > .reset-all {
+  margin-top: 8px;
+}
+
 /* Narrow screens: the map on top, with its own controls still on it, and the sidebar scrolling below. */
 @media (max-width: 720px) {
   :root {

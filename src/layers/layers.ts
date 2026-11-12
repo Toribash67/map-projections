@@ -61,7 +61,7 @@ function graticule(step: GraticuleStep): GeoJSON.GeoJsonObject {
   let lines = graticules.get(step);
   if (!lines) {
     // Every meridian runs to the last parallel short of the pole, and each ninetieth on to the pole itself, as d3's own ten degree graticule has it.
-    lines = geoGraticule().step([step, step]).extentMinor([[-180, -90 + step - 1e-6], [180, 90 - step + 1e-6]])() as GeoJSON.GeoJsonObject;
+    lines = geoGraticule().stepMinor([step, step]).extentMinor([[-180, -90 + step - 1e-6], [180, 90 - step + 1e-6]])() as GeoJSON.GeoJsonObject;
     graticules.set(step, lines);
   }
   return lines;

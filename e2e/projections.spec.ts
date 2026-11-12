@@ -437,7 +437,7 @@ test('a tilt set by hand carries over; the 90 degrees of Transverse Mercator doe
   expect(await tilt()).toBe(0);
 });
 
-test('every projection is named over its parameters and has its note as a tip, Equal Earth names the UN resolution, and the Tissot button explains itself', async ({ page }) => {
+test('every projection is named over its parameters and has its note as a tip, Equal Earth names the UN resolution, and the Tissot layer explains itself', async ({ page }) => {
   await open(page);
   for (const s of stops) {
     await pick(page, s.id);
@@ -451,17 +451,17 @@ test('every projection is named over its parameters and has its note as a tip, E
   expect(text).toContain('non-binding');
   expect(text).not.toMatch(/\bban/i);
 
-  const toggle = page.getByRole('button', { name: 'Tissot indicatrices' });
-  await expect(toggle).toHaveAttribute('aria-description', /small circle on the globe/);
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await toggle.click();
+  // The indicatrices are a layer: its box, in the Layers panel, says what they are, and follows the store.
+  await page.getByRole('button', { name: 'Layers and colours' }).click();
+  const toggle = page.locator('#layers-panel').getByRole('checkbox', { name: 'Tissot indicatrices' });
+  await expect(page.locator('#layers-panel label.layer', { hasText: 'Tissot indicatrices' })).toHaveAttribute('aria-description', /small circle on the globe/);
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
   expect(await page.evaluate(() => (window as any).__app.tissot)).toBe(true);
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await toggle.click();
+  await toggle.uncheck();
   expect(await page.evaluate(() => (window as any).__app.tissot)).toBe(false);
-  // The store can change it too, and the button follows.
   await page.evaluate(() => (window as any).__app.setTissot(true));
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toBeChecked();
 });
 
 test.describe('on a phone', () => {
@@ -492,7 +492,7 @@ test.describe('on a phone', () => {
     await slider(page, 'First parallel').scrollIntoViewIfNeeded();
     await expect(slider(page, 'First parallel')).toBeVisible();
     // The map's own controls are on the map, not in the scroll.
-    await expect(page.getByRole('button', { name: 'Tissot indicatrices' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Layers and colours' })).toBeVisible();
     await stopButton(page, 'goode').scrollIntoViewIfNeeded();
     await expect(stopButton(page, 'goode')).toBeVisible();
     l = await layout();

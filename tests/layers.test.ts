@@ -2,7 +2,7 @@ import { geoLength } from 'd3-geo';
 import { neighbors } from 'topojson-client';
 import countriesTopology from 'world-atlas/countries-110m.json';
 import { describe, expect, test } from 'vitest';
-import { COAST, LAND } from '../src/data/land';
+import { COAST, GRATICULE, LAND } from '../src/data/land';
 import { BORDERS, colourIndex, POLITICAL } from '../src/data/countries';
 import { DEFAULT_LAYERS, DRAW_ORDER, sceneLayers, type LayerState } from '../src/layers/layers';
 import { hasStandardLines, standardLines } from '../src/layers/standardLines';
@@ -123,6 +123,14 @@ describe('the layers of a scene', () => {
     expect(count(10)).toBeGreaterThan(count(15));
     expect(count(15)).toBeGreaterThan(count(30));
     expect(sceneLayers(with_({}, { graticuleStep: 30 }), [mollweide], NONE).graticule).toBe(sceneLayers(with_({}, { graticuleStep: 30 }), [mollweide], NONE).graticule);
+    // At ten degrees it is d3's own: only each ninetieth meridian runs to the poles, where all of them would crowd together.
+    const ten = sceneLayers(DEFAULT_LAYERS, [mollweide], NONE).graticule as GeoJSON.MultiLineString;
+    expect(ten.coordinates).toEqual((GRATICULE as GeoJSON.MultiLineString).coordinates);
+    for (const step of [15, 30] as const) {
+      const lines = (sceneLayers(with_({}, { graticuleStep: step }), [mollweide], NONE).graticule as GeoJSON.MultiLineString).coordinates;
+      const toPole = lines.filter((line) => Math.abs(line.at(-1)![1]!) > 89.9 || Math.abs(line[0]![1]!) > 89.9);
+      expect(toPole, `${step}`).toHaveLength(4);
+    }
   });
 
   test('the reference circles are the equator, the tropics and the polar circles', () => {
