@@ -98,3 +98,72 @@ All of these can be found on at https://en.wikipedia.org/wiki/List_of_map_projec
 - Orthogonal, as its just a globe projection, or at least appears to be. However, in the globe projection, add a parameter for the view distance, effectively turning the globe projection into a General Perspective projection (https://en.wikipedia.org/wiki/General_Perspective_projection). Don't have the parameter be in kilometers, but rather as a multiplier of the sphere's radius.
 
 - (Other projections from the list you deem uninteresting)
+
+# Ideas for round three
+
+Added 2026-11-12, after round two shipped. Martin's first, then Claude's suggestions.
+
+## Satellite map, in addition to Natural Earth (Martin)
+
+A satellite picture of the Earth as a base layer, switchable with the drawn Natural Earth map.
+
+Notes on how it might work:
+
+- Everything drawn so far is vector: shapes are cut at the seams and their points move. A picture has to be warped instead, so this is a new kind of layer.
+- The usual way is a WebGL layer under the canvas: for each pixel on screen, invert the projection to longitude and latitude and look the colour up in an equirectangular image. `screenToLonLat` already does that inversion on the CPU; it would need a shader version for each projection, or a mesh of textured triangles placed with the existing forward projection, which also morphs for free.
+- The triangle mesh fits the morph better: its corners can blend between two maps exactly as the vector pieces do, and it can be cut along the same seams.
+- Source: NASA Blue Marble (public domain) at a few sizes, for example 2k for the screen, 8k when zoomed, 21k for export. Each is its own file, fetched when needed, like the finer coastlines.
+- Export: PNG is straightforward. SVG would have to embed the warped picture as an image under the vector layers.
+- Open questions: which layers stay on over it by default (coast and borders, probably in a lighter colour); whether the themes apply; night lights as a second picture.
+
+## Shareable links
+
+Put the projection, parameters, centre, zoom, layers and drawings in the URL, so that a link opens exactly the map that was on screen.
+
+## Side-by-side compare
+
+Two maps of the same centre next to each other, with drawings and indicatrices mirrored.
+
+## Distortion heat map
+
+A layer that shades the map by area inflation or by angular distortion: the continuous version of what the indicatrices sample at points.
+
+## Measure tool
+
+Click two places for the great-circle distance and bearing, beside the length the map's own straight line suggests. On Mercator, the rhumb line next to the great circle.
+
+## True-size country drag
+
+Pick up a country and drag it to another latitude, to watch it grow or shrink, on any projection.
+
+## Place search and labels
+
+Type a city to centre the map on it. Optional labels for a few dozen major cities.
+
+## Oblique presets
+
+Named views that are only an orientation of a map already there, such as the Atlantis (an oblique Mollweide) or a transverse Mollweide.
+
+## More projections
+
+Dymaxion and Waterman butterfly, to complete the polyhedral family; Littrow, Armadillo, Bertin 1953. The first two are the costly ones (see the note under "Projections to add").
+
+## Daylight terminator
+
+A day and night layer for a chosen date and time.
+
+## Left over from round two
+
+- Tips for the controls that have none: the filter box, theme select, colour pickers, graticule spacing, and a few export options.
+- "Reset all" on a tilted Transverse Mercator leaves the tilt marked as set by hand, so the next projection can inherit it.
+- An empty custom export width silently becomes 100 px.
+- Resizing the window in the middle of a morph while zoomed may shift the outgoing map (not confirmed).
+- A few helpers are used only by tests (`straightRing`, `mapStyle`, the slider's `setEnabled`).
+
+## Keyboard navigation of the map
+
+Arrow keys to move the centre.
+
+## Offline use
+
+A service worker, so that the site works without a connection, including the larger coastline files once fetched.
