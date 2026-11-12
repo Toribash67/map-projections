@@ -66,3 +66,31 @@ export const goodeRaw: RawFn = (lambda, phi, lobe = 0) => {
   const [x, y] = geoHomolosineRaw(lambda - centre, phi);
   return [x + centre, y];
 };
+
+// Nearer the equator, the central meridian or a pole than this (radians), Van der Grinten's formulas divide nought by nought, and the plain ones for those lines are used.
+const ON_AXIS = 1e-6;
+
+/**
+ * Van der Grinten's projection: the world in a circle, every meridian and parallel an arc of a circle. As d3 has it within the world,
+ * and unlike d3's it runs on past the antimeridian as the same smooth map, where d3's folds back on itself: an indicatrix by the
+ * seam is drawn in two parts, and the part across the seam is where the map would carry on to.
+ */
+export const vanDerGrintenRaw: RawFn = (lambda, phi) => {
+  if (Math.abs(phi) < ON_AXIS) return [lambda, 0];
+  const sinTheta = Math.abs(phi / (Math.PI / 2));
+  const theta = Math.asin(Math.min(1, sinTheta));
+  if (Math.abs(lambda) < ON_AXIS || Math.abs(Math.abs(phi) - Math.PI / 2) < ON_AXIS) return [0, Math.sign(phi) * Math.PI * Math.tan(theta / 2)];
+  const cosTheta = Math.cos(theta);
+  // Signed: nought on the antimeridian and negative beyond it. Its sign is what d3 drops.
+  const l = Math.abs(lambda);
+  const A = (Math.PI / l - l / Math.PI) / 2;
+  const A2 = A * A;
+  const G = cosTheta / (sinTheta + cosTheta - 1);
+  const P = G * (2 / sinTheta - 1);
+  const P2 = P * P;
+  const [P2A2, GP2, Q] = [P2 + A2, G - P2, A2 + G];
+  return [
+    (Math.sign(lambda) * Math.PI * (A * GP2 + Math.sqrt(Math.max(0, A2 * GP2 * GP2 - P2A2 * (G * G - P2))))) / P2A2,
+    (Math.sign(phi) * Math.PI * (P * Q - A * Math.sqrt(Math.max(0, (A2 + 1) * P2A2 - Q * Q)))) / P2A2,
+  ];
+};

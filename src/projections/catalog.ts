@@ -15,13 +15,12 @@ import {
   geoMollweideRaw,
   geoNicolosiRaw,
   geoRobinsonRaw,
-  geoVanDerGrintenRaw,
   geoWinkel3Raw,
 } from 'd3-geo-projection';
 import { butterflyLobes, butterflyRaw } from './butterfly';
 import { hemispheresDef } from './hemispheres';
 import { peirceCorners, peirceLobes, peirceRaw } from './peirce';
-import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from './raws';
+import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw, vanDerGrintenRaw } from './raws';
 import type { ExcludedCap, Lobe, Orientation, Params, Preserves, ProjectionDef, Seam, Stop } from './types';
 
 const rad = Math.PI / 180;
@@ -231,7 +230,7 @@ const defList: ProjectionDef[] = [
   plain('robinson', 'compromise', () => geoRobinsonRaw),
   plain('winkel3', 'compromise', () => geoWinkel3Raw),
   plain('natural-earth', 'compromise', () => geoNaturalEarth1Raw),
-  plain('van-der-grinten', 'compromise', () => geoVanDerGrintenRaw),
+  plain('van-der-grinten', 'compromise', () => vanDerGrintenRaw),
   plain('equal-earth', 'equal-area', () => geoEqualEarthRaw),
   plain('mollweide', 'equal-area', () => geoMollweideRaw),
   // Bonne's equal-area pseudoconic, by its standard parallel: on the equator it is the sinusoidal projection, at the pole Werner's heart.

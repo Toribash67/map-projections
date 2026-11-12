@@ -9,11 +9,11 @@ import {
   geoOrthographicRaw,
   geoTransverseMercator,
 } from 'd3-geo';
-import { geoCylindricalEqualAreaRaw, geoInterruptedHomolosine, geoSinusoidalRaw } from 'd3-geo-projection';
+import { geoCylindricalEqualAreaRaw, geoInterruptedHomolosine, geoSinusoidalRaw, geoVanDerGrintenRaw } from 'd3-geo-projection';
 import { getDef, stops } from '../src/projections/catalog';
 import { compile, matchStop, stateForStop } from '../src/projections/compile';
 import { controlsFor, nameOf } from '../src/projections/controls';
-import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw } from '../src/projections/raws';
+import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw, vanDerGrintenRaw } from '../src/projections/raws';
 import type { Lobe, LonLat, ProjectionState } from '../src/projections/types';
 import { similarity } from './similarity';
 import { stopOf } from './stopOf';
@@ -111,6 +111,24 @@ test('Bonne runs from sinusoidal, with its standard parallel on the equator, to 
   expect(Math.hypot(n[0] - n0[0] - (s0[0] - s00[0]), n[1] - n0[1] - (s0[1] - s00[1]))).toBeLessThan(0.01);
   expect(controlsFor('bonne')).toMatchObject([{ key: 'phi1', label: 'Standard parallel', min: 0, max: 90, stops: [0, 45, 90] }]);
   expect(controlsFor('miller')).toEqual([]);
+});
+
+test('Van der Grinten is d3\'s within the world, and runs on smoothly past the seam, where d3\'s folds back', () => {
+  const r = rng(13);
+  for (let i = 0; i < 200; i++) {
+    const [lon, lat] = randomPoint(r);
+    expectPair(vanDerGrintenRaw(lon * rad, lat * rad), geoVanDerGrintenRaw(lon * rad, lat * rad), 1e-9);
+  }
+  // The same step either side of the antimeridian moves the point the same way and as far: an indicatrix there has its other part beyond.
+  for (const lat of [-60, -20, 10, 45, 80]) {
+    const h = 1e-4;
+    const [before, on, after] = [Math.PI - h, Math.PI, Math.PI + h].map((lambda) => vanDerGrintenRaw(lambda, lat * rad));
+    const [inward, outward] = [[on![0] - before![0], on![1] - before![1]], [after![0] - on![0], after![1] - on![1]]];
+    expect(Math.hypot(outward[0]! - inward[0]!, outward[1]! - inward[1]!) / Math.hypot(inward[0]!, inward[1]!), `${lat}`).toBeLessThan(1e-3);
+    // And on the western side, as its mirror image.
+    const west = vanDerGrintenRaw(-Math.PI - h, lat * rad);
+    expectPair(west, [-after![0], after![1]], 1e-12);
+  }
 });
 
 test('Miller is Mercator with the latitude scaled by four fifths and the height by five quarters, so its poles are within reach', () => {
