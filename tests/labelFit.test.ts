@@ -95,9 +95,10 @@ describe('a name fitted to a shape', () => {
 });
 
 describe('shapes on screen', () => {
-  test('the area of a shape is its outer ring less its holes, whichever way they wind', () => {
+  test('the area of a shape is its outer ring less its holes, which wind the other way, in whatever order they come', () => {
     expect(polygonArea([rect(0, 0, 10, 10)])).toBe(100);
     expect(polygonArea([rect(0, 0, 10, 10).reverse(), rect(2, 2, 4, 4)])).toBe(84);
+    expect(polygonArea([rect(2, 2, 4, 4), rect(0, 0, 10, 10).reverse()])).toBe(84);
     expect(polygonArea([])).toBe(0);
   });
 
@@ -114,7 +115,7 @@ describe('shapes on screen', () => {
     expect(polygonArea(clipToRect([rect(10, 10, 20, 20)], window))).toBe(400);
     expect(clipToRect([rect(200, 200, 20, 20)], window)).toEqual([]);
     // A hole is cut with its shape.
-    expect(polygonArea(clipToRect([rect(-50, 0, 100, 100), rect(-10, 40, 20, 20)], window))).toBeCloseTo(50 * 100 - 10 * 20, 6);
+    expect(polygonArea(clipToRect([rect(-50, 0, 100, 100), rect(-10, 40, 20, 20).reverse()], window))).toBeCloseTo(50 * 100 - 10 * 20, 6);
   });
 
   test('a place along a curve, and the way the curve runs there', () => {

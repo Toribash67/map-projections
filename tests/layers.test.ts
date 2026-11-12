@@ -121,7 +121,7 @@ describe('the layers of a scene', () => {
     expect(layers.drawings).toBe(NONE);
     expect(DEFAULT_LAYERS.on).toEqual({ land: true, coast: true, graticule: true, borders: false, political: false, rivers: false, lakes: false, depth: false, tissot: false, standard: false, reference: false, drawings: true, countryNames: false, seaNames: false, degrees: false, frame: false, titleBox: false });
     expect(DEFAULT_LAYERS.graticuleStep).toBe(10);
-    expect(DEFAULT_LAYERS).toMatchObject({ graticuleUnder: false, smallestName: 5, title: 'The World', subtitle: '', corner: 'tr' });
+    expect(DEFAULT_LAYERS).toMatchObject({ graticuleUnder: false, smallestName: 4, title: 'The World', subtitle: '', corner: 'tr' });
   });
 
   test('a layer turned off is not there, and the same layers give the very same objects, for the cuts to keep what they have prepared', () => {

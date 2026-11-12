@@ -35,7 +35,7 @@ export const DEFAULT_LAYERS: LayerState = {
   },
   graticuleStep: 10,
   graticuleUnder: false,
-  smallestName: 5,
+  smallestName: 4,
   title: 'The World',
   subtitle: '',
   corner: 'tr',

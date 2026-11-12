@@ -48,9 +48,9 @@ function ringArea(ring: Pair[]): number {
   return sum / 2;
 }
 
-/** The area of a shape: its outer ring, which comes first, less its holes. */
+/** The area of a shape. Its holes wind the other way from its outer rings, so they take away from it. */
 export function polygonArea(rings: Pair[][]): number {
-  return rings.reduce((sum, ring, i) => sum + (i === 0 ? 1 : -1) * Math.abs(ringArea(ring)), 0);
+  return Math.abs(rings.reduce((sum, ring) => sum + ringArea(ring), 0));
 }
 
 /** Whether a point is in a shape: within an odd number of its rings. */
@@ -65,7 +65,7 @@ export function contains(rings: Pair[][], [x, y]: Pair): boolean {
   return inside;
 }
 
-/** A shape cut to a window: each ring by each side in turn. A ring with nothing left in the window is dropped, and with the outer ring the whole shape. */
+/** A shape cut to a window: each ring by each side in turn. A ring with nothing left in the window is dropped. */
 export function clipToRect(rings: Pair[][], rect: { x: number; y: number; width: number; height: number }): Pair[][] {
   // Each side as: is a point within it, and where does an edge cross it.
   const sides: [(p: Pair) => boolean, (a: Pair, b: Pair) => Pair][] = [
@@ -75,7 +75,7 @@ export function clipToRect(rings: Pair[][], rect: { x: number; y: number; width:
     [(p) => p[1] <= rect.y + rect.height, (a, b) => [a[0] + ((rect.y + rect.height - a[1]) / (b[1] - a[1])) * (b[0] - a[0]), rect.y + rect.height]],
   ];
   const out: Pair[][] = [];
-  for (const [r, ring] of rings.entries()) {
+  for (const ring of rings) {
     let points = ring;
     for (const [within, crossing] of sides) {
       const kept: Pair[] = [];
@@ -88,7 +88,6 @@ export function clipToRect(rings: Pair[][], rect: { x: number; y: number; width:
       if (points.length === 0) break;
     }
     if (points.length >= 3) out.push(points);
-    else if (r === 0) return [];
   }
   return out;
 }
@@ -124,7 +123,7 @@ function fitAlong(rings: Pair[][], theta: number, advance: number, count: number
   const [c, s] = [Math.cos(theta), Math.sin(theta)];
   const turned = rings.map((ring) => ring.map(([x, y]): Pair => [x * c + y * s, -x * s + y * c]));
   let [u0, u1] = [Infinity, -Infinity];
-  for (const [u] of turned[0]!) [u0, u1] = [Math.min(u0, u), Math.max(u1, u)];
+  for (const ring of turned) for (const [u] of ring) [u0, u1] = [Math.min(u0, u), Math.max(u1, u)];
   if (!(u1 > u0)) return null;
 
   // Across each slice, the widest stretch that is inside the shape: its middle and its thickness.
@@ -231,7 +230,7 @@ function within(rings: Pair[][], fit: Fit, advance: number, count: number): bool
 }
 
 /**
- * Fits a name to a shape on screen: one polygon, its outer ring first and then its holes. `advance` is the name's width at a letter
+ * Fits a name to a shape on screen: the rings of one piece of a map, outer rings and holes in any order. `advance` is the name's width at a letter
  * height of one with no space added between letters, and `count` how many letters it has.
  *
  * The shape is tried at a spread of directions. At each it is sliced across, and the name is set along a gentle curve through the
@@ -240,7 +239,7 @@ function within(rings: Pair[][], fit: Fit, advance: number, count: number): bool
  * It reads left to right, or upward where it is nearly upright. Null where the shape has no room for a name at all.
  */
 export function fitLabel(rings: Pair[][], advance: number, count: number, opts: FitOptions): Fit | null {
-  if (rings.length === 0 || rings[0]!.length < 3 || count < 1) return null;
+  if (!rings.some((ring) => ring.length >= 3) || count < 1) return null;
   const tried: { fit: Sloped; score: number }[] = [];
   for (let k = 0; k < DIRECTIONS; k++) {
     const theta = (k * Math.PI) / DIRECTIONS - Math.PI / 2;

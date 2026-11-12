@@ -118,10 +118,10 @@ This is what the sketch did, and it worked on the first try. The rules it lacked
   important first; the smaller ones appear as zooming in makes room.
 - Nothing is named on the far side of a globe.
 
-**Smallest name.** A setting, in screen pixels at the fit, from 2 to 10, default 5
+**Smallest name.** A setting, in screen pixels at the fit, from 2 to 10, default 4
 *(our call)*. A name that cannot be at least that tall is left out. This is what decides
 how many small countries are named. Since an export is the screen enlarged, lettering of
-5 pixels on screen is about 3 mm on an A1 print, and 2 pixels is about 1 mm: on a wall
+4 pixels on screen is about 2.5 mm on an A1 print, and 2 pixels is about 1 mm: on a wall
 map the owner may want names on screen too small to read there. Zooming in enlarges the
 names with the map, so more of them pass the limit and appear.
 
