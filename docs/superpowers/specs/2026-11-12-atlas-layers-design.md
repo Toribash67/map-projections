@@ -200,7 +200,8 @@ sit with the graticule's spacing.
 
 PNG and SVG both carry all of it, at the chosen detail, and match the screen.
 
-- In SVG, names are text along paths, in groups by layer, so they can be edited. The
+- In SVG, names are text, one element to a name with each letter at its place, in
+  groups by layer, so they can be edited. The
   typeface is embedded in the file *(our call)*. A program that ignores embedded fonts
   and lacks Jost shows another typeface in the same places; PNG is always exact.
 - An export waits for the names to be fitted. The picture of the whole map uses the
