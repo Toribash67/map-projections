@@ -140,6 +140,32 @@ Notes on how it might work:
 - As a picture it is a small indexed image (a class number to a pixel), coloured by the theme in the shader, so the themes and custom colours still apply.
 - Needs the same legend as the biomes layer, and the source's credit line.
 
+## Atlas layers, for a map worth printing
+
+What an atlas plate has that this map does not yet. Suggested by Claude when Martin asked what would look good on a wall.
+
+**A first print round: all vector, all fit what is built.**
+
+- Rivers and lakes. In Natural Earth, and in the 1:50m and 1:10m files already fetched on demand. Makes the land far less bare.
+- Ocean depth: bathymetry in stepped blues. Natural Earth has it as polygons at a handful of depths, so it works like the political map, and it fills the large empty areas of sea.
+- Graticule labels along the map's edge (30°N, 60°E).
+- A title block and legend: the projection's name, centre and standard parallels, a note on scale, the data's credit. With a neat border round the map, and the indicatrices optionally as a small inset.
+
+**The two that do most for the look, and cost most.**
+
+- Shaded relief, with elevation tints (green lowlands through brown to white peaks). Natural Earth publishes relief as pictures, so it goes through the warped-image layer of the satellite map.
+- Labels: countries, oceans, capitals, mountain ranges. Placement is the hard part: along features, curved with the map, not on top of each other, and sensible in a morph (or hidden during one).
+
+**Thematic layers, one to a print.**
+
+- Climate zones (Köppen): vector, bold colours, the sibling of biomes.
+- Tectonic plates, volcanoes and earthquakes: lines and points. Striking on an interrupted map.
+- Ocean currents and prevailing winds, as arrows.
+- Population density, or the Earth's lights at night: pictures. Night lights on a dark theme is a poster by itself.
+- Ice: glaciers, ice shelves, the extent of sea ice. Vector, in Natural Earth.
+- Time zones. Vector, in Natural Earth.
+- Great-circle routes or historical voyages, built on the drawing tools.
+
 ## Shareable links
 
 Put the projection, parameters, centre, zoom, layers and drawings in the URL, so that a link opens exactly the map that was on screen.
