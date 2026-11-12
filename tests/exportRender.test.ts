@@ -6,6 +6,8 @@ import { compile, stateForStop } from '../src/projections/compile';
 import { mapStyle } from '../src/render/style';
 import { computeScreen } from '../src/screen/screen';
 import { applyView, FIT, type View } from '../src/screen/view';
+import { LAND } from '../src/data/land';
+import { exportOverlay } from '../src/export/render';
 import { stopOf } from './stopOf';
 
 const VIEWPORT = { width: 1000, height: 600 };
@@ -138,5 +140,46 @@ describe('a picture the browser cannot make', () => {
     const text = await blob.text();
     expect(text).toContain('width="2000"');
     expect(text).not.toContain('<rect');
+  });
+});
+
+describe('what is over an exported map', () => {
+  const measure = { label: (text: string) => 0.62 * text.length, plate: (text: string) => 0.6 * text.length };
+  const withNames = (id: string, view: View = FIT): Snapshot => ({ ...snapshotOf(id, view), layers: { ...DEFAULT_LAYERS, on: { ...DEFAULT_LAYERS.on, countryNames: true, frame: true, titleBox: true } } });
+
+  test('in a picture twice as wide, the same names twice as large, and a frame and a box twice as large', async () => {
+    const snap = withNames('mercator');
+    const [small, large] = await Promise.all([1000, 2000].map(async (width) => exportOverlay(snap, await exportScene(snap, { ...OPTIONS, width }), measure, null, LAND)));
+    expect(large!.labels.map((label) => label.text)).toEqual(small!.labels.map((label) => label.text));
+    expect(small!.labels.length).toBeGreaterThan(8);
+    large!.labels.forEach((label, i) => expect(label.size / small!.labels[i]!.size, label.text).toBeCloseTo(2, 1));
+    expect(large!.plate.frame!.width / small!.plate.frame!.width).toBeCloseTo(2, 1);
+    expect(large!.plate.box!.lines[0]!.size / small!.plate.box!.lines[0]!.size).toBeCloseTo(2, 1);
+  });
+
+  test('the frame is just inside the whole picture, and the map has the frame\'s margin round it', async () => {
+    const snap = withNames('mollweide');
+    const exported = await exportScene(snap, OPTIONS);
+    const { plate } = exportOverlay(snap, exported, measure, null, LAND);
+    const { frame } = plate;
+    expect(frame!.x).toBeGreaterThan(0);
+    expect(frame!.x + frame!.width).toBeLessThan(exported.size.width);
+    expect(frame!.y + frame!.height).toBeLessThan(exported.size.height);
+    const box = boxOf(exported.scene.layers.ocean!);
+    expect(box.minX).toBeCloseTo(40 * exported.lineScale, 0);
+    expect(box.minX).toBeGreaterThan(frame!.x + 20 * exported.lineScale);
+  });
+
+  test('the names of a view are the view\'s: zoomed in on Europe, its countries are named in the picture', async () => {
+    const snap = withNames('mercator', { zoom: 4, panX: -150, panY: 520 });
+    const exported = await exportScene(snap, { ...OPTIONS, extent: 'view' });
+    const names = exportOverlay(snap, exported, measure, null, LAND).labels.map((label) => label.text);
+    for (const name of ['FRANCE', 'GERMANY', 'POLAND']) expect(names).toContain(name);
+    expect(names).not.toContain('BRAZIL');
+  });
+
+  test('with nothing over the map there is nothing over the export', async () => {
+    const snap = snapshotOf('mercator');
+    expect(exportOverlay(snap, await exportScene(snap, OPTIONS), measure, null, LAND)).toEqual({ labels: [], plate: expect.objectContaining({ frame: null, box: null }) });
   });
 });

@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import { shapeToGeoJSON, type Shape } from '../src/drawing/model';
 import { sceneToSvg } from '../src/export/svg';
+import { LAND } from '../src/data/land';
+import { buildOverlay, overlayToSvg } from '../src/overlay/overlay';
+import { stopOf } from './stopOf';
 import { DEFAULT_LAYERS, DRAW_ORDER, sceneLayers } from '../src/layers/layers';
 import { buildScene } from '../src/morph/scene';
 import { mapStyle } from '../src/render/style';
@@ -115,5 +118,67 @@ describe('a map at rest as SVG', () => {
     // Nothing of it is outside the globe's disc, which is as high as the window less its margins.
     const xs = [...groupOf(globe, 'land')!.matchAll(/[ML](-?[\d.]+) /g)].map((m) => Number(m[1]));
     expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(VIEW.height);
+  });
+});
+
+describe('what is over a map, as SVG', () => {
+  const measure = { label: (text: string) => 0.62 * text.length, plate: (text: string) => 0.6 * text.length };
+  const on = { ...DEFAULT_LAYERS.on, countryNames: true, degrees: true, frame: true, titleBox: true };
+  const m = member('mercator');
+  const overlay = buildOverlay({ member: m, state: m.compiled.state, named: stopOf('mercator'), layers: { ...DEFAULT_LAYERS, on, subtitle: 'Fish & <chips>' }, picture: { x: 0, y: 0, ...VIEW }, scale: 1 }, measure, null, LAND);
+  const parts = overlayToSvg(overlay, STYLE, '@font-face{font-family:Jost}');
+  const text = parts.join('\n');
+
+  test('with nothing over the map there is nothing, and a drawing without it is as it always was', () => {
+    expect(overlayToSvg({ labels: [], plate: { frame: null, frameWidth: 1, hairline: 1, box: null } }, STYLE, 'x')).toEqual([]);
+    expect(sceneToSvg(scene, STYLE, VIEW, { background: STYLE.background, lineScale: 1 }, [])).toBe(svg);
+  });
+
+  test('the parts go in before the drawing ends, and it is still well formed', () => {
+    const whole = sceneToSvg(scene, STYLE, VIEW, { background: null, lineScale: 1 }, parts);
+    expect(whole.endsWith(`${parts.at(-1)}\n</svg>`)).toBe(true);
+    const open: string[] = [];
+    for (const tag of tagsOf(whole)) {
+      if (tag.empty) continue;
+      if (tag.closes) expect(open.pop()).toBe(tag.name);
+      else open.push(tag.name);
+    }
+    expect(open).toEqual([]);
+  });
+
+  test('each name is one text with a place and a turn for every letter, in a group of its kind and colour', () => {
+    const names = groupOf(text, 'names')!;
+    expect(text).toContain(`<g id="names" font-family="Jost, &quot;Avenir Next&quot;, Futura, &quot;Century Gothic&quot;, sans-serif" font-weight="500" fill="${STYLE.labels}">`);
+    const brazil = names.match(/<text font-size="([\d.]+)" x="([^"]+)" y="([^"]+)" rotate="([^"]+)">BRAZIL<\/text>/)!;
+    expect(brazil).not.toBeNull();
+    const label = overlay.labels.find((one) => one.text === 'BRAZIL')!;
+    expect(Number(brazil[1])).toBeCloseTo(label.size, 1);
+    expect(brazil[2]!.split(' ').map(Number)).toEqual(label.glyphs.map((g) => expect.closeTo(g.x, 1)));
+    expect(brazil[3]!.split(' ').map(Number)).toEqual(label.glyphs.map((g) => expect.closeTo(g.y, 1)));
+    expect(brazil[4]!.split(' ').map(Number)).toEqual(label.glyphs.map((g) => expect.closeTo((g.angle * 180) / Math.PI, 1)));
+    // A name of two words has a place for its space too, so that the letters after it are not one out.
+    const two = overlay.labels.find((one) => one.kind === 'country' && one.text.includes(' '))!;
+    const found = names.match(new RegExp(`x="([^"]+)" y="[^"]+" rotate="[^"]+">${two.text}<`))!;
+    expect(found[1]!.split(' ')).toHaveLength(two.text.length);
+    expect(groupOf(text, 'degrees')).toContain('°N</text>');
+    expect(text).toContain(`<g id="degrees" font-family`);
+    expect(groupOf(text, 'sea-names')).toBeUndefined();
+  });
+
+  test('the frame, the box and its lines are there, the typeface with them, and what was typed cannot break the drawing', () => {
+    const plate = groupOf(text, 'plate')!;
+    expect(parts[0]).toBe('<style>@font-face{font-family:Jost}</style>');
+    const { frame, box } = overlay.plate;
+    const rect = plate.match(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" fill="none" stroke="(#[0-9a-f]+)"/)!;
+    expect(rect.slice(1, 5).map(Number)).toEqual([frame!.x, frame!.y, frame!.width, frame!.height].map((v) => expect.closeTo(v, 1)));
+    expect(rect[5]).toBe(STYLE.ink);
+    expect(plate).toContain(`fill="${STYLE.background}" stroke="${STYLE.ink}"`);
+    expect(plate).toMatch(/<text x="[\d.]+" y="[\d.]+" font-size="[\d.]+" font-weight="700" letter-spacing="[\d.]+">THE WORLD<\/text>/);
+    expect(plate).toContain('>FISH &amp; &lt;CHIPS&gt;</text>');
+    expect(plate).toContain('>MERCATOR PROJECTION</text>');
+    expect(plate).toContain('<line ');
+    expect(box!.lines).toHaveLength(5);
+    // With no typeface to carry, there is no style.
+    expect(overlayToSvg(overlay, STYLE, '')[0]).not.toContain('<style>');
   });
 });

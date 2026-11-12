@@ -1,6 +1,7 @@
 import type { Sea } from '../data/water';
 import { buildDegrees } from '../labels/degrees';
-import { faceOf, fontOf } from '../labels/font';
+import { n, paint } from '../export/svg';
+import { faceOf, FONT_STACK, fontOf } from '../labels/font';
 import { buildNames } from '../labels/names';
 import type { Label, Measure } from '../labels/place';
 import type { LayerState } from '../layers/layers';
@@ -116,4 +117,52 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, { labels, plate }: Ov
       });
     }
   }
+}
+
+/** Text as it is written between tags, or in an attribute. */
+const escaped = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const GROUPS: [Label['kind'], string][] = [['country', 'names'], ['sea', 'sea-names'], ['degree', 'degrees']];
+
+/**
+ * An overlay as the parts of an SVG drawing, to go on top of the map's own (see `sceneToSvg`): a group for the names of countries,
+ * one for the seas', one for the degrees, and one for the frame and the title box. Each name is one text, so it can be found and
+ * edited, with a place and a turn for every letter, so it is set as the canvas sets it. `fontCss` is the typeface as style rules,
+ * for the drawing to carry with it; empty, the drawing asks for the typeface by name and takes what it is given.
+ */
+export function overlayToSvg({ labels, plate }: Overlay, style: Style, fontCss: string): string[] {
+  const out: string[] = [];
+  const family = `font-family="${escaped(FONT_STACK)}"`;
+  for (const [kind, id] of GROUPS) {
+    const ofKind = labels.filter((label) => label.kind === kind);
+    if (ofKind.length === 0) continue;
+    const { weight, style: slope } = faceOf(kind);
+    out.push(`<g id="${id}" ${family} font-weight="${weight}"${slope === 'italic' ? ' font-style="italic"' : ''} ${paint('fill', labelColour(kind, style))}>`);
+    for (const label of ofKind) {
+      // A place for every character, the spaces too: a space has the place of the letter after it.
+      const places: typeof label.glyphs = [];
+      let g = 0;
+      for (const ch of label.text) places.push(label.glyphs[ch === ' ' ? g : g++] ?? label.glyphs.at(-1)!);
+      const list = (of: (glyph: (typeof places)[number]) => number) => places.map((glyph) => n(of(glyph))).join(' ');
+      out.push(`<text font-size="${n(label.size)}" x="${list((p) => p.x)}" y="${list((p) => p.y)}" rotate="${list((p) => (p.angle * 180) / Math.PI)}">${escaped(label.text)}</text>`);
+    }
+    out.push('</g>');
+  }
+  if (plate.frame || plate.box) {
+    out.push(`<g id="plate" ${family} text-anchor="middle" stroke-linejoin="miter" stroke-linecap="butt">`);
+    const rect = (r: { x: number; y: number; width: number; height: number }) => `x="${n(r.x)}" y="${n(r.y)}" width="${n(r.width)}" height="${n(r.height)}"`;
+    if (plate.frame) out.push(`<rect ${rect(plate.frame)} fill="none" ${paint('stroke', style.ink)} stroke-width="${n(plate.frameWidth)}"/>`);
+    if (plate.box) {
+      const { lines, rule } = plate.box;
+      out.push(`<rect ${rect(plate.box)} ${paint('fill', style.background)} ${paint('stroke', style.ink)} stroke-width="${n(plate.hairline)}"/>`);
+      if (rule) out.push(`<line x1="${n(rule.x1)}" x2="${n(rule.x2)}" y1="${n(rule.y)}" y2="${n(rule.y)}" ${paint('stroke', style.ink)} stroke-width="${n(plate.hairline)}"/>`);
+      out.push(`<g ${paint('fill', style.ink)}>`);
+      // The space between letters comes after the last one too, which would set the line half a space to the left of its middle.
+      for (const line of lines) out.push(`<text x="${n(line.x + line.gap / 2)}" y="${n(line.y)}" font-size="${n(line.size)}" font-weight="${line.weight}" letter-spacing="${n(line.gap)}">${escaped(line.text)}</text>`);
+      out.push('</g>');
+    }
+    out.push('</g>');
+  }
+  if (out.length > 0 && fontCss) out.unshift(`<style>${fontCss}</style>`);
+  return out;
 }

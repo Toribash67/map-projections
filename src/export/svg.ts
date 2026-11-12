@@ -5,14 +5,14 @@ import type { Viewport } from '../screen/screen';
 import { INDICATRIX_RADIUS } from '../tissot/indicatrix';
 
 /** A number as it is written: to two decimals, which is a hundredth of a pixel, with no zeros it does not need. */
-const n = (v: number): string => {
+export const n = (v: number): string => {
   const text = v.toFixed(2);
   const short = text.includes('.') ? text.replace(/\.?0+$/, '') : text;
   return short === '-0' ? '0' : short;
 };
 
 /** A colour as an attribute: one with an opacity of its own is written as the colour and the opacity, which every reader of SVG knows. */
-function paint(attribute: 'fill' | 'stroke', colour: string): string {
+export function paint(attribute: 'fill' | 'stroke', colour: string): string {
   const parts = colour.match(/^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)$/);
   return parts ? `${attribute}="rgb(${parts[1]},${parts[2]},${parts[3]})" ${attribute}-opacity="${n(Number(parts[4]))}"` : `${attribute}="${colour}"`;
 }
@@ -101,8 +101,10 @@ function indicatrices(scene: Scene): string[] {
  * It follows `drawScene` at the start of a morph, which is rest: fills of a solid colour are one path to a layer, with a hairline
  * round it in its own colour where the canvas has one, to hide the seams; fills that are see-through are a path each, so that two
  * that overlap are both seen, as on the canvas.
+ *
+ * `over` is what goes on top of it all, already written: the names, the degrees, the frame and the title box. See `overlayToSvg`.
  */
-export function sceneToSvg(scene: Scene, style: Style, size: Viewport, opts: { background: string | null; lineScale: number }): string {
+export function sceneToSvg(scene: Scene, style: Style, size: Viewport, opts: { background: string | null; lineScale: number }, over: string[] = []): string {
   const { width, height } = size;
   const k = opts.lineScale;
   const out: string[] = [`<svg xmlns="http://www.w3.org/2000/svg" width="${n(width)}" height="${n(height)}" viewBox="0 0 ${n(width)} ${n(height)}" stroke-linejoin="round" stroke-linecap="round">`];
@@ -139,6 +141,6 @@ export function sceneToSvg(scene: Scene, style: Style, size: Viewport, opts: { b
     out.push(`<clipPath id="outline"><path d="${outline.map((p) => pathOf(p, signedArea(p) < 0)).join('')}"/></clipPath>`);
     out.push(`<g id="tissot" clip-path="url(#outline)" ${paint('fill', style.indicatrix)}>`, ...ellipses, '</g>');
   }
-  out.push('</svg>');
+  out.push(...over, '</svg>');
   return out.join('\n');
 }
