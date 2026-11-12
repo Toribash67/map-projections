@@ -129,6 +129,17 @@ Notes on how it might work:
 - Needs a legend: 14 colours mean nothing without names. A small key on the map, shown while the layer is on, and included in exports.
 - Open questions: 14 colours for each theme, distinct from each other and from the sea; whether it replaces the land fill and the political map or can sit under borders; lakes, ice and rock.
 
+## Land cover layer (Martin)
+
+What is actually on the ground: cropland in one colour, the kinds of forest in others, grassland, shrubland, wetland, built-up areas, bare ground, snow and ice. The cousin of the biomes layer, which shows what would grow there by climate; this one shows farmland and cities where they are.
+
+Notes on how it might work:
+
+- Unlike biomes, the data is not vector. It comes from classified satellite pictures, as rasters: ESA WorldCover (10 m, CC BY 4.0), Copernicus Global Land Cover (100 m), MODIS MCD12Q1 (500 m).
+- Two ways in. Either reduce it to about a dozen classes at a coarse size and trace it into polygons, which then work like the political map but look blobby and are heavy even simplified. Or treat it as a picture and draw it through the warped-image layer that the satellite map needs, which is sharper and little extra work once that layer exists. The second is the better bet, so this follows the satellite map.
+- As a picture it is a small indexed image (a class number to a pixel), coloured by the theme in the shader, so the themes and custom colours still apply.
+- Needs the same legend as the biomes layer, and the source's credit line.
+
 ## Shareable links
 
 Put the projection, parameters, centre, zoom, layers and drawings in the URL, so that a link opens exactly the map that was on screen.
