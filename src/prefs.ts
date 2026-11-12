@@ -70,7 +70,7 @@ export function loadPrefs(storage: Pick<Storage, 'getItem'> | null = browserStor
   const v = isRecord(kept) ? kept : {};
   const locator = isRecord(v.locator) ? v.locator : {};
   return {
-    theme: typeof v.theme === 'string' && v.theme in THEME_NAMES ? (v.theme as ThemeId) : DEFAULT_PREFS.theme,
+    theme: typeof v.theme === 'string' && Object.hasOwn(THEME_NAMES, v.theme) ? (v.theme as ThemeId) : DEFAULT_PREFS.theme,
     overrides: readOverrides(v.overrides),
     layers: readLayers(v.layers),
     locator: { surface: flag(locator.surface, DEFAULT_PREFS.locator.surface), collapsed: flag(locator.collapsed, DEFAULT_PREFS.locator.collapsed) },

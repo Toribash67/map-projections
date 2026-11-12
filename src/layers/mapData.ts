@@ -28,6 +28,8 @@ export function loadMapData(level: Detail): Promise<MapData> {
       };
     });
     loaded.set(level, data);
+    // A fetch that failed is not kept: the next asking tries again.
+    data.catch(() => loaded.delete(level));
   }
   return data;
 }

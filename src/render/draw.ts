@@ -4,9 +4,6 @@ import type { Cut } from '../tissot/rest';
 import { INDICATRIX_RADIUS } from '../tissot/indicatrix';
 import type { Style } from './style';
 
-/** How far a weight `w` of the maps that cannot show something hides it: slow to start, so what arrives or leaves is faint for long. */
-const hiding = (w: number) => 1 - (1 - w) ** 3;
-
 /** Whether any map of the morph shows a piece. One that some map shows is drawn at full strength throughout: what a map cannot show is folded onto its edge, where it has no area, so nothing needs to fade. */
 const shows = (piece: ScenePiece): boolean => piece.alphaSrc > 0 || piece.alphaDst > 0;
 

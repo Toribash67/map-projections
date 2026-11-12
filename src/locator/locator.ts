@@ -165,7 +165,7 @@ export function createLocator(container: HTMLElement, app: App, prefs: LocatorPr
     ctx.setLineDash([]);
 
     // A polygon or circle comes as a fill and an outline of its own.
-    const parts = app.shapes.flatMap((s) => {
+    const parts = (app.layers.on.drawings ? app.shapes : []).flatMap((s) => {
       const g = shapeToGeoJSON(s);
       return g.type === 'GeometryCollection' ? g.geometries : [g];
     });

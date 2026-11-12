@@ -4,7 +4,7 @@ import { hasStandardLines } from '../layers/standardLines';
 import { PALETTES } from '../theme/palette';
 import { currentScheme } from '../theme/scheme';
 import { COLOUR_NAMES, resolvePalette, THEME_NAMES, type ColourKey, type ThemeId } from '../theme/themes';
-import { el } from './dom';
+import { el, isTyping } from './dom';
 import { icon } from './icons';
 import { popover } from './popover';
 import { tip } from './tooltip';
@@ -22,9 +22,6 @@ const TIPS: Record<LayerId, string> = {
 };
 const NO_STANDARD = 'This map has no parallel where its scale is true everywhere along it';
 const STEPS: GraticuleStep[] = [10, 15, 30];
-
-/** Whether typing is going into this element, which then owns the keys. */
-const isTyping = (target: EventTarget | null) => target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]') !== null;
 
 /** A colour as '#rrggbb', which is all a colour box can hold: an 'rgba(...)' colour without its opacity. */
 function asHex(colour: string): string {

@@ -2,7 +2,7 @@ import type { App } from '../app';
 import { DrawingModel, type Mode, type Tool, type Tracer } from '../drawing/model';
 import { circlePath, straightPath } from '../drawing/straight';
 import { screenToLonLat } from '../screen/screen';
-import { el } from './dom';
+import { el, isTyping } from './dom';
 import { icon, type IconName } from './icons';
 import { attachMapPointer } from './mapPointer';
 import { tip } from './tooltip';
@@ -17,9 +17,6 @@ const TOOLS: { tool: Exclude<Tool, 'none'>; label: string; key: string; text: st
 // The second click of a double-click, within this long (ms) and this far (CSS pixels) of the first, places no point of its own.
 const DOUBLE_CLICK_MS = 500;
 const DOUBLE_CLICK_PX = 6;
-
-/** Whether typing is going into this element, which then owns the keys. */
-const isTyping = (target: EventTarget | null) => target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]') !== null;
 
 const formatKm = (km: number) => `${km < 100 ? km.toFixed(1) : Math.round(km).toLocaleString('en-US')} km`;
 

@@ -77,6 +77,13 @@ describe('the scene of an export', () => {
     expect(twice.scene.indicatrices[5]!.srcMat[0]).toBeCloseTo(2 * once.scene.indicatrices[5]!.srcMat[0], 3);
   });
 
+  test('a large picture of a zoomed view has every indicatrix the window has, those reaching in from its edge too', async () => {
+    const snap = { ...snapshotOf('mercator', { zoom: 4, panX: 0, panY: 900 }), layers: { ...DEFAULT_LAYERS, on: { ...DEFAULT_LAYERS.on, tissot: true } } };
+    const [once, large] = [await exportScene(snap, { ...OPTIONS, extent: 'view', width: 1000 }), await exportScene(snap, { ...OPTIONS, extent: 'view', width: 9933 })];
+    expect(once.scene.indicatrices.length).toBeGreaterThan(20);
+    expect(large.scene.indicatrices.length).toBe(once.scene.indicatrices.length);
+  });
+
   test('a finer coast is fetched for the export, and has more to it', async () => {
     const [coarse, fine] = [await exportScene(snapshotOf('mollweide'), OPTIONS), await exportScene(snapshotOf('mollweide'), { ...OPTIONS, detail: '50m' })];
     const points = (pieces: ScenePiece[]) => pieces.reduce((n, p) => n + p.src.length, 0);

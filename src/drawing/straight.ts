@@ -52,7 +52,7 @@ function refine(c: CompiledProjection, s: ScreenTransform, samples: Sample[], be
 
 /**
  * The path on the Earth that is a straight line on this map from `a` to `b`: the places under the line, close enough together that,
- * joined by great-circle arcs as a drawn line is, they stay within a quarter of a pixel of it. Its ends are `a` and `b` themselves.
+ * joined by great-circle arcs as a drawn line is, they stay within a tenth of a pixel of it. Its ends are `a` and `b` themselves.
  * Null if the line leaves the map on the way, as across a gap of an interrupted map, or if the map does not show an end.
  */
 export function straightPath(c: CompiledProjection, s: ScreenTransform, a: LonLat, b: LonLat): LonLat[] | null {

@@ -74,7 +74,7 @@ export async function exportScene(snap: Snapshot, opts: ExportOptions): Promise<
   const layers = sceneLayers(snap.layers, [compiled], snap.drawings, data);
   // The indicatrices are those of the screen: as many, and as large beside the map.
   const zoom = opts.extent === 'view' ? snap.view.zoom : 1;
-  const scene = buildScene(layers, [{ compiled, screen, weight: 1 }], null, snap.layers.on.tissot && { step: indicatrixStep(zoom), viewport: size });
+  const scene = buildScene(layers, [{ compiled, screen, weight: 1 }], null, snap.layers.on.tissot && { step: indicatrixStep(zoom), viewport: size, scale: lineScale });
   return { scene, size, lineScale };
 }
 

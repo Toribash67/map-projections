@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { isMorphing, isSliding, openPaused, pick, state, stop } from './support';
+import { isMorphing, isSliding, numberBox, openPaused, pick, state, stop } from './support';
 
 const tilt = async (page: Page) => (await state(page)).orientation.tilt;
 /** A clean start on a named projection, at rest, on the paused clock. */
@@ -59,6 +59,46 @@ test('a live change takes over a slide where it is', async ({ page }) => {
   expect(await isSliding(page)).toBe(false);
   await page.clock.runFor(1500);
   expect(await tilt(page)).toBe(before);
+});
+
+test('a drag of the map during a slide stops the slide where it is and moves the map', async ({ page }) => {
+  await startOn(page, 'mercator');
+  await pick(page, 'transverse-mercator');
+  await page.clock.runFor(400);
+  const before = await state(page);
+  const box = (await page.locator('#map').boundingBox())!;
+  await page.mouse.move(box.x + 500, box.y + 300);
+  await page.mouse.down();
+  // A frame of the slide between each move, as a browser has them.
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(box.x + 500 + 10 * i, box.y + 300);
+    await page.clock.runFor(16);
+  }
+  expect(await isSliding(page)).toBe(false);
+  const held = await state(page);
+  expect(held.orientation.tilt).toBeLessThan(before.orientation.tilt + 8);
+  expect(Math.abs(held.orientation.lon - before.orientation.lon) + Math.abs(held.orientation.lat - before.orientation.lat)).toBeGreaterThan(3);
+  await page.mouse.up();
+  await page.clock.runFor(1600);
+  expect((await state(page)).orientation.tilt).toBe(held.orientation.tilt);
+});
+
+test('a second value typed during a slide keeps where the first was going', async ({ page }) => {
+  await startOn(page, 'mercator');
+  const enter = async (name: string, text: string) => {
+    const box = numberBox(page, name);
+    await box.fill(text);
+    await box.press('Enter');
+  };
+  await enter('Longitude', '100');
+  await page.clock.runFor(500);
+  expect(await isSliding(page)).toBe(true);
+  await enter('Latitude', '40');
+  await page.clock.runFor(1600);
+  expect(await isSliding(page)).toBe(false);
+  const { lon, lat } = (await state(page)).orientation;
+  expect(lon).toBeCloseTo(100, 6);
+  expect(lat).toBeCloseTo(40, 6);
 });
 
 test('another definition chosen mid-slide morphs from the map in between', async ({ page }) => {

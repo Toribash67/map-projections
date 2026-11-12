@@ -1,4 +1,3 @@
-import { geoInterpolate } from 'd3-geo';
 import { normaliseLon } from '../geo/angles';
 import { getDef } from '../projections/catalog';
 import type { Orientation, Params, ProjectionState } from '../projections/types';
@@ -19,14 +18,12 @@ function paramsBetween(a: ProjectionState, b: ProjectionState, u: number): Param
 }
 
 /**
- * The centre goes along the great circle between the two, which is the shorter way. A map with no centre latitude of its own, a
- * conic, only turns about its axis: its longitude goes the shorter way round and the latitude it does not use goes straight.
+ * The centre's longitude goes the shorter way round, and its latitude and the tilt go straight, as the three sliders would take
+ * them. Not along the great circle between the two centres: that is not one path between places half the world apart, and where
+ * it passes over a pole the map, which keeps north up, would turn half round in a frame.
  */
-function orientationBetween(a: Orientation, b: Orientation, latEnabled: boolean, u: number): Orientation {
-  const tilt = mix(a.tilt, b.tilt, u);
-  if (!latEnabled) return { lon: normaliseLon(a.lon + normaliseLon(b.lon - a.lon) * u), lat: mix(a.lat, b.lat, u), tilt };
-  const [lon, lat] = geoInterpolate([a.lon, a.lat], [b.lon, b.lat])(u);
-  return { lon: normaliseLon(lon), lat, tilt };
+function orientationBetween(a: Orientation, b: Orientation, u: number): Orientation {
+  return { lon: normaliseLon(a.lon + normaliseLon(b.lon - a.lon) * u), lat: mix(a.lat, b.lat, u), tilt: mix(a.tilt, b.tilt, u) };
 }
 
 /**
@@ -39,7 +36,7 @@ export function interpolateState(a: ProjectionState, b: ProjectionState, u: numb
   return {
     defId: a.defId,
     params: paramsBetween(a, b, u),
-    orientation: orientationBetween(a.orientation, b.orientation, getDef(a.defId).latEnabled, u),
+    orientation: orientationBetween(a.orientation, b.orientation, u),
   };
 }
 

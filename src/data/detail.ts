@@ -34,6 +34,8 @@ export function loadDetail(level: Detail): Promise<DetailData> {
       };
     });
     loaded.set(level, data);
+    // A fetch that failed is not kept: the next asking tries again.
+    data.catch(() => loaded.delete(level));
   }
   return data;
 }

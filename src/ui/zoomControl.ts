@@ -1,14 +1,11 @@
 import type { App } from '../app';
 import { MAX_ZOOM } from '../screen/view';
-import { el } from './dom';
+import { el, isTyping } from './dom';
 import { icon, type IconName } from './icons';
 import { tip } from './tooltip';
 
 // A press of a button or a key zooms by this much.
 const STEP = 2;
-
-/** Whether typing is going into this element, which then owns the keys. */
-const isTyping = (target: EventTarget | null) => target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]') !== null;
 
 /** Zoom in, zoom out and fit, as buttons on the map and as the keys +, - and 0. The wheel and the pinch are in mapPointer. */
 export function createZoomControl(app: App): HTMLElement {

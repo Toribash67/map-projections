@@ -153,7 +153,17 @@ export class App {
     // Like a live change, it is ignored while a morph runs: only choosing a projection redirects one.
     if (this.controller.tick()) return;
     if (patch.orientation && patch.orientation.tilt !== this.state.orientation.tilt) this.tiltByHand = true;
-    this.goTo({ ...this.state, ...patch });
+    const next = { ...this.state, ...patch };
+    // During a slide the state is the map in between, and a control changes one number of it. The rest of what the slide was going
+    // to is kept: whatever the change leaves as it is on screen goes on to where it was going.
+    const going = this.slide?.to;
+    if (going && going.defId === next.defId) {
+      const kept = <T extends Record<string, number>>(now: T, wanted: T, target: T): T =>
+        Object.fromEntries(Object.keys({ ...target, ...wanted }).map((key) => [key, wanted[key] === now[key] ? (target[key] ?? wanted[key]) : wanted[key]])) as T;
+      next.params = kept(this.state.params, next.params, going.params);
+      next.orientation = kept(this.state.orientation, next.orientation, going.orientation);
+    }
+    this.goTo(next);
   }
 
   /** Changes the map at once, with no morph. It takes over a slide where the slide is, and is ignored while a morph runs. */
@@ -188,6 +198,11 @@ export class App {
     // From where a zoom under way is going, so that two presses in a row are two steps.
     const from = this.zoomTween ? zoomAbout(this.zoomTween.from, this.viewport, this.zoomTween.at, this.zoomTween.factor) : this.view;
     this.applyView(from);
+    // At the fit, or as far in as the map goes, there is nowhere to zoom to.
+    if (zoomAbout(from, this.viewport, at, factor).zoom === from.zoom) {
+      this.zoomTween = null;
+      return;
+    }
     this.zoomTween = { from, at, factor, startedAt: this.now() };
     this.request();
   }
@@ -340,7 +355,12 @@ export class App {
   /** Draws the map at rest again with the finer coastlines, unless it has changed, or begun to, while they were fetched. */
   private async refine(): Promise<void> {
     const timer = this.fineTimer;
-    this.fine ??= await loadMapData('50m');
+    try {
+      this.fine ??= await loadMapData('50m');
+    } catch {
+      // The finer coast could not be fetched: the map stays as it is, and it is asked for again the next time.
+      return;
+    }
     if (timer !== this.fineTimer || this.controller.tick() || this.slide || this.zoomTween) return;
     this.useFine = true;
     this.stale = true;

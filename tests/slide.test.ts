@@ -24,9 +24,19 @@ test('the centre takes the shorter way round', () => {
   expect(Math.abs(interpolateState(at(170), at(-170), 0.5).orientation.lon)).toBeCloseTo(180);
 });
 
-test('the centre goes over the pole between places on opposite meridians', () => {
-  const at = (lon: number): ProjectionState => ({ defId: 'azimuthal-equidistant', params: {}, orientation: { lon, lat: 80, tilt: 0 } });
-  expect(interpolateState(at(0), at(180), 0.5).orientation.lat).toBeCloseTo(90);
+test('the centre moves evenly between places on opposite meridians, and never jumps: its longitude the shorter way, its latitude straight', () => {
+  const at = (lon: number, lat: number): ProjectionState => ({ ...mercator, orientation: { lon, lat, tilt: 0 } });
+  // Half a turn apart on the equator there is no one great circle between the two, and none is asked for.
+  for (const u of [0.001, 0.01, 0.1, 0.25, 0.5, 0.9]) {
+    const { lon, lat } = interpolateState(at(0, 0), at(180, 0), u).orientation;
+    expect(Math.abs(lon), `u ${u}`).toBeCloseTo(180 * u, 6);
+    expect(lat, `u ${u}`).toBeCloseTo(0, 6);
+  }
+  // Nor does it go over the pole, where the map would turn half round in a frame.
+  for (const u of [0.1, 0.5, 0.9]) expect(interpolateState(at(0, 40), at(180, 40), u).orientation.lat).toBeCloseTo(40, 6);
+  const between = interpolateState(at(30, 10), at(-150, -10), 0.25).orientation;
+  expect(Math.abs(Math.abs(between.lon - 30) - 45)).toBeLessThan(1e-6);
+  expect(between.lat).toBeCloseTo(5, 6);
 });
 
 test('a conic, which has no centre latitude, slides its longitude the shorter way', () => {

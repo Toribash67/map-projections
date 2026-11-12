@@ -53,8 +53,11 @@ export type Scene = {
   indicatrixRadius?: number;
 };
 
-/** Which indicatrices a scene has: how far apart (degrees), and the window they are wanted in, beyond which none is worked out. */
-export type TissotOptions = { step: number; viewport?: Viewport };
+/**
+ * Which indicatrices a scene has: how far apart (degrees), and the window they are wanted in, beyond which none is worked out. In a
+ * picture larger than the screen everything is `scale` times as large, and so is how far outside the window one can reach in from.
+ */
+export type TissotOptions = { step: number; viewport?: Viewport; scale?: number };
 
 // How far (CSS pixels) outside the window an indicatrix's centre can be and still reach into it, or come into it in a morph.
 const VIEW_MARGIN = 200;
@@ -301,9 +304,9 @@ export function buildIndicatrices(p: LonLat, source: Member[], target: Member | 
 }
 
 /** Whether some map of the scene puts a point in or near the window: a cheap look before working out its indicatrix. */
-function nearView(p: LonLat, source: Member[], target: Member | null, v: Viewport): boolean {
+function nearView(p: LonLat, source: Member[], target: Member | null, v: Viewport, margin: number): boolean {
   // Generous, as a copy across a seam is elsewhere on the map: the whole of the map's width in a seamed map, so only those are let through unseen.
-  const reach = 2 * VIEW_MARGIN;
+  const reach = 2 * margin;
   for (const m of target ? [...source, target] : source) {
     if (m.compiled.def.seam.kind !== 'none') return true;
     const [x, y] = positionOn(m.compiled, m.screen, p);
@@ -331,14 +334,15 @@ export function buildScene(layers: Record<string, GeoJSON.GeoJsonObject>, source
     scene.layers[name] = name === 'capOcean' ? pieces.filter((piece) => piece.out) : pieces;
   }
   if (tissot) {
-    const { step, viewport } = tissot === true ? { step: 30, viewport: undefined } : tissot;
+    const { step, viewport, scale = 1 } = tissot === true ? { step: 30, viewport: undefined } : tissot;
+    const margin = VIEW_MARGIN * scale;
     const radius = indicatrixRadius(step);
     scene.indicatrixRadius = radius;
     // Zoomed in there are many more of them, nearly all out of sight: one is kept if it is in or near the window at either end.
     const inView = ({ srcPos, dstPos }: SceneIndicatrix) =>
-      !viewport || [srcPos, dstPos].some(([x, y]) => x > -VIEW_MARGIN && y > -VIEW_MARGIN && x < viewport.width + VIEW_MARGIN && y < viewport.height + VIEW_MARGIN);
+      !viewport || [srcPos, dstPos].some(([x, y]) => x > -margin && y > -margin && x < viewport.width + margin && y < viewport.height + margin);
     for (const p of indicatrixCentres(step)) {
-      if (viewport && !nearView(p, source, target, viewport)) continue;
+      if (viewport && !nearView(p, source, target, viewport, margin)) continue;
       for (const part of buildIndicatrices(p, source, target, radius)) if (inView(part)) scene.indicatrices.push(part);
     }
   }

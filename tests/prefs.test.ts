@@ -36,6 +36,8 @@ describe('preferences', () => {
 
   test('each part that is wrong takes its default, and the rest is kept', () => {
     expect(loadPrefs(stored({ theme: 'neon' }))).toEqual(DEFAULT_PREFS);
+    // Nor is a name that every object has a theme.
+    for (const theme of ['constructor', 'toString', '__proto__']) expect(loadPrefs(stored({ theme })), theme).toEqual(DEFAULT_PREFS);
     expect(loadPrefs(stored({ theme: 'print', drawMode: 'sideways', locator: { surface: 'yes', collapsed: true } }))).toEqual({ ...DEFAULT_PREFS, theme: 'print', locator: { surface: true, collapsed: true } });
     // A colour has to be six hex digits; a key has to be one of the map's colours.
     expect(loadPrefs(stored({ overrides: { ocean: 'red', land: '#12345', coast: '#abcdef', sky: '#000000', accent: 7 } })).overrides).toEqual({ coast: '#abcdef' });
