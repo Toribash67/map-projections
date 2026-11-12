@@ -1,4 +1,3 @@
-import { COAST, GRATICULE, LAND } from './data/land';
 import { capOceanLayer } from './geo/capCells';
 import { shapeToGeoJSON, type Shape } from './drawing/model';
 import { MorphController } from './morph/controller';
@@ -9,13 +8,13 @@ import { compile, stateForStop } from './projections/compile';
 import type { CompiledProjection, LonLat, ProjectionState, Stop } from './projections/types';
 import { drawScene } from './render/draw';
 import { mapStyle } from './render/style';
+import { bordersOf, politicalOf } from './data/countries';
 import { loadDetail } from './data/detail';
+import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, type LayerState, type MapData } from './layers/layers';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
 import { indicatrixStep, type Member } from './tissot/indicatrix';
 import { currentScheme, watchScheme } from './theme/scheme';
-
-const OCEAN = { type: 'Sphere' } as unknown as GeoJSON.GeoJsonObject;
 
 type Pair = [number, number];
 
@@ -44,7 +43,8 @@ export class App {
   viewport: Viewport;
   /** How the fitted map is looked at: zoomed and panned. */
   view: View = FIT;
-  tissot = false;
+  /** Which layers the map shows. Replaced when it changes, never changed in place. */
+  layers: LayerState = DEFAULT_LAYERS;
   shapes: Shape[] = [];
   /** The projection last chosen from the list, whose defaults the resets return to. */
   selected: Stop;
@@ -69,7 +69,7 @@ export class App {
   private viewed: { fit: ScreenTransform; view: View; screen: ScreenTransform } | null = null;
   private zoomTween: { from: View; at: Pair; factor: number; startedAt: number } | null = null;
   // The finer coastlines, once fetched, and whether the scene on screen is drawn with them.
-  private fine: { land: GeoJSON.GeoJsonObject; coast: GeoJSON.GeoJsonObject } | null = null;
+  private fine: MapData | null = null;
   private useFine = false;
   private fineTimer = 0;
   // What choosing a projection needs to know that the state does not say. See stateForStop.
@@ -223,9 +223,26 @@ export class App {
     this.notify();
   }
 
+  /** Whether the Tissot indicatrices are shown: one of the layers. */
+  get tissot(): boolean {
+    return this.layers.on.tissot;
+  }
+
   setTissot(on: boolean): void {
-    if (on === this.tissot) return;
-    this.tissot = on;
+    this.setLayer('tissot', on);
+  }
+
+  /** Shows or hides a layer. */
+  setLayer(id: LayerId, on: boolean): void {
+    if (on === this.layers.on[id]) return;
+    this.layers = { ...this.layers, on: { ...this.layers.on, [id]: on } };
+    this.invalidate();
+    this.notify();
+  }
+
+  setGraticuleStep(step: GraticuleStep): void {
+    if (step === this.layers.graticuleStep) return;
+    this.layers = { ...this.layers, graticuleStep: step };
     this.invalidate();
     this.notify();
   }
@@ -276,7 +293,22 @@ export class App {
   /** Draws the map at rest again with the finer coastlines, unless it has changed, or begun to, while they were fetched. */
   private async refine(): Promise<void> {
     const timer = this.fineTimer;
-    this.fine ??= await loadDetail('50m');
+    if (!this.fine) {
+      const { land, coast, topology } = await loadDetail('50m');
+      // The countries are worked out only if a layer of them is ever looked at this closely.
+      let countries: Pick<MapData, 'borders' | 'political'> | null = null;
+      const fromTopology = () => (countries ??= { borders: bordersOf(topology), political: politicalOf(topology) });
+      this.fine = {
+        land,
+        coast,
+        get borders() {
+          return fromTopology().borders;
+        },
+        get political() {
+          return fromTopology().political;
+        },
+      };
+    }
     if (timer !== this.fineTimer || this.controller.tick() || this.slide || this.zoomTween) return;
     this.useFine = true;
     this.stale = true;
@@ -306,8 +338,8 @@ export class App {
     const settled = this.sceneIsMorph && !morphing;
     if (this.stale || settled) {
       const [source, target] = [this.controller.source(), this.controller.target()];
-      const { land, coast } = this.useFine && this.fine && !target ? this.fine : { land: LAND, coast: COAST };
-      const layers: Record<string, GeoJSON.GeoJsonObject> = { ocean: OCEAN, land, graticule: GRATICULE, coast, drawings: this.drawings };
+      const maps = (target ? [...source, target] : source).map((m) => m.compiled);
+      const layers = sceneLayers(this.layers, maps, this.drawings, this.useFine && this.fine && !target ? this.fine : COARSE);
       // What a map cannot show is only seen in a morph, where it folds over as it moves to its place on the other map: its ocean comes as cells too.
       const cells = target ? capOceanLayer([...source, target]) : null;
       if (cells) layers.capOcean = cells;

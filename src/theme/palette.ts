@@ -16,6 +16,8 @@ export type Palette = {
   accentWash: string;
   shadow: string;
   // The map: sea, land, the graticule, the coast, a drawing's fill, and the locator's tint of the area the map covers and halo of its marker.
+  // Then the layers that are off by default: the borders between countries, the standard lines (a second accent, cool where the first is warm),
+  // the reference circles, and the five colours of the political map.
   ocean: string;
   land: string;
   graticule: string;
@@ -25,6 +27,10 @@ export type Palette = {
   indicatrix: string;
   tint: string;
   halo: string;
+  borders: string;
+  standard: string;
+  reference: string;
+  political: readonly [string, string, string, string, string];
 };
 export type Scheme = 'light' | 'dark';
 
@@ -47,6 +53,10 @@ export const LIGHT: Palette = {
   indicatrix: 'rgba(217, 71, 43, 0.34)',
   tint: '#97a3a9',
   halo: 'rgba(247, 245, 239, 0.85)',
+  borders: '#6f7d86',
+  standard: '#1c7c8c',
+  reference: 'rgba(43, 58, 68, 0.5)',
+  political: ['#ecd9a4', '#c9dcb4', '#f0c4b0', '#d8cbe6', '#f2e6c8'],
 };
 
 /**
@@ -73,13 +83,21 @@ export const DARK: Palette = {
   indicatrix: 'rgba(255, 112, 82, 0.4)',
   tint: '#7f98a8',
   halo: 'rgba(18, 23, 27, 0.85)',
+  borders: '#aab8c2',
+  standard: '#5fc6d8',
+  reference: 'rgba(228, 233, 236, 0.5)',
+  political: ['#6b6238', '#3f5e45', '#74483a', '#584a70', '#4a5a3a'],
 };
 
 export const SCHEMES: readonly Scheme[] = ['light', 'dark'];
 export const PALETTES: Record<Scheme, Palette> = { light: LIGHT, dark: DARK };
 
 const propertyOf = (token: string) => `--${token.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`;
-const declarations = (palette: Palette) => Object.entries(palette).map(([token, colour]) => `${propertyOf(token)}: ${colour};`).join(' ');
+// A token with several colours, as the political map's, is a property for each: --political-0 and so on.
+const declarations = (palette: Palette) =>
+  Object.entries(palette)
+    .flatMap(([token, colour]) => (typeof colour === 'string' ? [`${propertyOf(token)}: ${colour};`] : (colour as readonly string[]).map((c, i) => `${propertyOf(token)}-${i}: ${c};`)))
+    .join(' ');
 
 /**
  * The custom properties of the page: light by default, dark under the system's setting. `color-scheme` makes the browser's own controls,

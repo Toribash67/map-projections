@@ -45,7 +45,10 @@ const LIGHT_BEFORE = {
 describe('the palette', () => {
   test('light mode has the colours it had before there was a dark mode, and a darker red for text', () => {
     // The indicatrix's own fill came with its losing its outline.
-    const { accentText, indicatrix, ...rest } = LIGHT;
+    // And the layers that came later have colours of their own.
+    const { accentText, indicatrix, borders, standard, reference, political, ...rest } = LIGHT;
+    expect([borders, standard, reference].every((c) => typeof c === 'string')).toBe(true);
+    expect(political).toHaveLength(5);
     expect(indicatrix).toBe('rgba(217, 71, 43, 0.34)');
     expect(rest).toEqual(LIGHT_BEFORE);
     expect(accentText).not.toBe(LIGHT.accent);
@@ -54,7 +57,7 @@ describe('the palette', () => {
 
   test('both schemes colour every token, in colours the page and canvas both read', () => {
     expect(Object.keys(DARK).sort()).toEqual(Object.keys(LIGHT).sort());
-    for (const scheme of SCHEMES) for (const [token, colour] of Object.entries(scheme === 'light' ? LIGHT : DARK)) expect(() => parse(colour), `${scheme} ${token}`).not.toThrow();
+    for (const scheme of SCHEMES) for (const [token, colour] of Object.entries(scheme === 'light' ? LIGHT : DARK)) for (const one of [colour].flat()) expect(() => parse(one), `${scheme} ${token}`).not.toThrow();
   });
 
   test('the map style is the palette of its scheme, with the same widths in both', () => {
@@ -71,9 +74,11 @@ describe('the palette', () => {
     const css = paletteCss();
     const dark = css.slice(css.indexOf('prefers-color-scheme: dark'));
     expect(css).toContain('color-scheme: light dark');
-    for (const [token, colour] of Object.entries(LIGHT)) expect(css.slice(0, css.indexOf('@media')), token).toContain(colour);
-    for (const [token, colour] of Object.entries(DARK)) expect(dark, token).toContain(colour);
+    for (const [token, colour] of Object.entries(LIGHT)) for (const one of [colour].flat()) expect(css.slice(0, css.indexOf('@media')), token).toContain(one);
+    for (const [token, colour] of Object.entries(DARK)) for (const one of [colour].flat()) expect(dark, token).toContain(one);
     expect(css).toContain('--accent-wash:');
+    // A token of several colours is a property for each.
+    expect(css).toContain(`--political-4: ${LIGHT.political[4]};`);
   });
 
   test('a theme-color for each scheme is the page background of that scheme', () => {

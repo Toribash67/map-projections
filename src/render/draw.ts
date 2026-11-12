@@ -1,3 +1,4 @@
+import { DRAW_ORDER } from '../layers/layers';
 import type { Scene, SceneIndicatrix, ScenePiece } from '../morph/scene';
 import type { Cut } from '../tissot/rest';
 import { INDICATRIX_RADIUS } from '../tissot/indicatrix';
@@ -103,14 +104,17 @@ function fillCells(ctx: CanvasRenderingContext2D, cells: ScenePiece[], behind: b
   if (any) ctx.fill();
 }
 
-/** Strokes the lines among `pieces`, one path for each run of pieces of the same width. */
-function strokePieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, width: number): void {
+/**
+ * Strokes the lines among `pieces`, one path for each run of pieces of the same width. `share` is the share of its width a line has
+ * for the morph's sake, where it belongs to one end of it.
+ */
+function strokePieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, width: number, share = 1): void {
   ctx.strokeStyle = colour;
   ctx.globalAlpha = 1;
   let current = -1;
   for (const piece of pieces) {
     if (piece.behind !== behind || piece.closed || !shows(piece)) continue;
-    const w = widthAt(piece, t, width);
+    const w = widthAt(piece, t, width) * share;
     if (w <= 0) continue;
     if (w !== current) {
       if (current > 0) ctx.stroke();
@@ -228,17 +232,20 @@ type Frame = { t: number; outline?: Path2D };
 
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, frame: Frame, style: Style, base: DOMMatrix): void {
   const { t } = frame;
-  const layer = (name: string) => scene.layers[name] ?? [];
   // What a map cannot show folds over in a morph, so where its ocean comes as cells it is filled from those.
   const cells = scene.layers.capOcean;
   if (cells) fillCells(ctx, cells, behind, t, style.ocean);
-  fillPieces(ctx, layer('ocean'), behind, t, style.ocean, style.seamWidth, cells !== undefined);
-  fillPieces(ctx, layer('land'), behind, t, style.land, style.seamWidth);
-  strokePieces(ctx, layer('graticule'), behind, t, style.graticule, style.graticuleWidth);
-  strokePieces(ctx, layer('coast'), behind, t, style.coast, style.coastWidth);
-  // A drawn polygon's own outline comes in its line pieces, so its fill is not outlined along a seam.
-  fillPieces(ctx, layer('drawings'), behind, t, style.accentFill, null);
-  strokePieces(ctx, layer('drawings'), behind, t, style.accent, style.drawingWidth);
+  for (const { layer, fill, seam, stroke, width, dash, taper } of DRAW_ORDER) {
+    const pieces = scene.layers[layer];
+    if (!pieces) continue;
+    if (fill) fillPieces(ctx, pieces, behind, t, fill(style), seam ? style.seamWidth : null, layer === 'ocean' && cells !== undefined);
+    if (stroke && width) {
+      // A context without dashes, as a test's may be, draws the line whole.
+      if (dash) ctx.setLineDash?.(dash);
+      strokePieces(ctx, pieces, behind, t, stroke(style), width(style), taper === 'out' ? 1 - t : taper === 'in' ? t : 1);
+      if (dash) ctx.setLineDash?.([]);
+    }
+  }
   // An ellipse is cut by the map's edge like the coast: the part past the outline is not drawn, at rest or in a morph.
   const shown = scene.indicatrices.filter((m) => m.behind === behind && indicatrixAlpha(m, t) > 0);
   if (shown.length > 0) {

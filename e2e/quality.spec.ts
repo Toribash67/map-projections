@@ -236,3 +236,38 @@ test('performance: dragging on the same scene averages under 20 ms per frame', a
   expect(frames).toBeGreaterThan(100);
   expect(mean).toBeLessThan(LIMIT_MS);
 });
+
+for (const what of ['dragging', 'a morph to Mollweide'] as const) {
+  test(`performance: ${what} with the political map, borders, standard lines, reference circles and Tissot all on averages under 20 ms per frame`, async ({ page }) => {
+    await mercatorScene(page);
+    await page.evaluate(() => {
+      const app = (window as any).__app;
+      for (const id of ['political', 'borders', 'standard', 'reference']) app.setLayer(id, true);
+    });
+    await page.evaluate(() => new Promise((done) => setTimeout(done, 200)));
+    // The countries are drawn: several colours of land, where there was one.
+    const political = await page.evaluate(() => Object.keys((window as any).__app.scene.layers).filter((name: string) => name.startsWith('political')).length);
+    expect(political).toBe(5);
+    await recordFrames(page);
+    if (what === 'dragging') {
+      const box = (await page.locator('#map').boundingBox())!;
+      const [cx, cy] = [box.x + box.width / 2, box.y + box.height / 2];
+      await page.mouse.move(cx, cy);
+      await page.mouse.down();
+      for (let i = 0; i < 120; i++) {
+        const started = Date.now();
+        const a = (2 * Math.PI * i) / 120;
+        await page.mouse.move(cx + 110 * Math.sin(a), cy + 70 * (1 - Math.cos(a)) - 70);
+        await page.waitForTimeout(Math.max(0, 16 - (Date.now() - started)));
+      }
+      await page.mouse.up();
+    } else {
+      await pick(page, 'mollweide');
+      await settle(page);
+    }
+    const { frames, mean, worst } = await stopFrames(page);
+    console.log(`${what}, all layers`, `${frames} frames, mean ${mean.toFixed(1)} ms, worst ${worst.toFixed(1)} ms`);
+    expect(frames).toBeGreaterThan(40);
+    expect(mean).toBeLessThan(LIMIT_MS);
+  });
+}
