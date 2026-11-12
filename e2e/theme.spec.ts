@@ -100,3 +100,61 @@ test('switching in the middle of a morph repaints it, and the morph carries on',
   expect(near((await mapColours(page)).corner, rgb(DARK.paper))).toBe(true);
   expect(await page.evaluate(() => (window as any).__app.state.defId)).toBe('mollweide');
 });
+
+test('a theme chosen in the app repaints the map, the locator and the page, whatever the system says, and auto follows the system again', async ({ page }) => {
+  const { resolvePalette } = await import('../src/theme/themes');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await open(page);
+  await pick(page, 'mollweide');
+  await settle(page);
+  // In the sea, south of the middle of the map: the Gulf of Guinea.
+  const sea = () => pixel(page, '#map', 520, 322);
+  const set = (theme: string) => page.evaluate((theme) => (window as any).__app.setTheme(theme), theme);
+  for (const theme of ['blueprint', 'print', 'atlas', 'dark'] as const) {
+    await set(theme);
+    await frames(page);
+    const p = resolvePalette(theme, {}, 'light');
+    expect(near(await sea(), rgb(p.ocean)), theme).toBe(true);
+    expect(near(await pixel(page, '#map', 2, 2), rgb(p.paper)), theme).toBe(true);
+    expect(rgb(await sidebar(page)), theme).toEqual(rgb(p.panel));
+    expect(rgb(await body(page)), theme).toEqual(rgb(p.paper));
+    // The browser's own controls are light or dark with the page.
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme), theme).toBe(theme === 'blueprint' || theme === 'dark' ? 'dark' : 'light');
+  }
+  await set('auto');
+  await frames(page);
+  expect(near(await sea(), rgb(LIGHT.ocean))).toBe(true);
+  expect(rgb(await sidebar(page))).toEqual(rgb(LIGHT.panel));
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme)).toBe('light dark');
+  // And the system's change is followed again.
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await frames(page);
+  expect(near(await sea(), rgb(DARK.ocean))).toBe(true);
+  expect(rgb(await sidebar(page))).toEqual(rgb(DARK.panel));
+});
+
+test('a colour set by hand is laid over the theme, on the map and the page, and taken off again', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await open(page);
+  await pick(page, 'mollweide');
+  await settle(page);
+  const override = (key: string, colour: string | null) => page.evaluate(([key, colour]) => (window as any).__app.setOverride(key, colour), [key, colour] as const);
+  await override('ocean', '#ff0000');
+  await override('paper', '#00ff00');
+  await frames(page);
+  expect(near(await pixel(page, '#map', 520, 322), [255, 0, 0])).toBe(true);
+  expect(near(await pixel(page, '#map', 2, 2), [0, 255, 0])).toBe(true);
+  expect(rgb(await body(page))).toEqual([0, 255, 0]);
+  expect(await page.evaluate(() => (window as any).__app.overrides)).toEqual({ ocean: '#ff0000', paper: '#00ff00' });
+  // It stays through a change of theme, and comes off when it is cleared.
+  await page.evaluate(() => (window as any).__app.setTheme('atlas'));
+  await frames(page);
+  expect(near(await pixel(page, '#map', 520, 322), [255, 0, 0])).toBe(true);
+  await override('ocean', null);
+  await override('paper', null);
+  await page.evaluate(() => (window as any).__app.setTheme('auto'));
+  await frames(page);
+  expect(near(await pixel(page, '#map', 520, 322), rgb(LIGHT.ocean))).toBe(true);
+  expect(rgb(await body(page))).toEqual(rgb(LIGHT.paper));
+  expect(await page.evaluate(() => (window as any).__app.overrides)).toEqual({});
+});

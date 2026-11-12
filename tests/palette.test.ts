@@ -5,7 +5,8 @@ import drawSource from '../src/render/draw.ts?raw';
 import locatorSource from '../src/render/locator.ts?raw';
 import styleSource from '../src/render/style.ts?raw';
 import styleCss from '../src/style.css?raw';
-import { mapStyle } from '../src/render/style';
+import { mapStyle, styleOf } from '../src/render/style';
+import { chromeScheme, resolvePalette, THEME_NAMES, type ThemeId } from '../src/theme/themes';
 import { DARK, LIGHT, paletteCss, SCHEMES, themeColors, type Palette } from '../src/theme/palette';
 import { currentScheme, watchScheme } from '../src/theme/scheme';
 
@@ -189,5 +190,89 @@ describe('following the system', () => {
     listener!({ matches: true });
     listener!({ matches: false });
     expect(seen).toEqual(['dark', 'light']);
+  });
+});
+
+// Lightness and colour in CIE Lab, for telling whether two colours look apart.
+function lab(colour: string): [number, number, number] {
+  const lin = solid(colour).map((v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  const [x, y, z] = [
+    (0.4124 * lin[0]! + 0.3576 * lin[1]! + 0.1805 * lin[2]!) / 0.95047,
+    0.2126 * lin[0]! + 0.7152 * lin[1]! + 0.0722 * lin[2]!,
+    (0.0193 * lin[0]! + 0.1192 * lin[1]! + 0.9505 * lin[2]!) / 1.08883,
+  ].map((v) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116));
+  return [116 * y! - 16, 500 * (x! - y!), 200 * (y! - z!)];
+}
+const deltaE = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]!));
+
+describe('themes', () => {
+  const ids: ThemeId[] = ['auto', 'light', 'dark', 'atlas', 'blueprint', 'print'];
+  const cases = ids.flatMap((id) => SCHEMES.map((system) => [id, system] as const));
+
+  test('there are six, each with a name, and auto is the palette of the system\'s scheme', () => {
+    expect(Object.keys(THEME_NAMES)).toEqual(ids);
+    expect(resolvePalette('auto', {}, 'light')).toEqual(LIGHT);
+    expect(resolvePalette('auto', {}, 'dark')).toEqual(DARK);
+    expect(resolvePalette('light', {}, 'dark')).toEqual(LIGHT);
+    expect(resolvePalette('dark', {}, 'light')).toEqual(DARK);
+    // The others are the same whatever the system says.
+    for (const id of ['atlas', 'blueprint', 'print'] as const) expect(resolvePalette(id, {}, 'light')).toEqual(resolvePalette(id, {}, 'dark'));
+  });
+
+  test('the page round the map is light or dark with the theme', () => {
+    expect(ids.map((id) => [chromeScheme(id, 'light'), chromeScheme(id, 'dark')])).toEqual([
+      ['light', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'],
+    ]);
+  });
+
+  test.each(cases)('%s, with the system %s: the map is legible', (id, system) => {
+    const p = resolvePalette(id, {}, system);
+    const [sea, land] = [solid(p.ocean), solid(p.land)];
+    // Drawings and indicatrices are seen on land and sea, the coast on the sea, and the standard lines on both.
+    expect(ratio(solid(p.accent), land), 'accent on land').toBeGreaterThanOrEqual(3);
+    expect(ratio(solid(p.accent), sea), 'accent on sea').toBeGreaterThanOrEqual(3);
+    expect(ratio(solid(p.coast), sea), 'coast on sea').toBeGreaterThanOrEqual(1.5);
+    expect(ratio(solid(p.standard), land), 'standard lines on land').toBeGreaterThanOrEqual(3);
+    expect(ratio(solid(p.standard), sea), 'standard lines on sea').toBeGreaterThanOrEqual(2.5);
+    // The second accent is not the first.
+    expect(deltaE(p.standard, p.accent)).toBeGreaterThan(40);
+    // The sidebar's words on the sidebar, and its numbers on the page.
+    expect(ratio(solid(p.ink), solid(p.panel)), 'ink on panel').toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(p.muted), solid(p.panel)), 'muted on panel').toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(p.ink), solid(p.paper)), 'ink on paper').toBeGreaterThanOrEqual(4.5);
+    expect(ratio(solid(p.accentText), solid(p.panel)), 'accent text on panel').toBeGreaterThanOrEqual(4.5);
+  });
+
+  test.each(cases)('%s, with the system %s: the political map\'s five colours are told apart, from the sea too, and its borders are seen on each', (id, system) => {
+    const p = resolvePalette(id, {}, system);
+    expect(p.political).toHaveLength(5);
+    p.political.forEach((a, i) => {
+      for (const b of p.political.slice(i + 1)) expect(deltaE(a, b), `${a} and ${b}`).toBeGreaterThan(10);
+      expect(deltaE(a, p.ocean), `${a} and the sea`).toBeGreaterThan(10);
+      expect(ratio(solid(p.borders), solid(a)), `borders on ${a}`).toBeGreaterThanOrEqual(3);
+      expect(ratio(solid(p.accent), solid(a)), `accent on ${a}`).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  test('a colour of one\'s own is laid over the theme\'s, and what is made from it follows', () => {
+    const p = resolvePalette('light', { ocean: '#102030', accent: '#00aa55', paper: '#ffffff' }, 'light');
+    expect([p.ocean, p.accent, p.paper]).toEqual(['#102030', '#00aa55', '#ffffff']);
+    expect(p.land).toBe(LIGHT.land);
+    // The fills of a drawing and of an indicatrix are the accent, as strong as the theme has them; so are its wash and its text.
+    expect(parse(p.accentFill)).toEqual([0, 170, 85, parse(LIGHT.accentFill)[3]]);
+    expect(parse(p.indicatrix)).toEqual([0, 170, 85, parse(LIGHT.indicatrix)[3]]);
+    expect(parse(p.accentWash)).toEqual([0, 170, 85, parse(LIGHT.accentWash)[3]]);
+    expect(p.accentText).toBe('#00aa55');
+    // With none of one's own, the theme's are back.
+    expect(resolvePalette('light', {}, 'light')).toEqual(LIGHT);
+    expect(resolvePalette('light', { accent: undefined }, 'light')).toEqual(LIGHT);
+  });
+
+  test('the style of the map is the palette\'s, for any palette', () => {
+    const p = resolvePalette('blueprint', { land: '#123456' }, 'light');
+    const style = styleOf(p);
+    expect([style.background, style.ocean, style.land, style.coast, style.borders, style.political]).toEqual([p.paper, p.ocean, '#123456', p.coast, p.borders, p.political]);
+    expect(style.coastWidth).toBe(mapStyle('light').coastWidth);
+    expect(styleOf(LIGHT)).toEqual(mapStyle('light'));
   });
 });

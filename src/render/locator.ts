@@ -6,8 +6,6 @@ import { compile } from '../projections/compile';
 import type { LonLat, ProjectionState } from '../projections/types';
 import { centreFor } from '../geo/grab';
 import { clampLat, normaliseLon } from '../geo/angles';
-import { currentScheme, watchScheme } from '../theme/scheme';
-import { mapStyle } from './style';
 
 // Space left round the globe for its outline, in CSS pixels.
 const PAD = 2;
@@ -62,7 +60,7 @@ export function createLocator(container: HTMLElement, app: App): void {
     ctx.setTransform(store / size, 0, 0, store / size, 0, 0);
     ctx.clearRect(0, 0, size, size);
 
-    const style = mapStyle(currentScheme());
+    const style = app.style;
     const compiled = compile(app.state);
     // What the map uses: a conic's centre latitude is zero whatever the state says.
     const centre = compiled.fromFrame([0, 0]);
@@ -177,7 +175,6 @@ export function createLocator(container: HTMLElement, app: App): void {
     schedule();
   };
   app.subscribe(update);
-  watchScheme(schedule);
   new ResizeObserver(schedule).observe(container);
 
   /** The pointer's place on the globe, as fractions of its radius with north up, or null off the globe. */

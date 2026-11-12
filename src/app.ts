@@ -7,7 +7,7 @@ import { getDef, stops } from './projections/catalog';
 import { compile, stateForStop } from './projections/compile';
 import type { CompiledProjection, LonLat, ProjectionState, Stop } from './projections/types';
 import { drawScene } from './render/draw';
-import { mapStyle } from './render/style';
+import { styleOf, type Style } from './render/style';
 import { bordersOf, politicalOf } from './data/countries';
 import { loadDetail } from './data/detail';
 import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, type LayerState, type MapData } from './layers/layers';
@@ -15,6 +15,7 @@ import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTran
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
 import { indicatrixStep, type Member } from './tissot/indicatrix';
 import { currentScheme, watchScheme } from './theme/scheme';
+import { applyToPage, chromeScheme, resolvePalette, type ColourKey, type Overrides, type ThemeId } from './theme/themes';
 
 type Pair = [number, number];
 
@@ -45,6 +46,9 @@ export class App {
   view: View = FIT;
   /** Which layers the map shows. Replaced when it changes, never changed in place. */
   layers: LayerState = DEFAULT_LAYERS;
+  /** The look of the map and the page, and the colours set by hand over it. */
+  theme: ThemeId = 'auto';
+  overrides: Overrides = {};
   shapes: Shape[] = [];
   /** The projection last chosen from the list, whose defaults the resets return to. */
   selected: Stop;
@@ -57,8 +61,8 @@ export class App {
   // Replaced, never changed in place: the live cut caches what it prepares by geometry object.
   private drawings: GeoJSON.GeometryCollection = { type: 'GeometryCollection', geometries: [] };
   private scene: Scene = { layers: {}, indicatrices: [] };
-  // The map's colours, for the scheme the system is in now.
-  private style = mapStyle(currentScheme());
+  // The map's colours: the theme's, for the scheme the system is in now, with those set by hand.
+  private colours = styleOf(resolvePalette('auto', {}, currentScheme()));
   private stale = true;
   private sceneIsMorph = false;
   private frameId = 0;
@@ -85,10 +89,7 @@ export class App {
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.watchPixelRatio();
     // The scene holds no colours, so a change of scheme only repaints it.
-    watchScheme((scheme) => {
-      this.style = mapStyle(scheme);
-      this.request();
-    });
+    watchScheme(() => this.restyle());
     this.resize();
   }
 
@@ -223,6 +224,37 @@ export class App {
     this.notify();
   }
 
+  /** The colours and line widths the map is drawn with now. */
+  get style(): Style {
+    return this.colours;
+  }
+
+  setTheme(theme: ThemeId): void {
+    if (theme === this.theme) return;
+    this.theme = theme;
+    this.restyle();
+  }
+
+  /** Sets one of the map's colours by hand, as '#rrggbb', over the theme's; null takes it off again. */
+  setOverride(key: ColourKey, colour: string | null): void {
+    if ((this.overrides[key] ?? null) === colour) return;
+    const { [key]: _, ...rest } = this.overrides;
+    this.overrides = colour === null ? rest : { ...rest, [key]: colour };
+    this.restyle();
+  }
+
+  /** Works out the colours afresh, repaints the map with them, and puts them on the page round it. The scene holds no colours, so it is not cut again. */
+  private restyle(): void {
+    const system = currentScheme();
+    const palette = resolvePalette(this.theme, this.overrides, system);
+    this.colours = styleOf(palette);
+    // The paper look with nothing set by hand is what the page has of its own, and follows the system by itself.
+    const own = this.theme === 'auto' && Object.keys(this.overrides).length === 0;
+    applyToPage(document.documentElement, own ? null : palette, chromeScheme(this.theme, system));
+    this.request();
+    this.notify();
+  }
+
   /** Whether the Tissot indicatrices are shown: one of the layers. */
   get tissot(): boolean {
     return this.layers.on.tissot;
@@ -348,7 +380,7 @@ export class App {
       this.sceneIsMorph = morphing;
       this.stale = false;
     }
-    drawScene(this.ctx, this.scene, this.controller.t(), this.style);
+    drawScene(this.ctx, this.scene, this.controller.t(), this.colours);
     if (morphing || this.slide || this.zoomTween) this.request();
     if (settled || slide) this.notify();
   };
