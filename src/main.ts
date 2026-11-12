@@ -2,7 +2,7 @@ import './style.css';
 import { App } from './app';
 import type { DrawingModel } from './drawing/model';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
-import { createLocator } from './render/locator';
+import { createLocator } from './locator/locator';
 import { createDrawingToolbar } from './ui/drawingToolbar';
 import { createSidebar } from './ui/sidebar';
 import { createLayersPanel } from './ui/layersPanel';
@@ -34,7 +34,10 @@ const tools = createDrawingToolbar(app, canvas, find('#notice'), prefs.drawMode,
 find('#tools').append(tools.el);
 createLayersPanel(app, find('#actions'));
 find('#zoom').append(createZoomControl(app));
-createLocator(find('#locator'), app);
+createLocator(find('#locator'), app, prefs.locator, (locator) => {
+  prefs.locator = locator;
+  savePrefs(prefs);
+});
 createSidebar(app, find('#sidebar'));
 // For tests.
 window.__app = app;

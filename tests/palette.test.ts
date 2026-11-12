@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest';
 import indexHtml from '../index.html?raw';
 import appSource from '../src/app.ts?raw';
 import drawSource from '../src/render/draw.ts?raw';
-import locatorSource from '../src/render/locator.ts?raw';
+import locatorSource from '../src/locator/locator.ts?raw';
 import styleSource from '../src/render/style.ts?raw';
 import styleCss from '../src/style.css?raw';
 import { mapStyle, styleOf } from '../src/render/style';
@@ -88,7 +88,7 @@ describe('the palette', () => {
 
   // The colours are in the palette and nowhere else, so there are not two lists to drift apart.
   const literal = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
-  test.each([['src/style.css', styleCss], ['index.html', indexHtml], ['src/render/draw.ts', drawSource], ['src/render/locator.ts', locatorSource], ['src/app.ts', appSource], ['src/render/style.ts', styleSource]])(
+  test.each([['src/style.css', styleCss], ['index.html', indexHtml], ['src/render/draw.ts', drawSource], ['src/locator/locator.ts', locatorSource], ['src/app.ts', appSource], ['src/render/style.ts', styleSource]])(
     '%s holds no colour of its own',
     (_, source) => {
       const text = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');

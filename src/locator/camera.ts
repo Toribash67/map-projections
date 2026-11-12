@@ -9,6 +9,9 @@ export type Camera = { lon: number; lat: number };
 /** Europe and Africa a little from above, where most maps have their centre in view. */
 export const DEFAULT_CAMERA: Camera = { lon: 10, lat: 25 };
 
+/** Space left round the globe, or round the surface about it, on its face, in CSS pixels. */
+export const PAD = 6;
+
 // The camera goes no nearer a pole than this (degrees): over the pole, north would no longer be up.
 const MAX_LAT = 85;
 
