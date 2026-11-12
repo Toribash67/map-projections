@@ -1,35 +1,22 @@
-import { feature, mesh, neighbors } from 'topojson-client';
+import { feature, mesh } from 'topojson-client';
 import countriesTopology from 'world-atlas/countries-110m.json';
+import politicalColours from './politicalColours.json';
 
 /** How many colours the political map has: enough for any map with a little to spare, as a simple way of choosing them needs. */
 export const POLITICAL_COLOURS = 5;
 
-type Topology = { objects: { countries: { geometries: unknown[] } } };
+type Topology = { objects: { countries: { geometries: { properties?: { name?: string } }[] } } };
+
+// By country, as Natural Earth names it. See scripts/political-colours.mjs, which chooses them.
+const COLOUR_OF: Record<string, number> = politicalColours;
 
 /**
  * A colour for each country of a topology, as a number from 0, so that no two countries with a border between them have the same.
- * Each country in turn, those with most neighbours first, takes the colour least used so far among those its neighbours have not
- * taken: the least used, so that the colours come out evenly spread.
+ * A country has the same colour at every scale of Natural Earth: the colours were chosen once for all three together, and are
+ * looked up here. One that is not among them, which a newer Natural Earth could bring, takes the first colour.
  */
 export function colourIndex(topology: unknown): number[] {
-  const geometries = (topology as Topology).objects.countries.geometries;
-  const near = neighbors(geometries as any) as number[][];
-  const colours = new Array<number>(geometries.length).fill(-1);
-  const used = new Array<number>(POLITICAL_COLOURS).fill(0);
-  const order = geometries.map((_, i) => i).sort((a, b) => near[b]!.length - near[a]!.length || a - b);
-  for (const i of order) {
-    // A country in several pieces can come out as a neighbour of itself, which says nothing.
-    const taken = new Set(near[i]!.filter((j) => j !== i).map((j) => colours[j]!));
-    let best = -1;
-    for (let c = 0; c < POLITICAL_COLOURS; c++) {
-      if (!taken.has(c) && (best < 0 || used[c]! < used[best]!)) best = c;
-    }
-    // With every colour taken round it, which five colours and this order do not come to on the Earth, it shares the least used.
-    if (best < 0) best = used.indexOf(Math.min(...used));
-    colours[i] = best;
-    used[best]!++;
-  }
-  return colours;
+  return (topology as Topology).objects.countries.geometries.map((country) => COLOUR_OF[country.properties?.name ?? ''] ?? 0);
 }
 
 /** The lines between countries, and not the coasts: each border once. */

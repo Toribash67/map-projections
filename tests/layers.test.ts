@@ -1,9 +1,10 @@
 import { geoLength } from 'd3-geo';
 import { neighbors } from 'topojson-client';
-import countriesTopology from 'world-atlas/countries-110m.json';
 import { describe, expect, test } from 'vitest';
 import { COAST, GRATICULE, LAND } from '../src/data/land';
 import { BORDERS, colourIndex, POLITICAL } from '../src/data/countries';
+import { loadDetail } from '../src/data/detail';
+import politicalColours from '../src/data/politicalColours.json';
 import { DEFAULT_LAYERS, DRAW_ORDER, sceneLayers, type LayerState } from '../src/layers/layers';
 import { hasStandardLines, standardLines } from '../src/layers/standardLines';
 import type { Scene, ScenePiece } from '../src/morph/scene';
@@ -21,20 +22,36 @@ const with_ = (on: Partial<LayerState['on']>, rest: Partial<LayerState> = {}): L
 const NONE: GeoJSON.GeometryCollection = { type: 'GeometryCollection', geometries: [] };
 
 describe('countries', () => {
-  test('every country has one of five colours, and no two with a border between them have the same', () => {
-    const topology = countriesTopology as any;
+  const SCALES = ['110m', '50m', '10m'] as const;
+
+  test.each(SCALES)('at %s every country has one of five colours, and no two with a border between them have the same', async (scale) => {
+    const topology = (await loadDetail(scale)).topology as any;
     const colours = colourIndex(topology);
     const geometries = topology.objects.countries.geometries;
     expect(colours).toHaveLength(geometries.length);
-    expect(new Set(colours).size).toBeLessThanOrEqual(5);
     expect(Math.min(...colours)).toBe(0);
-    expect(Math.max(...colours)).toBeLessThanOrEqual(4);
+    expect(Math.max(...colours)).toBe(4);
     neighbors(geometries).forEach((near: number[], i: number) => {
       // A country in several pieces can come out as a neighbour of itself.
       for (const j of near) if (j !== i) expect(colours[j], `${geometries[i].properties?.name} and ${geometries[j].properties?.name}`).not.toBe(colours[i]);
     });
     // Each colour is used a fair amount: the map is not one colour with a few specks.
     for (let c = 0; c < 5; c++) expect(colours.filter((v) => v === c).length, `colour ${c}`).toBeGreaterThan(10);
+  });
+
+  test('a country has the same colour at every scale, and every country has one chosen for it', async () => {
+    const byName = new Map<string, number>();
+    for (const scale of SCALES) {
+      const topology = (await loadDetail(scale)).topology as any;
+      const colours = colourIndex(topology);
+      topology.objects.countries.geometries.forEach((country: any, i: number) => {
+        const name = country.properties.name as string;
+        expect(politicalColours, name).toHaveProperty([name]);
+        if (byName.has(name)) expect(colours[i], `${name} at ${scale}`).toBe(byName.get(name));
+        byName.set(name, colours[i]!);
+      });
+    }
+    expect(byName.size).toBeGreaterThan(240);
   });
 
   test('the political layers are the countries by colour, and together all of the land the countries have', () => {
