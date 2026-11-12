@@ -198,13 +198,13 @@ function extent(c: CompiledProjection): { minX: number; maxX: number; minY: numb
   return { minX, maxX, minY, maxY, cos, sin };
 }
 
-/** Fits the covered map into the viewport with 16 px padding, centred, independent of the centre longitude and latitude. */
-export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransform {
+/** Fits the covered map into the viewport with a margin round it, 16 px unless another is given, centred, independent of the centre longitude and latitude. */
+export function computeScreen(c: CompiledProjection, v: Viewport, padding = PADDING): ScreenTransform {
   const { minX, maxX, minY, maxY, cos, sin } = extent(c);
   if (!(maxX >= minX)) return { k: 1, tx: v.width / 2, ty: v.height / 2, cos, sin };
   const k = Math.min(
-    (v.width - 2 * PADDING) / Math.max(maxX - minX, 1e-12),
-    (v.height - 2 * PADDING) / Math.max(maxY - minY, 1e-12),
+    (v.width - 2 * padding) / Math.max(maxX - minX, 1e-12),
+    (v.height - 2 * padding) / Math.max(maxY - minY, 1e-12),
   );
   return {
     k,
@@ -216,10 +216,10 @@ export function computeScreen(c: CompiledProjection, v: Viewport): ScreenTransfo
 }
 
 /** How large the covered map is when fitted into the viewport, in CSS pixels, without the padding round it. */
-export function mapSize(c: CompiledProjection, v: Viewport): Viewport {
+export function mapSize(c: CompiledProjection, v: Viewport, padding = PADDING): Viewport {
   const { minX, maxX, minY, maxY } = extent(c);
-  if (!(maxX >= minX)) return { width: v.width - 2 * PADDING, height: v.height - 2 * PADDING };
-  const { k } = computeScreen(c, v);
+  if (!(maxX >= minX)) return { width: v.width - 2 * padding, height: v.height - 2 * padding };
+  const { k } = computeScreen(c, v, padding);
   return { width: k * (maxX - minX), height: k * (maxY - minY) };
 }
 

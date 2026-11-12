@@ -6,7 +6,8 @@ import { compile, matchStop } from '../projections/compile';
 import type { ProjectionState } from '../projections/types';
 import { drawScene } from '../render/draw';
 import type { Style } from '../render/style';
-import { computeScreen, mapSize, PADDING, type ScreenTransform, type Viewport } from '../screen/screen';
+import { paddingFor } from '../plate/plate';
+import { computeScreen, mapSize, type ScreenTransform, type Viewport } from '../screen/screen';
 import { applyView, type View } from '../screen/view';
 import { indicatrixStep } from '../tissot/indicatrix';
 import { sceneToSvg } from './svg';
@@ -58,17 +59,18 @@ export async function exportScene(snap: Snapshot, opts: ExportOptions): Promise<
   let lineScale: number;
   let size: Viewport;
   let screen: ScreenTransform;
+  const padding = paddingFor(snap.layers);
   if (opts.extent === 'view') {
     lineScale = opts.width / snap.viewport.width;
     size = { width: opts.width, height: Math.round(snap.viewport.height * lineScale) };
-    screen = scaled(applyView(computeScreen(compiled, snap.viewport), snap.view, snap.viewport), lineScale);
+    screen = scaled(applyView(computeScreen(compiled, snap.viewport, padding), snap.view, snap.viewport), lineScale);
   } else {
     // The map as the window fits it, in a frame of its own size and the margin round it.
-    const fitted = mapSize(compiled, snap.viewport);
-    const frame = { width: fitted.width + 2 * PADDING, height: fitted.height + 2 * PADDING };
+    const fitted = mapSize(compiled, snap.viewport, padding);
+    const frame = { width: fitted.width + 2 * padding, height: fitted.height + 2 * padding };
     lineScale = opts.width / frame.width;
     size = { width: opts.width, height: Math.round(frame.height * lineScale) };
-    screen = scaled(computeScreen(compiled, frame), lineScale);
+    screen = scaled(computeScreen(compiled, frame, padding), lineScale);
   }
   // The rivers, lakes and depths of this level too, if they are shown.
   const [data] = await Promise.all([loadMapData(opts.detail), loadWaterFor(snap.layers.on, opts.detail)]);
@@ -81,7 +83,8 @@ export async function exportScene(snap: Snapshot, opts: ExportOptions): Promise<
 
 /** How wide, in pixels, an export is that is as the screen shows it, on a screen of a pixel ratio: lines and all the size they are there. */
 export function screenWidth(snap: Snapshot, extent: ExportOptions['extent'], ratio: number): number {
-  const width = extent === 'view' ? snap.viewport.width : mapSize(compile(snap.state), snap.viewport).width + 2 * PADDING;
+  const padding = paddingFor(snap.layers);
+  const width = extent === 'view' ? snap.viewport.width : mapSize(compile(snap.state), snap.viewport, padding).width + 2 * padding;
   return Math.round(width * ratio);
 }
 

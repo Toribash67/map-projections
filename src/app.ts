@@ -11,6 +11,7 @@ import { styleOf, type Style } from './render/style';
 import type { Snapshot } from './export/render';
 import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, type LayerState, type MapData } from './layers/layers';
 import { loadMapData, loadWaterFor, withWater } from './layers/mapData';
+import { paddingFor } from './plate/plate';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
 import { visibleCap } from './screen/visible';
@@ -310,6 +311,8 @@ export class App {
   setLayer(id: LayerId, on: boolean): void {
     if (on === this.layers.on[id]) return;
     this.layers = { ...this.layers, on: { ...this.layers.on, [id]: on } };
+    // The frame changes the margin, and with it where every map on screen is drawn.
+    if (id === 'frame') this.controller.resize((m) => ({ ...m, screen: this.screenFor(m.compiled) }));
     this.invalidate();
     this.notify();
   }
@@ -346,9 +349,11 @@ export class App {
   /** The fit depends on the projection's shape and the viewport, never on its centre longitude and latitude. */
   private fitFor(c: CompiledProjection): ScreenTransform {
     const tilt = c.def.tiltEnabled ? c.state.orientation.tilt : 0;
-    const key = JSON.stringify([c.def.id, { ...c.def.defaultParams, ...c.state.params }, tilt, this.viewport]);
+    // A picture with a frame has more margin round the map.
+    const padding = paddingFor(this.layers);
+    const key = JSON.stringify([c.def.id, { ...c.def.defaultParams, ...c.state.params }, tilt, this.viewport, padding]);
     if (key !== this.fitKey || !this.fit) {
-      this.fit = computeScreen(c, this.viewport);
+      this.fit = computeScreen(c, this.viewport, padding);
       this.fitKey = key;
     }
     return this.fit;
