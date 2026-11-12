@@ -4,6 +4,7 @@ import type { DrawingModel } from './drawing/model';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
 import { createLocator } from './locator/locator';
 import { createDrawingToolbar } from './ui/drawingToolbar';
+import { createExportPanel } from './ui/exportPanel';
 import { createSidebar } from './ui/sidebar';
 import { createLayersPanel } from './ui/layersPanel';
 import { createZoomControl } from './ui/zoomControl';
@@ -33,6 +34,7 @@ const tools = createDrawingToolbar(app, canvas, find('#notice'), prefs.drawMode,
 });
 find('#tools').append(tools.el);
 createLayersPanel(app, find('#actions'));
+createExportPanel(app, find('#actions'));
 find('#zoom').append(createZoomControl(app));
 createLocator(find('#locator'), app, prefs.locator, (locator) => {
   prefs.locator = locator;

@@ -605,6 +605,73 @@ h1 {
   margin-top: 8px;
 }
 
+/* The Export panel. */
+.export-panel {
+  width: 316px;
+  max-width: calc(100vw - 2 * var(--inset));
+}
+
+.export-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 26px;
+}
+
+.export-label {
+  flex: none;
+  width: 76px;
+  color: var(--muted);
+}
+
+.export-width {
+  width: 64px;
+  padding: 1px 4px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+
+.export-unit {
+  margin-left: -6px;
+  color: var(--muted);
+}
+
+.step:has(input:disabled) {
+  opacity: 0.45;
+}
+
+.export-go {
+  width: 100%;
+  margin-top: 10px;
+  padding: 5px 8px;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.export-go[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.export-go.busy {
+  cursor: progress;
+}
+
+.export-notice {
+  margin: 8px 0 0;
+  color: var(--accent-text);
+}
+
 /* Narrow screens: the map on top, with its own controls still on it, and the sidebar scrolling below. */
 @media (max-width: 720px) {
   :root {
