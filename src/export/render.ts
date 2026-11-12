@@ -1,6 +1,6 @@
 import type { Detail } from '../data/detail';
 import { sceneLayers, type LayerState } from '../layers/layers';
-import { loadMapData } from '../layers/mapData';
+import { loadMapData, loadWaterFor, withWater } from '../layers/mapData';
 import { buildScene, type Scene } from '../morph/scene';
 import { compile, matchStop } from '../projections/compile';
 import type { ProjectionState } from '../projections/types';
@@ -70,8 +70,9 @@ export async function exportScene(snap: Snapshot, opts: ExportOptions): Promise<
     size = { width: opts.width, height: Math.round(frame.height * lineScale) };
     screen = scaled(computeScreen(compiled, frame), lineScale);
   }
-  const data = await loadMapData(opts.detail);
-  const layers = sceneLayers(snap.layers, [compiled], snap.drawings, data);
+  // The rivers, lakes and depths of this level too, if they are shown.
+  const [data] = await Promise.all([loadMapData(opts.detail), loadWaterFor(snap.layers.on, opts.detail)]);
+  const layers = sceneLayers(snap.layers, [compiled], snap.drawings, withWater(data, opts.detail));
   // The indicatrices are those of the screen: as many, and as large beside the map.
   const zoom = opts.extent === 'view' ? snap.view.zoom : 1;
   const scene = buildScene(layers, [{ compiled, screen, weight: 1 }], null, snap.layers.on.tissot && { step: indicatrixStep(zoom), viewport: size, scale: lineScale });

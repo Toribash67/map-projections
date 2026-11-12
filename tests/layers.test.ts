@@ -4,6 +4,9 @@ import { describe, expect, test } from 'vitest';
 import { COAST, GRATICULE, LAND } from '../src/data/land';
 import { BORDERS, colourIndex, POLITICAL } from '../src/data/countries';
 import { loadDetail } from '../src/data/detail';
+import { lakeEdgesOf, loadWater } from '../src/data/water';
+import { COARSE } from '../src/layers/layers';
+import { loadWaterFor, withWater } from '../src/layers/mapData';
 import politicalColours from '../src/data/politicalColours.json';
 import { DEFAULT_LAYERS, DRAW_ORDER, sceneLayers, type LayerState } from '../src/layers/layers';
 import { hasStandardLines, standardLines } from '../src/layers/standardLines';
@@ -116,8 +119,9 @@ describe('the layers of a scene', () => {
     expect(layers.land).toBe(LAND);
     expect(layers.coast).toBe(COAST);
     expect(layers.drawings).toBe(NONE);
-    expect(DEFAULT_LAYERS.on).toEqual({ land: true, coast: true, graticule: true, borders: false, political: false, tissot: false, standard: false, reference: false, drawings: true });
+    expect(DEFAULT_LAYERS.on).toEqual({ land: true, coast: true, graticule: true, borders: false, political: false, rivers: false, lakes: false, depth: false, tissot: false, standard: false, reference: false, drawings: true, countryNames: false, seaNames: false, degrees: false, frame: false, titleBox: false });
     expect(DEFAULT_LAYERS.graticuleStep).toBe(10);
+    expect(DEFAULT_LAYERS).toMatchObject({ graticuleUnder: false, smallestName: 5, title: 'The World', subtitle: '', corner: 'tr' });
   });
 
   test('a layer turned off is not there, and the same layers give the very same objects, for the cuts to keep what they have prepared', () => {
@@ -148,6 +152,36 @@ describe('the layers of a scene', () => {
       const toPole = lines.filter((line) => Math.abs(line.at(-1)![1]!) > 89.9 || Math.abs(line[0]![1]!) > 89.9);
       expect(toPole, `${step}`).toHaveLength(4);
     }
+  });
+
+  test('rivers, lakes and depths are there once they have been fetched, and not before', async () => {
+    const on = with_({ rivers: true, lakes: true, depth: true });
+    // Nothing has been fetched: the map is drawn without them, from the very data it had.
+    expect(withWater(COARSE, '110m')).toBe(COARSE);
+    expect(Object.keys(sceneLayers(on, [mollweide], NONE, withWater(COARSE, '110m'))).sort()).toEqual(['coast', 'drawings', 'graticule', 'land', 'ocean']);
+    // All that is asked for is already there for a map with none of them on.
+    expect(loadWaterFor(DEFAULT_LAYERS.on, '110m')).toBeNull();
+    await loadWaterFor(on.on, '110m');
+    expect(loadWaterFor(on.on, '110m')).toBeNull();
+    const data = withWater(COARSE, '110m');
+    expect(withWater(COARSE, '110m')).toBe(data);
+    expect(data.land).toBe(LAND);
+    const layers = sceneLayers(on, [mollweide], NONE, data);
+    expect(layers.rivers).toBe(await loadWater('rivers', '110m'));
+    expect(layers.lakes).toBe(await loadWater('lakes', '110m'));
+    expect(layers.lakeEdges).toBe(lakeEdgesOf(await loadWater('lakes', '110m')));
+    const depth = await loadWater('depth', '110m');
+    expect([layers.depth0, layers.depth1, layers.depth2, layers.depth3]).toEqual(depth);
+    // Off, they are not there though the data is.
+    expect(Object.keys(sceneLayers(DEFAULT_LAYERS, [mollweide], NONE, data)).sort()).toEqual(['coast', 'drawings', 'graticule', 'land', 'ocean']);
+    expect(Object.keys(sceneLayers(with_({ lakes: true }), [mollweide], NONE, data)).sort()).toEqual(['coast', 'drawings', 'graticule', 'lakeEdges', 'lakes', 'land', 'ocean']);
+  });
+
+  test('the graticule can lie under the land, as a layer of another name', () => {
+    const under = sceneLayers(with_({}, { graticuleUnder: true }), [mollweide], NONE);
+    expect(under.graticule).toBeUndefined();
+    expect(under.graticuleUnder).toBe(sceneLayers(DEFAULT_LAYERS, [mollweide], NONE).graticule);
+    expect(sceneLayers(with_({ graticule: false }, { graticuleUnder: true }), [mollweide], NONE).graticuleUnder).toBeUndefined();
   });
 
   test('the reference circles are the equator, the tropics and the polar circles', () => {
@@ -190,10 +224,19 @@ describe('drawing the layers', () => {
     return { ctx: ctx as CanvasRenderingContext2D, ops };
   }
   const piece = (closed: boolean): ScenePiece => ({ closed, src: new Float32Array([0, 0, 10, 0, 10, 10]), dst: new Float32Array([0, 0, 10, 0, 10, 10]), ringStarts: new Uint32Array([0]), alphaSrc: 1, alphaDst: 1, behind: false, out: false });
-  const sceneOf = (names: string[]): Scene => ({ layers: Object.fromEntries(names.map((name) => [name, [piece(!/graticule|reference|borders|coast|standard/.test(name))]])), indicatrices: [] });
+  const sceneOf = (names: string[]): Scene => ({ layers: Object.fromEntries(names.map((name) => [name, [piece(!/graticule|reference|borders|coast|standard|rivers|lakeEdges/.test(name))]])), indicatrices: [] });
+
+  test('the sea deepens in its four colours under the land, rivers run under the lakes, and a lake is the sea\'s colour with a shore', () => {
+    const { ctx, ops } = recording();
+    drawScene(ctx, sceneOf(['ocean', 'depth0', 'depth1', 'depth2', 'depth3', 'graticuleUnder', 'land', 'rivers', 'lakes', 'lakeEdges', 'coast']), 1, style);
+    const colours = ops.map((o) => o.style).filter((s, i, all) => s !== all[i - 1]);
+    expect(colours).toEqual([style.ocean, ...style.depth, style.graticule, style.land, style.rivers, style.ocean, style.rivers, style.coast]);
+    const strokes = ops.filter((o) => o.op === 'stroke' && o.style === style.rivers).map((o) => o.width);
+    expect(strokes).toEqual([style.riversWidth, style.lakeEdgeWidth]);
+  });
 
   test('bottom to top: sea, land or the political colours, graticule, reference circles, borders, coast, standard lines, drawings', () => {
-    expect(DRAW_ORDER.map((entry) => entry.layer)).toEqual(['ocean', 'land', 'political0', 'political1', 'political2', 'political3', 'political4', 'graticule', 'reference', 'borders', 'coast', 'standardOut', 'standardIn', 'standard', 'drawings']);
+    expect(DRAW_ORDER.map((entry) => entry.layer)).toEqual(['ocean', 'depth0', 'depth1', 'depth2', 'depth3', 'graticuleUnder', 'land', 'political0', 'political1', 'political2', 'political3', 'political4', 'rivers', 'lakes', 'lakeEdges', 'graticule', 'reference', 'borders', 'coast', 'standardOut', 'standardIn', 'standard', 'drawings']);
     const { ctx, ops } = recording();
     drawScene(ctx, sceneOf(['ocean', 'political0', 'political3', 'graticule', 'reference', 'borders', 'coast', 'standard', 'drawings']), 1, style);
     const colours = ops.map((o) => o.style).filter((s, i, all) => s !== all[i - 1]);

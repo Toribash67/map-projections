@@ -20,7 +20,7 @@ describe('preferences', () => {
     const prefs: Prefs = {
       theme: 'blueprint',
       overrides: { ocean: '#102030', accent: '#AABBCC' },
-      layers: { on: { ...DEFAULT_LAYERS.on, political: true, coast: false, tissot: true }, graticuleStep: 30 },
+      layers: { on: { ...DEFAULT_LAYERS.on, political: true, coast: false, tissot: true, rivers: true, countryNames: true, titleBox: true }, graticuleStep: 30, graticuleUnder: true, smallestName: 3, title: 'Ma carte', subtitle: 'for the hall', corner: 'bl' },
       locator: { surface: false, collapsed: true },
       drawMode: 'globe',
     };
@@ -43,9 +43,17 @@ describe('preferences', () => {
     expect(loadPrefs(stored({ overrides: { ocean: 'red', land: '#12345', coast: '#abcdef', sky: '#000000', accent: 7 } })).overrides).toEqual({ coast: '#abcdef' });
     // A layer that is not a yes or no, or is missing, is as it is by default; one that is not a layer is dropped.
     const layers = loadPrefs(stored({ layers: { on: { borders: true, land: 'no', clouds: true }, graticuleStep: 20 } })).layers;
-    expect(layers).toEqual({ on: { ...DEFAULT_LAYERS.on, borders: true }, graticuleStep: 10 });
+    expect(layers).toEqual({ ...DEFAULT_LAYERS, on: { ...DEFAULT_LAYERS.on, borders: true } });
     expect(loadPrefs(stored({ layers: 'all' })).layers).toEqual(DEFAULT_LAYERS);
-    expect(loadPrefs(stored({ layers: { on: null, graticuleStep: 15 } })).layers).toEqual({ on: DEFAULT_LAYERS.on, graticuleStep: 15 });
+    expect(loadPrefs(stored({ layers: { on: null, graticuleStep: 15 } })).layers).toEqual({ ...DEFAULT_LAYERS, graticuleStep: 15 });
+    // The choices of the names and the plate: one that is not a choice is the default, a size is kept within its limits, and a title is not endless.
+    const read = (layers: unknown) => loadPrefs(stored({ layers })).layers;
+    expect(read({ corner: 'middle', smallestName: 'x', graticuleUnder: 1, title: 7, subtitle: null })).toEqual(DEFAULT_LAYERS);
+    expect(read({ smallestName: 50 }).smallestName).toBe(10);
+    expect(read({ smallestName: -3 }).smallestName).toBe(2);
+    expect(read({ smallestName: 7.5 }).smallestName).toBe(7.5);
+    expect(read({ title: 'x'.repeat(500), subtitle: 'y'.repeat(500) })).toMatchObject({ title: 'x'.repeat(80), subtitle: 'y'.repeat(80) });
+    expect(read({ title: '', corner: 'tl' })).toMatchObject({ title: '', corner: 'tl' });
   });
 
   test('saving where nothing can be kept throws nothing', () => {

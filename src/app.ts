@@ -10,7 +10,7 @@ import { drawScene } from './render/draw';
 import { styleOf, type Style } from './render/style';
 import type { Snapshot } from './export/render';
 import { COARSE, DEFAULT_LAYERS, sceneLayers, type GraticuleStep, type LayerId, type LayerState, type MapData } from './layers/layers';
-import { loadMapData } from './layers/mapData';
+import { loadMapData, loadWaterFor, withWater } from './layers/mapData';
 import { computeScreen, isCovered, projectPoint, screenToLonLat, type ScreenTransform, type Viewport } from './screen/screen';
 import { applyView, clampView, FIT, zoomAbout, type View } from './screen/view';
 import { visibleCap } from './screen/visible';
@@ -29,6 +29,7 @@ const FINE_FROM = 3;
 const FINE_BUDGET = 40;
 const FINE_AFTER = 250;
 const REST_SHARE = 0.6;
+const WATER_LAYERS = ['rivers', 'lakes', 'depth'] as const;
 
 /** Whether two states are the same map, number for number. */
 const sameState = (a: ProjectionState, b: ProjectionState): boolean => {
@@ -80,6 +81,8 @@ export class App {
   // The finer coastlines, once fetched, and whether they have been asked for.
   private fine: MapData | null = null;
   private fineAsked = false;
+  // The rivers, lakes and depths being fetched now, by scale and layers, so that none is asked for twice at once.
+  private readonly waterAsked = new Set<string>();
   // How long a frame with them last took, about, the layers it was timed with, and whether the map has been left alone since it last changed.
   private fineCost = 0;
   private fineTimed: LayerState | null = null;
@@ -312,8 +315,14 @@ export class App {
   }
 
   setGraticuleStep(step: GraticuleStep): void {
-    if (step === this.layers.graticuleStep) return;
-    this.layers = { ...this.layers, graticuleStep: step };
+    this.setLayerOptions({ graticuleStep: step });
+  }
+
+  /** Changes the choices that go with the layers: the graticule's, the smallest name, and what the title box says and where it sits. */
+  setLayerOptions(patch: Partial<Omit<LayerState, 'on'>>): void {
+    const keys = Object.keys(patch) as (keyof typeof patch)[];
+    if (keys.every((key) => patch[key] === this.layers[key])) return;
+    this.layers = { ...this.layers, ...patch };
     this.invalidate();
     this.notify();
   }
@@ -355,6 +364,7 @@ export class App {
   private invalidate(): void {
     this.stale = true;
     if (this.view.zoom >= FINE_FROM && !this.fine && !this.fineAsked) void this.fetchFine();
+    this.fetchWater();
     this.rested = false;
     window.clearTimeout(this.restTimer);
     this.restTimer = this.fine && this.view.zoom >= FINE_FROM && this.fineCost > FINE_BUDGET ? window.setTimeout(this.rest, FINE_AFTER) : 0;
@@ -379,8 +389,31 @@ export class App {
       this.fineAsked = false;
       return;
     }
+    this.fetchWater();
     this.stale = true;
     this.request();
+  }
+
+  /**
+   * Fetches the rivers, lakes and depths that the layers that are on need, at the scales the map is drawn at, and draws the map again
+   * when they come. Until then the map is drawn without them. One that could not be fetched is asked for again at the next change.
+   */
+  private fetchWater(): void {
+    const levels = this.fine && this.view.zoom >= FINE_FROM ? (['110m', '50m'] as const) : (['110m'] as const);
+    for (const level of levels) {
+      const key = `${level}:${WATER_LAYERS.filter((id) => this.layers.on[id]).join()}`;
+      if (this.waterAsked.has(key)) continue;
+      const coming = loadWaterFor(this.layers.on, level);
+      if (!coming) continue;
+      this.waterAsked.add(key);
+      coming
+        .then(() => {
+          this.stale = true;
+          this.request();
+        })
+        .catch(() => {})
+        .finally(() => this.waterAsked.delete(key));
+    }
   }
 
   private request(): void {
@@ -413,7 +446,7 @@ export class App {
       // whole and at once, which they are too many for: it has the coarse ones.
       const fine = !target && this.view.zoom >= FINE_FROM && (this.fineCost <= FINE_BUDGET || this.rested) ? this.fine : null;
       if (fine) began = performance.now();
-      const layers = sceneLayers(this.layers, maps, this.drawings, fine ?? COARSE);
+      const layers = sceneLayers(this.layers, maps, this.drawings, fine ? withWater(fine, '50m') : withWater(COARSE, '110m'));
       // What a map cannot show is only seen in a morph, where it folds over as it moves to its place on the other map: its ocean comes as cells too.
       const cells = target ? capOceanLayer([...source, target]) : null;
       if (cells) layers.capOcean = cells;

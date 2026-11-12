@@ -1,4 +1,4 @@
-import { DEFAULT_LAYERS, type GraticuleStep, type LayerId, type LayerState } from './layers/layers';
+import { CORNERS, DEFAULT_LAYERS, SMALLEST_NAME, TITLE_LENGTH, type Corner, type GraticuleStep, type LayerId, type LayerState } from './layers/layers';
 import { COLOUR_NAMES, THEME_NAMES, type ColourKey, type Overrides, type ThemeId } from './theme/themes';
 
 /** What is remembered between visits: how the map looks and what it shows, not which map it is. */
@@ -26,6 +26,8 @@ export const PREFS_KEY = 'map-projections:prefs:v1';
 const COLOUR = /^#[0-9a-f]{6}$/i;
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+/** A title as it was typed, no longer than a title may be. */
+const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? v.slice(0, TITLE_LENGTH) : fallback);
 
 function readOverrides(v: unknown): Overrides {
   const out: Overrides = {};
@@ -44,6 +46,11 @@ function readLayers(v: unknown): LayerState {
   return {
     on: Object.fromEntries(ids.map((id) => [id, flag(on[id], DEFAULT_LAYERS.on[id])])) as Record<LayerId, boolean>,
     graticuleStep: ([10, 15, 30] as unknown[]).includes(kept.graticuleStep) ? (kept.graticuleStep as GraticuleStep) : DEFAULT_LAYERS.graticuleStep,
+    graticuleUnder: flag(kept.graticuleUnder, DEFAULT_LAYERS.graticuleUnder),
+    smallestName: typeof kept.smallestName === 'number' && Number.isFinite(kept.smallestName) ? Math.min(SMALLEST_NAME.max, Math.max(SMALLEST_NAME.min, kept.smallestName)) : DEFAULT_LAYERS.smallestName,
+    title: text(kept.title, DEFAULT_LAYERS.title),
+    subtitle: text(kept.subtitle, DEFAULT_LAYERS.subtitle),
+    corner: (CORNERS as readonly unknown[]).includes(kept.corner) ? (kept.corner as Corner) : DEFAULT_LAYERS.corner,
   };
 }
 
