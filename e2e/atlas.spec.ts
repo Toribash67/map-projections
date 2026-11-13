@@ -113,9 +113,14 @@ test('the title box says what is typed, in the corner chosen, and the frame give
   expect((await plate()).box.lines[0].text).toContain('MERCATOR, FOR THE HALL');
   await box(page, 'Country names').uncheck();
   const right = (await plate()).box;
-  await panel(page).getByRole('combobox', { name: 'Corner' }).selectOption('bl');
+  await panel(page).getByRole('radio', { name: 'Bottom left' }).check();
   await expect.poll(async () => (await plate()).box.x).toBeLessThan(right.x - 200);
   expect((await plate()).box.y).toBeGreaterThan(right.y + 100);
+  // Any of nine places: the middle of the top is between the two top corners, as high as they are.
+  const left = (await plate()).box;
+  await panel(page).getByRole('radio', { name: 'Top middle' }).check();
+  await expect.poll(async () => (await plate()).box.y).toBe(right.y);
+  expect((await plate()).box.x).toBeCloseTo((left.x + right.x) / 2, 3);
 
   const fit = () => page.evaluate(() => (window as any).__app.live.screen.k);
   const k = await fit();
@@ -133,7 +138,7 @@ test('what is chosen is kept for the next visit', async ({ page }) => {
   await onMercator(page);
   for (const name of ['Rivers', 'Country names', 'Degrees', 'Under the land', 'Frame', 'Title box']) await box(page, name).check();
   await panel(page).getByRole('textbox', { name: 'Title', exact: true }).fill('Kept');
-  await panel(page).getByRole('combobox', { name: 'Corner' }).selectOption('tl');
+  await panel(page).getByRole('radio', { name: 'Top left' }).check();
   await page.reload();
   await page.waitForFunction(() => (window as any).__app !== undefined);
   const layers = await page.evaluate(() => (window as any).__app.layers);

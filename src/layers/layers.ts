@@ -10,9 +10,10 @@ export type LayerId =
   | 'land' | 'coast' | 'graticule' | 'borders' | 'political' | 'rivers' | 'lakes' | 'depth' | 'tissot' | 'standard' | 'reference' | 'drawings'
   | 'countryNames' | 'seaNames' | 'degrees' | 'frame' | 'titleBox';
 export type GraticuleStep = 10 | 15 | 30;
-/** A corner of the picture: top or bottom, left or right. */
-export type Corner = 'tl' | 'tr' | 'bl' | 'br';
-export const CORNERS: readonly Corner[] = ['tl', 'tr', 'bl', 'br'];
+/** A place in the picture, of nine: top, middle or bottom, and then left, middle or right. Most are corners, which it is named for. */
+export type Corner = 'tl' | 'tm' | 'tr' | 'ml' | 'mm' | 'mr' | 'bl' | 'bm' | 'br';
+/** As they lie in the picture, row by row. */
+export const CORNERS: readonly Corner[] = ['tl', 'tm', 'tr', 'ml', 'mm', 'mr', 'bl', 'bm', 'br'];
 /** The limits of the smallest lettering a name may have, in pixels of the screen, and how long a title may be. */
 export const SMALLEST_NAME = { min: 1, max: 10 } as const;
 export const TITLE_LENGTH = 80;

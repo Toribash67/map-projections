@@ -1,5 +1,5 @@
 import type { App } from '../app';
-import { LAYER_NAMES, SMALLEST_NAME, TITLE_LENGTH, type Corner, type GraticuleStep, type LayerId } from '../layers/layers';
+import { CORNERS, LAYER_NAMES, SMALLEST_NAME, TITLE_LENGTH, type Corner, type GraticuleStep, type LayerId } from '../layers/layers';
 import { hasStandardLines } from '../layers/standardLines';
 import { PALETTES } from '../theme/palette';
 import { currentScheme } from '../theme/scheme';
@@ -33,7 +33,7 @@ const STEPS: GraticuleStep[] = [10, 15, 30];
 // What is written and drawn over the map, in the order it is listed for choosing.
 const NAME_LAYERS: [LayerId, string][] = [['countryNames', 'Country names'], ['seaNames', 'Sea names']];
 const PLATE_LAYERS: [LayerId, string][] = [['frame', 'Frame'], ['titleBox', 'Title box']];
-const CORNER_NAMES: [Corner, string][] = [['tl', 'Top left'], ['tr', 'Top right'], ['bl', 'Bottom left'], ['br', 'Bottom right']];
+const CORNER_NAMES: Record<Corner, string> = { tl: 'Top left', tm: 'Top middle', tr: 'Top right', ml: 'Middle left', mm: 'Centre', mr: 'Middle right', bl: 'Bottom left', bm: 'Bottom middle', br: 'Bottom right' };
 const UNDER = 'The graticule under the land: over the sea only';
 const SMALLEST = 'The smallest lettering a name may have, in pixels of the screen. The smaller, the more countries are named; an export is the screen enlarged, so lettering too small to read here can be read in print';
 const NO_GRATICULE = 'The graticule is off';
@@ -141,17 +141,25 @@ export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonE
   };
   const title = textRow('Title', 'title', 'The title in the box, lettered in capitals. Left empty, the box has none');
   const subtitle = textRow('Subtitle', 'subtitle', 'A line under the title. Left empty, the box has none');
-  const cornerRow = el('label', 'option-row', 'Corner');
-  const corner = el('select', 'theme');
-  for (const [id, name] of CORNER_NAMES) {
-    const option = el('option', '', name);
-    option.value = id;
-    corner.append(option);
-  }
-  corner.addEventListener('change', () => app.setLayerOptions({ corner: corner.value as Corner }));
-  cornerRow.append(corner);
-  tip(cornerRow, 'The corner of the picture the title box sits in. It does not keep clear of the map: choose a corner the map leaves empty');
-  plate.append(cornerRow);
+  // Where the box sits: a small picture of the picture, with a place to press for each of the nine.
+  const placeRow = el('div', 'option-row', 'Place');
+  tip(placeRow, 'Where in the picture the title box sits. It does not keep clear of the map: choose a place the map leaves empty');
+  const places = el('span', 'places');
+  places.setAttribute('role', 'radiogroup');
+  places.setAttribute('aria-label', 'Place');
+  const placeInputs = CORNERS.map((id) => {
+    const input = el('input', 'place');
+    input.type = 'radio';
+    input.name = 'title-place';
+    input.value = id;
+    input.setAttribute('aria-label', CORNER_NAMES[id]);
+    tip(input, CORNER_NAMES[id]);
+    input.addEventListener('change', () => app.setLayerOptions({ corner: id }));
+    places.append(input);
+    return input;
+  });
+  placeRow.append(places);
+  plate.append(placeRow);
 
   // Theme and colours.
   const themeRow = el('label', 'theme-row', 'Theme');
@@ -235,11 +243,15 @@ export function createLayersPanel(app: App, container: HTMLElement): HTMLButtonE
     // Not under the hand of someone typing.
     if (document.activeElement !== title) title.value = app.layers.title;
     if (document.activeElement !== subtitle) subtitle.value = app.layers.subtitle;
-    corner.value = app.layers.corner;
-    for (const control of [title, subtitle, corner]) {
+    for (const control of [title, subtitle]) {
       control.disabled = !on.titleBox;
       control.parentElement!.classList.toggle('disabled', control.disabled);
     }
+    for (const input of placeInputs) {
+      input.checked = input.value === app.layers.corner;
+      input.disabled = !on.titleBox;
+    }
+    placeRow.classList.toggle('disabled', !on.titleBox);
     theme.value = app.theme;
     let any = false;
     for (const { key, input, reset } of pickers) {

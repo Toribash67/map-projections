@@ -74,6 +74,20 @@ describe('the frame and the title box', () => {
     const [right, bottom] = [PICTURE.width - left - box!.width, PICTURE.height - top - box!.height];
     expect(corner[1] === 'l' ? left : right).toBeCloseTo(20, 6);
     expect(corner[0] === 't' ? top : bottom).toBeCloseTo(20, 6);
+  });
+
+  test.each(['tm', 'bm', 'ml', 'mr', 'mm'] as Corner[])('or at the middle of a side, or of the picture (%s): against that side if any, and half way along', (place) => {
+    const { box } = plate({ frame: true, titleBox: true }, { corner: place });
+    const [left, top] = [box!.x - PICTURE.x, box!.y - PICTURE.y];
+    const [right, bottom] = [PICTURE.width - left - box!.width, PICTURE.height - top - box!.height];
+    if (place[0] === 'm') expect(top).toBeCloseTo(bottom, 6);
+    else expect(place[0] === 't' ? top : bottom).toBeCloseTo(20, 6);
+    if (place[1] === 'm') expect(left).toBeCloseTo(right, 6);
+    else expect(place[1] === 'l' ? left : right).toBeCloseTo(20, 6);
+  });
+
+  test('the lines of the box are inside it, about its middle', () => {
+    const { box } = plate({ frame: true, titleBox: true }, { corner: 'tr' });
     for (const line of box!.lines) {
       expect(line.x).toBeCloseTo(box!.x + box!.width / 2, 6);
       expect(line.y).toBeGreaterThan(box!.y + line.size * 0.5);

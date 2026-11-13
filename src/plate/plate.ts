@@ -111,8 +111,10 @@ export function buildPlate(state: ProjectionState, named: { name: string; params
   const width = inner + 2 * BOX_PAD.x * u;
   const height = (2 * BOX_PAD.y + drafts.reduce((sum, d) => sum + d.size + d.after, 0) + (drafts.some((d) => d.rule) ? 12 : 0)) * u;
   const edge = (FRAME_INSET + BOX_INSET) * u;
-  const x = layers.corner[1] === 'l' ? picture.x + edge : picture.x + picture.width - edge - width;
-  const y = layers.corner[0] === 't' ? picture.y + edge : picture.y + picture.height - edge - height;
+  // Against a side, or half way between two.
+  const [down, across] = layers.corner;
+  const x = across === 'l' ? picture.x + edge : across === 'm' ? picture.x + (picture.width - width) / 2 : picture.x + picture.width - edge - width;
+  const y = down === 't' ? picture.y + edge : down === 'm' ? picture.y + (picture.height - height) / 2 : picture.y + picture.height - edge - height;
 
   const lines: PlateLine[] = [];
   let rule: NonNullable<Plate['box']>['rule'] = null;
