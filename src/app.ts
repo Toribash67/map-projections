@@ -201,7 +201,8 @@ export class App {
     const going = this.slide?.to;
     if (going && going.defId === next.defId) {
       const kept = <T extends Record<string, number>>(now: T, wanted: T, target: T): T =>
-        Object.fromEntries(Object.keys({ ...target, ...wanted }).map((key) => [key, wanted[key] === now[key] ? (target[key] ?? wanted[key]) : wanted[key]])) as T;
+        // A parameter left to the map is not among them at all.
+        Object.fromEntries(Object.keys({ ...target, ...wanted }).map((key) => [key, wanted[key] === now[key] ? (target[key] ?? wanted[key]) : wanted[key]]).filter(([, value]) => value !== undefined)) as T;
       next.params = kept(this.state.params, next.params, going.params);
       next.orientation = kept(this.state.orientation, next.orientation, going.orientation);
     }

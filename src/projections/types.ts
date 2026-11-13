@@ -34,6 +34,10 @@ export interface ProjectionDef {
   turn?: number;
   raw(p: Params): RawFn;
   caps(p: Params): ExcludedCap[];
+  /** Parameters that are not among the defaults, and what the map makes of each where it is not given: they depend on the others. */
+  auto?(p: Params): Params;
+  /** The least and the most a parameter may be with the others as they are, where that is not simply its slider's, or null. */
+  range?(p: Params, key: string): [number, number] | null;
   /** Points of the frame, besides the centres of the caps, round which the map is so steep that a path by them needs finer steps. */
   singular?: LonLat[];
   seam: Seam;

@@ -11,7 +11,8 @@ function sameMap(a: Member, b: Member): boolean {
   const [pa, pb] = [a.compiled, b.compiled];
   const def = pa.def;
   if (def !== pb.def) return false;
-  const params = Object.keys(def.defaultParams);
+  // With the parameters a map makes for itself where they are not given, which are not among the defaults.
+  const params = Object.keys({ ...def.defaultParams, ...pa.state.params, ...pb.state.params });
   const param = (state: typeof pa.state, key: string) => state.params[key] ?? def.defaultParams[key];
   if (params.some((key) => param(pa.state, key) !== param(pb.state, key))) return false;
   const [oa, ob] = [pa.state.orientation, pb.state.orientation];

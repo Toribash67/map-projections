@@ -26,7 +26,7 @@ test('the parameters are those of the map on screen and no others: what does not
   expect(await sliderNames(page)).toEqual(['View distance', 'Longitude', 'Latitude']);
   const expected: Record<string, string[]> = {
     mollweide: ['Longitude', 'Latitude', 'Tilt'],
-    albers: ['First parallel', 'Second parallel', 'Longitude'],
+    albers: ['First parallel', 'Second parallel', 'Cut south of', 'Cut north of', 'Longitude'],
     mercator: ['Standard parallel', 'Vertical spacing', 'Longitude', 'Latitude', 'Tilt'],
     stereographic: ['Viewpoint', 'Longitude', 'Latitude'],
     'azimuthal-equidistant': ['Longitude', 'Latitude'],

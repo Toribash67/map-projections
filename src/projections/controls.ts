@@ -1,5 +1,5 @@
 import { formatDegrees, parseDegrees } from '../geo/angles';
-import { getDef, NEAREST_VIEW, POLAR_PARALLEL } from './catalog';
+import { CONIC_BAND, getDef, NEAREST_VIEW, POLAR_PARALLEL } from './catalog';
 import { matchStop } from './compile';
 import type { ProjectionState } from './types';
 
@@ -62,7 +62,14 @@ const conicParallel = (key: string, label: string): ParamControl => ({
   snap: 1,
   ...degrees,
 });
-const conic = [conicParallel('p1', 'First parallel'), conicParallel('p2', 'Second parallel')];
+/** A cut of a conic. Its range is the widest any cone allows: the map keeps a cut within what its own cone does. */
+const conicCut = (key: string, label: string, tip: string, min: number, max: number): ParamControl => ({ key, label, tip, min, max, step: 0.5, ...degrees });
+const conic = [
+  conicParallel('p1', 'First parallel'),
+  conicParallel('p2', 'Second parallel'),
+  conicCut('south', 'Cut south of', 'The latitude south of which the map is cut off. Reset, it is where the cone cuts itself, and follows the parallels', -90, 90 - CONIC_BAND),
+  conicCut('north', 'Cut north of', 'The latitude north of which the map is cut off. Reset, it is where the cone cuts itself, and follows the parallels', CONIC_BAND - 90, 90),
+];
 
 const CONTROLS: Record<string, ParamControl[]> = {
   globe: [

@@ -93,30 +93,69 @@ const mix = (a: number, b: number, w: number): number => a * (1 - w) + b * w;
 const CYLINDER_BELOW = 0.2;
 const DISC_ABOVE = 0.9;
 
-/**
- * Apex pole and far pole of a cone, with the radii they are given at cone constant `n`. A cone
- * with n = 0 is a cylinder; the north pole is called the apex.
- */
-function conicCaps(n: number, apexRadius: number, farRadius: number): ExcludedCap[] {
-  const [apex, far] = n >= 0 ? [NORTH_POLE, SOUTH_POLE] : [SOUTH_POLE, NORTH_POLE];
-  return [cap(apex, apexRadius), cap(far, farRadius)];
-}
+/** What a cone cuts by itself: its constant, the radii of the caps round its apex and its far pole, and the least the far one can be. */
+type ConeCut = { n: number; apex: number; far: number; least: number };
 
 /**
- * Caps of the conformal conic. At the limits of its sliders they are Mercator's, which cuts both
- * poles, and polar stereographic's, which cuts a cap round the antipode of its centre.
+ * The conformal conic's own cut. At the limits of its sliders it is Mercator's, which cuts both
+ * poles, and polar stereographic's, which cuts a cap round the antipode of its centre. Its far pole
+ * is infinitely far away, so there is always a cap there, wider for a steeper cone.
  */
-function conformalCaps(p1: number, p2: number): ExcludedCap[] {
+function conformalCut(p1: number, p2: number): ConeCut {
   const n = conformalN(p1, p2);
   const a = Math.abs(n);
-  return conicCaps(n, mix(5, 0.1, ramp(a, 0, CYLINDER_BELOW)), mix(5 + 55 * a, 15, ramp(a, DISC_ABOVE, 1)));
+  return { n, apex: mix(5, 0.1, ramp(a, 0, CYLINDER_BELOW)), far: mix(5 + 55 * a, 15, ramp(a, DISC_ABOVE, 1)), least: 5 + 10 * a };
 }
 
-/** Caps of the equal-area conic. Cylindrical equal-area and polar Lambert azimuthal cut next to nothing. */
-function equalAreaCaps(p1: number, p2: number): ExcludedCap[] {
+/** The equal-area conic's own cut. Cylindrical equal-area and polar Lambert azimuthal cut next to nothing, and it can show its far pole. */
+function equalAreaCut(p1: number, p2: number): ConeCut {
   const n = equalAreaN(p1, p2);
-  return conicCaps(n, 0.1, mix(0.1 + 25 * Math.abs(n), 0.1, ramp(Math.abs(n), DISC_ABOVE, 1)));
+  return { n, apex: 0.1, far: mix(0.1 + 25 * Math.abs(n), 0.1, ramp(Math.abs(n), DISC_ABOVE, 1)), least: 0.1 };
 }
+
+/** The least of a conic that is left between its two cuts, in degrees of latitude. */
+export const CONIC_BAND = 5;
+
+/** For the north pole and the south: the radius of the cap a cone cuts there by itself, and the least it may be. */
+function poleCuts(c: ConeCut): { north: [number, number]; south: [number, number] } {
+  const [apex, far]: [[number, number], [number, number]] = [[c.apex, c.apex], [c.far, c.least]];
+  return c.n >= 0 ? { north: apex, south: far } : { north: far, south: apex };
+}
+
+/**
+ * A conic's caps: the cone's own, or where the parameters `south` and `north` are given, down to those latitudes. A cut is never
+ * nearer a pole than the cone allows, and the two leave a band between them even where they are given crossed.
+ */
+function cutCaps(c: ConeCut, p: Params): ExcludedCap[] {
+  const { north, south } = poleCuts(c);
+  const most = 180 - CONIC_BAND;
+  const northRadius = Math.min(p.north === undefined ? north[0] : Math.max(north[1], 90 - p.north), most - south[1]);
+  const southRadius = Math.min(p.south === undefined ? south[0] : Math.max(south[1], 90 + p.south), most - northRadius);
+  const [atNorth, atSouth] = [cap(NORTH_POLE, northRadius), cap(SOUTH_POLE, southRadius)];
+  return c.n >= 0 ? [atNorth, atSouth] : [atSouth, atNorth];
+}
+
+/** The latitudes a cone cuts itself at, which the parameters `south` and `north` are where they are not given. */
+function ownCuts(c: ConeCut): Params {
+  const { north, south } = poleCuts(c);
+  return { south: south[0] - 90, north: 90 - north[0] };
+}
+
+/** How far a cut of a conic may go: no nearer its pole than the cone allows, and no nearer the other cut than the band. */
+function cutRange(c: ConeCut, p: Params, key: string): [number, number] | null {
+  const { north, south } = poleCuts(c);
+  const own = ownCuts(c);
+  if (key === 'south') return [south[1] - 90, Math.min(90 - north[1], p.north ?? own.north!) - CONIC_BAND];
+  if (key === 'north') return [Math.max(south[1] - 90, p.south ?? own.south!) + CONIC_BAND, 90 - north[1]];
+  return null;
+}
+
+/** What a conic has besides its formula, by the cut it makes for itself. */
+const conicCuts = (cut: (p1: number, p2: number) => ConeCut): Pick<ProjectionDef, 'caps' | 'auto' | 'range'> => ({
+  caps: (p) => cutCaps(cut(p.p1!, p.p2!), p),
+  auto: (p) => ownCuts(cut(p.p1!, p.p2!)),
+  range: (p, key) => cutRange(cut(p.p1!, p.p2!), p, key),
+});
 
 const antimeridian: Seam = { kind: 'antimeridian' };
 const noSeam: Seam = { kind: 'none' };
@@ -210,7 +249,7 @@ const defList: ProjectionDef[] = [
     tiltEnabled: false,
     latEnabled: false,
     raw: (p) => geoConicConformalRaw(p.p1! * rad, p.p2! * rad),
-    caps: (p) => conformalCaps(p.p1!, p.p2!),
+    ...conicCuts(conformalCut),
     seam: antimeridian,
   },
   {
@@ -221,7 +260,7 @@ const defList: ProjectionDef[] = [
     tiltEnabled: false,
     latEnabled: false,
     raw: (p) => geoConicEqualAreaRaw(p.p1! * rad, p.p2! * rad),
-    caps: (p) => equalAreaCaps(p.p1!, p.p2!),
+    ...conicCuts(equalAreaCut),
     seam: antimeridian,
   },
   // A cylindrical map with a spacing of its own, which the cylindrical sliders do not reach.

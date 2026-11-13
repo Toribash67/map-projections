@@ -11,7 +11,7 @@ import {
 } from 'd3-geo';
 import { geoCylindricalEqualAreaRaw, geoInterruptedHomolosine, geoSinusoidalRaw, geoVanDerGrintenRaw } from 'd3-geo-projection';
 import { getDef, stops } from '../src/projections/catalog';
-import { compile, matchStop, stateForStop } from '../src/projections/compile';
+import { compile, matchStop, paramOf, stateForStop, withParam } from '../src/projections/compile';
 import { controlsFor, nameOf } from '../src/projections/controls';
 import { cylindricalRaw, goodeRaw, nearPerspectiveRaw, perspectiveRaw, vanDerGrintenRaw } from '../src/projections/raws';
 import type { Lobe, LonLat, ProjectionState } from '../src/projections/types';
@@ -625,4 +625,60 @@ test('conic caps change continuously with the cone constant, from one pole to th
     expect(radiusAt(cylinder, 90), defId).toBeCloseTo(defId === 'conic-conformal' ? 5 : 0.1, 6);
     expect(radiusAt(disc, -90), defId).toBeCloseTo(defId === 'conic-conformal' ? 15 : 0.1, 2);
   }
+});
+
+test('a conic is cut where it is told to be, at a latitude to the south and one to the north, and cuts itself where it is not told', () => {
+  const def = getDef('conic-equal-area');
+  const own = def.caps({ p1: 29.5, p2: 45.5 });
+  // What it does for itself, as latitudes.
+  const auto = def.auto!({ p1: 29.5, p2: 45.5 });
+  expect(auto.north).toBeCloseTo(90 - own[0]!.radius, 12);
+  expect(auto.south).toBeCloseTo(own[1]!.radius - 90, 12);
+  // Trimmed to a band: the cap round each pole reaches to the cut. The apex comes first, as before.
+  expect(def.caps({ p1: 29.5, p2: 45.5, south: 20, north: 70 })).toEqual([
+    { frameCenter: [0, 90], radius: 20, mode: 'clip' },
+    { frameCenter: [0, -90], radius: 110, mode: 'clip' },
+  ]);
+  // One cut given, and the other is the cone's own.
+  expect(def.caps({ p1: 29.5, p2: 45.5, north: 70 })[1]).toEqual(own[1]);
+  // A southern cone has its apex at the south pole, and the cuts are still by latitude.
+  const south = def.caps({ p1: -29.5, p2: -45.5, south: -70, north: -20 });
+  expect(south[0]).toEqual({ frameCenter: [0, -90], radius: 20, mode: 'clip' });
+  expect(south[1]).toEqual({ frameCenter: [0, 90], radius: 110, mode: 'clip' });
+});
+
+test('a conic shows more than it would by itself, as far as it can: the equal-area one to the far pole, the conformal one short of it', () => {
+  const far = (id: string, p: Record<string, number>) => getDef(id).caps(p)[1]!.radius;
+  expect(far('conic-equal-area', { p1: 29.5, p2: 45.5, south: -90 })).toBeCloseTo(0.1, 12);
+  const conformal = far('conic-conformal', { p1: 33, p2: 45, south: -90 });
+  expect(conformal).toBeGreaterThan(5);
+  expect(conformal).toBeLessThan(far('conic-conformal', { p1: 33, p2: 45 }));
+  // What a cut may be: no nearer the far pole than that, and no nearer the other cut than a few degrees.
+  const [least, most] = getDef('conic-conformal').range!({ p1: 33, p2: 45, north: 70 }, 'south')!;
+  expect(least).toBeCloseTo(conformal - 90, 12);
+  expect(most).toBe(65);
+  expect(getDef('conic-conformal').range!({ p1: 33, p2: 45, south: 20 }, 'north')![0]).toBe(25);
+  expect(getDef('conic-conformal').range!({ p1: 33, p2: 45 }, 'p1')).toBeNull();
+});
+
+test('cuts that cross, as states in between two maps may have them, still leave a band of the map', () => {
+  for (const p of [{ south: 60, north: 20 }, { south: 89, north: 89.5 }, { south: -89.5, north: -89 }]) {
+    const [a, b] = getDef('conic-conformal').caps({ p1: 33, p2: 45, ...p });
+    expect(a!.radius + b!.radius).toBeLessThanOrEqual(175 + 1e-9);
+    expect(Math.min(a!.radius, b!.radius)).toBeGreaterThan(0);
+  }
+});
+
+test('a parameter the map sets for itself is read as what the map sets, and set to that it is the map\'s own again', () => {
+  const state = stateForStop(stops.find((s) => s.id === 'albers')!);
+  const auto = getDef(state.defId).auto!(state.params);
+  expect(paramOf(state, 'south')).toBe(auto.south);
+  expect(paramOf(state, 'p1')).toBe(29.5);
+  expect(withParam(state, 'south', 20)).toEqual({ ...state.params, south: 20 });
+  const trimmed = { ...state, params: withParam(state, 'south', 20) };
+  expect(paramOf(trimmed, 'south')).toBe(20);
+  expect(withParam(trimmed, 'south', auto.south!)).toEqual(state.params);
+  // Kept within what the map can show.
+  expect(withParam(trimmed, 'north', 0).north).toBe(25);
+  expect(matchStop(trimmed)?.id).toBe('albers');
 });

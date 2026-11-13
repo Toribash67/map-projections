@@ -1,7 +1,7 @@
 import type { App } from '../app';
 import { clampLat, formatDegrees, normaliseLon, parseDegrees } from '../geo/angles';
 import { getDef } from '../projections/catalog';
-import { stateForStop } from '../projections/compile';
+import { paramOf, stateForStop, withParam } from '../projections/compile';
 import { controlsFor, nameOf } from '../projections/controls';
 import type { Orientation, ProjectionState } from '../projections/types';
 import { el } from './dom';
@@ -43,7 +43,8 @@ export function createParameters(app: App): HTMLElement {
     const def = getDef(app.state.defId);
     return { defId: def.id, params: { ...def.defaultParams }, orientation: chosen.orientation };
   };
-  const defaultParam = (key: string) => defaults().params[key] ?? getDef(app.state.defId).defaultParams[key]!;
+  // A parameter the map makes for itself returns to what the map on screen makes of it.
+  const defaultParam = (key: string) => defaults().params[key] ?? paramOf({ ...app.state, params: { ...app.state.params, [key]: undefined } as Record<string, number> }, key);
 
   // Each slider, and how it reads its value from a state. Rebuilt when the set of controls changes.
   let bound: { slider: Slider; read(state: ProjectionState): number }[] = [];
@@ -77,7 +78,7 @@ export function createParameters(app: App): HTMLElement {
     radios = [];
     for (const control of controlsFor(def.id)) {
       const { key } = control;
-      add({ ...control, defaultValue: () => defaultParam(key) }, (state) => state.params[key] ?? getDef(state.defId).defaultParams[key]!, (v) => ({ params: { ...app.state.params, [key]: v } }));
+      add({ ...control, defaultValue: () => defaultParam(key) }, (state) => paramOf(state, key), (v) => ({ params: withParam(app.state, key, v) }));
     }
     if (def.family === 'conic') body.append(kindSwitch());
     add({ ...angle, label: 'Longitude', tip: "The longitude of the map's centre", min: -180, max: 180, parse: parseLongitude, defaultValue: () => defaults().orientation.lon }, (state) => state.orientation.lon, (v) => orientation({ lon: v }));

@@ -558,3 +558,36 @@ test('the globe has a view distance: from nearer, less of it is in sight, and it
   expect((await state(page)).params.d).toBe(0);
   expect(errors).toEqual([]);
 });
+
+test('a conic is trimmed to a band of latitude by its two cuts, fills the window with it, and takes its own cut back at a reset', async ({ page }) => {
+  await open(page);
+  await pick(page, 'albers');
+  await settle(page);
+  const own = await snapshot(page);
+  expect(own.state.params.south).toBeUndefined();
+  const box = page.getByRole('textbox', { name: 'Cut south of, value' });
+  // The cone's own cut is what the box shows until it is set.
+  expect(parseFloat(await box.inputValue())).toBeLessThan(-60);
+
+  await move(page, 'Cut south of', 20);
+  await move(page, 'Cut north of', 70);
+  const trimmed = await snapshot(page);
+  expect(trimmed.state.params).toMatchObject({ south: 20, north: 70 });
+  const compiled = compile(trimmed.state);
+  expect(isCovered(compiled, [10, 45])).toBe(true);
+  expect(isCovered(compiled, [10, 10])).toBe(false);
+  expect(isCovered(compiled, [10, 80])).toBe(false);
+  // Less of the world in the same window: it is drawn larger.
+  expect(trimmed.screen.k).toBeGreaterThan(own.screen.k * 1.2);
+  // It is still Albers, and one cut cannot pass the other.
+  await expect(mapName(page)).toHaveText('Albers');
+  await move(page, 'Cut north of', 0);
+  expect((await state(page)).params.north).toBe(25);
+
+  await page.getByRole('button', { name: 'Reset cut south of' }).click();
+  await settle(page);
+  expect((await state(page)).params.south).toBeUndefined();
+  await page.getByRole('button', { name: 'Reset all' }).click();
+  await settle(page);
+  expect((await state(page)).params).toEqual(own.state.params);
+});

@@ -1,5 +1,6 @@
 import { normaliseLon } from '../geo/angles';
 import { getDef } from '../projections/catalog';
+import { paramOf } from '../projections/compile';
 import type { Orientation, Params, ProjectionState } from '../projections/types';
 import { DURATION, easeInOutCubic } from './controller';
 
@@ -8,11 +9,15 @@ export const canSlide = (a: ProjectionState, b: ProjectionState): boolean => a.d
 
 const mix = (a: number, b: number, u: number): number => a + (b - a) * u;
 
+/**
+ * A parameter that a map makes for itself, and that either end was given, goes from the one value to the other, each end's own
+ * where it was not given one. Where neither was given it, the map in between makes its own.
+ */
 function paramsBetween(a: ProjectionState, b: ProjectionState, u: number): Params {
-  const defaults = getDef(a.defId).defaultParams;
   const out: Params = {};
-  for (const key of new Set([...Object.keys(defaults), ...Object.keys(a.params), ...Object.keys(b.params)])) {
-    out[key] = mix(a.params[key] ?? defaults[key]!, b.params[key] ?? defaults[key]!, u);
+  for (const key of new Set([...Object.keys(getDef(a.defId).defaultParams), ...Object.keys(a.params), ...Object.keys(b.params)])) {
+    if (a.params[key] === undefined && b.params[key] === undefined && getDef(a.defId).defaultParams[key] === undefined) continue;
+    out[key] = mix(paramOf(a, key), paramOf(b, key), u);
   }
   return out;
 }

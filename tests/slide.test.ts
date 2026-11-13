@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { DURATION } from '../src/morph/controller';
 import { canSlide, interpolateState, Slide } from '../src/morph/slide';
-import { stops } from '../src/projections/catalog';
+import { getDef, stops } from '../src/projections/catalog';
 import { stateForStop } from '../src/projections/compile';
 import type { ProjectionState } from '../src/projections/types';
 
@@ -64,4 +64,15 @@ test('a slide is eased and timed like a morph', () => {
   expect(slide.at(1000 + DURATION / 4).done).toBe(false);
   expect(slide.at(1000 + DURATION)).toEqual({ state: transverse, done: true });
   expect(slide.at(1000 + DURATION).state).toBe(transverse);
+});
+
+test('a cut a conic was given slides to the one it sets for itself, and is its own at the end', () => {
+  const albers = stateOf('albers');
+  const auto = getDef(albers.defId).auto!(albers.params).south!;
+  const trimmed = { ...albers, params: { ...albers.params, south: 20 } };
+  expect(interpolateState(trimmed, albers, 0.5).params.south).toBeCloseTo((20 + auto) / 2, 9);
+  expect(interpolateState(trimmed, albers, 1)).toBe(albers);
+  // Where neither end was given one, the map in between sets its own.
+  const other = { ...albers, params: { p1: 10, p2: 20 } };
+  expect(interpolateState(albers, other, 0.5).params).toEqual({ p1: (29.5 + 10) / 2, p2: (45.5 + 20) / 2 });
 });

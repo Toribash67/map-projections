@@ -1,6 +1,6 @@
 import { fromFrame, toFrame } from '../geo/orientation';
 import { coneConstant, getDef, POLAR_PARALLEL, stops } from './catalog';
-import type { CompiledProjection, LonLat, Orientation, ProjectionState, Stop } from './types';
+import type { CompiledProjection, LonLat, Orientation, Params, ProjectionState, Stop } from './types';
 
 const TOLERANCE = 0.01;
 // A cone this close to a cylinder is drawn as one, to within a fraction of a percent.
@@ -24,6 +24,27 @@ export function compile(state: ProjectionState): CompiledProjection {
     toFrame: (p) => toFrame(o, p),
     fromFrame: (p) => fromFrame(o, p),
   };
+}
+
+/** A parameter of a state: as given, or the definition's default, or what the map makes of it for itself. */
+export function paramOf(state: ProjectionState, key: string): number {
+  const def = getDef(state.defId);
+  return state.params[key] ?? def.defaultParams[key] ?? def.auto?.({ ...def.defaultParams, ...state.params })[key]!;
+}
+
+/**
+ * The parameters of a state with one of them set, kept within what the map allows with the others as they are. One that the map
+ * makes for itself, set to what the map makes of it, is left to the map again, and follows the others from then on.
+ */
+export function withParam(state: ProjectionState, key: string, value: number): Params {
+  const def = getDef(state.defId);
+  const params = { ...state.params };
+  delete params[key];
+  const merged = { ...def.defaultParams, ...params };
+  const range = def.range?.(merged, key);
+  const v = range ? Math.max(range[0], Math.min(range[1], value)) : value;
+  const own = def.auto?.(merged)[key];
+  return own !== undefined && Math.abs(v - own) < 1e-9 ? params : { ...params, [key]: v };
 }
 
 /** What `stateForStop` needs to know that the states alone do not say. */
