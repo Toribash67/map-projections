@@ -206,22 +206,22 @@ function lab(colour: string): [number, number, number] {
 const deltaE = (a: string, b: string) => Math.hypot(...lab(a).map((v, i) => v - lab(b)[i]!));
 
 describe('themes', () => {
-  const ids: ThemeId[] = ['auto', 'light', 'dark', 'atlas', 'blueprint', 'print', 'poster'];
+  const ids: ThemeId[] = ['auto', 'light', 'dark', 'atlas', 'blueprint', 'print', 'poster', 'parchment', 'slate', 'moss'];
   const cases = ids.flatMap((id) => SCHEMES.map((system) => [id, system] as const));
 
-  test('there are seven, each with a name, and auto is the palette of the system\'s scheme', () => {
+  test('there are ten, each with a name, and auto is the palette of the system\'s scheme', () => {
     expect(Object.keys(THEME_NAMES)).toEqual(ids);
     expect(resolvePalette('auto', {}, 'light')).toEqual(LIGHT);
     expect(resolvePalette('auto', {}, 'dark')).toEqual(DARK);
     expect(resolvePalette('light', {}, 'dark')).toEqual(LIGHT);
     expect(resolvePalette('dark', {}, 'light')).toEqual(DARK);
     // The others are the same whatever the system says.
-    for (const id of ['atlas', 'blueprint', 'print', 'poster'] as const) expect(resolvePalette(id, {}, 'light')).toEqual(resolvePalette(id, {}, 'dark'));
+    for (const id of ['atlas', 'blueprint', 'print', 'poster', 'parchment', 'slate', 'moss'] as const) expect(resolvePalette(id, {}, 'light')).toEqual(resolvePalette(id, {}, 'dark'));
   });
 
   test('the page round the map is light or dark with the theme', () => {
     expect(ids.map((id) => [chromeScheme(id, 'light'), chromeScheme(id, 'dark')])).toEqual([
-      ['light', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['light', 'light'],
+      ['light', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['dark', 'dark'], ['light', 'light'], ['light', 'light'], ['light', 'light'], ['light', 'light'], ['light', 'light'],
     ]);
   });
 

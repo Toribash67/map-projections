@@ -1,7 +1,7 @@
 import { DARK, LIGHT, type Palette, type Scheme } from './palette';
 
 /** The looks the map can have. `auto` is the paper look, light or dark with the system; the rest are the same whatever the system says. */
-export type ThemeId = 'auto' | 'light' | 'dark' | 'atlas' | 'blueprint' | 'print' | 'poster';
+export type ThemeId = 'auto' | 'light' | 'dark' | 'atlas' | 'blueprint' | 'print' | 'poster' | 'parchment' | 'slate' | 'moss';
 
 export const THEME_NAMES: Record<ThemeId, string> = {
   auto: 'Auto',
@@ -11,6 +11,9 @@ export const THEME_NAMES: Record<ThemeId, string> = {
   blueprint: 'Blueprint',
   print: 'Print',
   poster: 'Poster',
+  parchment: 'Parchment',
+  slate: 'Slate',
+  moss: 'Moss',
 };
 
 /** The colours of the map that can be set by hand, over the theme's. */
@@ -126,6 +129,98 @@ const POSTER: Palette = {
   seaLabels: '#5b87a6',
 };
 
+/**
+ * The three below are of middle tones: neither a bright page nor a dark one. The sea and the land are some way down from white, the
+ * page round them is a shade of the same, and what is drawn or written on them is dark, as it must be to be read on a middle tone.
+ */
+
+/** An old chart: a grey-green sea and tan land on buff paper, sepia ink, and countries in ochre, sage, terracotta and mauve. */
+const PARCHMENT: Palette = {
+  paper: '#d6c9ab',
+  panel: '#e4d9bf',
+  ink: '#33291d',
+  muted: '#5c4e3c',
+  line: 'rgba(70, 50, 30, 0.22)',
+  accent: '#9c2f1c',
+  accentText: '#8a2a19',
+  accentWash: 'rgba(156, 47, 28, 0.12)',
+  shadow: 'rgba(50, 35, 20, 0.3)',
+  ocean: '#a8bcb4',
+  land: '#dccba3',
+  graticule: 'rgba(70, 50, 30, 0.2)',
+  coast: '#6b6a58',
+  accentFill: 'rgba(156, 47, 28, 0.18)',
+  indicatrix: 'rgba(156, 47, 28, 0.36)',
+  tint: '#8a8266',
+  halo: 'rgba(228, 217, 191, 0.85)',
+  borders: '#5a4632',
+  standard: '#1f5f6b',
+  reference: 'rgba(51, 41, 29, 0.5)',
+  political: ['#d9b877', '#b5bf8f', '#d49f84', '#c2aeb9', '#e3d6b0'],
+  rivers: '#5f8c93',
+  deep: '#7fa09c',
+  labels: '#2e241a',
+  seaLabels: '#35555a',
+};
+
+/** Cool and grey: a slate-blue sea and stone land on a grey page, with countries in muted sand, sage, clay and lavender. */
+const SLATE: Palette = {
+  paper: '#c3cad0',
+  panel: '#d3d9dd',
+  ink: '#24313a',
+  muted: '#4a5a66',
+  line: 'rgba(36, 49, 58, 0.2)',
+  accent: '#8f2414',
+  accentText: '#8f2414',
+  accentWash: 'rgba(143, 36, 20, 0.12)',
+  shadow: 'rgba(36, 49, 58, 0.3)',
+  ocean: '#8ea3b5',
+  land: '#c9cdc2',
+  graticule: 'rgba(36, 49, 58, 0.2)',
+  coast: '#4f6475',
+  accentFill: 'rgba(143, 36, 20, 0.18)',
+  indicatrix: 'rgba(143, 36, 20, 0.36)',
+  tint: '#7d8f9c',
+  halo: 'rgba(211, 217, 221, 0.85)',
+  borders: '#33414c',
+  standard: '#0f4f5c',
+  reference: 'rgba(36, 49, 58, 0.5)',
+  political: ['#c9b98a', '#9db59a', '#c99a8c', '#aa9fc4', '#d6d2c0'],
+  rivers: '#55728a',
+  deep: '#607a90',
+  labels: '#1c262d',
+  seaLabels: '#1f4258',
+};
+
+/** Green and earthy: a soft teal sea and olive land on a lichen page, with countries in straw, leaf, clay and heather. */
+const MOSS: Palette = {
+  paper: '#c9cdb8',
+  panel: '#d9dcc9',
+  ink: '#283024',
+  muted: '#4d5a45',
+  line: 'rgba(40, 48, 36, 0.2)',
+  accent: '#8a2f12',
+  accentText: '#8a2f12',
+  accentWash: 'rgba(138, 47, 18, 0.12)',
+  shadow: 'rgba(40, 48, 36, 0.3)',
+  ocean: '#93b3b5',
+  land: '#c2c79d',
+  graticule: 'rgba(40, 48, 36, 0.2)',
+  coast: '#4f6b63',
+  accentFill: 'rgba(138, 47, 18, 0.18)',
+  indicatrix: 'rgba(138, 47, 18, 0.36)',
+  tint: '#7f9388',
+  halo: 'rgba(217, 220, 201, 0.85)',
+  borders: '#3a4030',
+  standard: '#254a7a',
+  reference: 'rgba(40, 48, 36, 0.5)',
+  political: ['#d2bf7c', '#a3bd8a', '#cf9f7a', '#b3a7c0', '#dcd7ae'],
+  rivers: '#4f8590',
+  deep: '#62898e',
+  labels: '#222a1e',
+  seaLabels: '#254f55',
+};
+
 const FIXED: Record<Exclude<ThemeId, 'auto'>, { palette: Palette; chrome: Scheme }> = {
   light: { palette: LIGHT, chrome: 'light' },
   dark: { palette: DARK, chrome: 'dark' },
@@ -133,6 +228,9 @@ const FIXED: Record<Exclude<ThemeId, 'auto'>, { palette: Palette; chrome: Scheme
   blueprint: { palette: BLUEPRINT, chrome: 'dark' },
   print: { palette: PRINT, chrome: 'light' },
   poster: { palette: POSTER, chrome: 'light' },
+  parchment: { palette: PARCHMENT, chrome: 'light' },
+  slate: { palette: SLATE, chrome: 'light' },
+  moss: { palette: MOSS, chrome: 'light' },
 };
 
 /** Whether the page round the map is light or dark under a theme: the system's choice for `auto`, the theme's own otherwise. */
