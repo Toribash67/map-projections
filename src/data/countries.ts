@@ -1,6 +1,6 @@
-import { geoArea } from 'd3-geo';
 import { feature, mesh } from 'topojson-client';
 import countriesTopology from 'world-atlas/countries-110m.json';
+import { withoutSlivers } from '../geo/slivers';
 import politicalColours from './politicalColours.json';
 
 /** How many colours the political map has: enough for any map with a little to spare, as a simple way of choosing them needs. */
@@ -28,8 +28,7 @@ export function bordersOf(topology: unknown): GeoJSON.MultiLineString {
 
 /**
  * The countries of a topology by colour: for each colour, all the countries of that colour as one geometry, which is cut as one.
- * At the finest scale a few islets are squeezed to slivers with no inside, and a sliver may as well wind the wrong way, which makes
- * it the whole world but itself. No country is half the world, so a piece that large is such a sliver and is left out.
+ * An islet squeezed to a sliver is left out: see `withoutSlivers`.
  */
 export function politicalOf(topology: unknown): GeoJSON.MultiPolygon[] {
   const t = topology as any;
@@ -38,7 +37,7 @@ export function politicalOf(topology: unknown): GeoJSON.MultiPolygon[] {
   (feature(t, t.objects.countries) as unknown as GeoJSON.FeatureCollection).features.forEach((country, i) => {
     const g = country.geometry;
     const polygons = g?.type === 'Polygon' ? [g.coordinates] : g?.type === 'MultiPolygon' ? g.coordinates : [];
-    layers[colours[i]!]!.coordinates.push(...polygons.filter((polygon) => geoArea({ type: 'Polygon', coordinates: polygon }) < 2 * Math.PI));
+    layers[colours[i]!]!.coordinates.push(...withoutSlivers(polygons));
   });
   return layers;
 }

@@ -17,11 +17,13 @@ export const THEME_NAMES: Record<ThemeId, string> = {
 };
 
 /** The colours of the map that can be set by hand, over the theme's. */
-export type ColourKey = 'ocean' | 'deep' | 'land' | 'coast' | 'rivers' | 'graticule' | 'borders' | 'labels' | 'seaLabels' | 'accent' | 'paper';
+export type ColourKey = 'ocean' | 'deep' | 'land' | 'high' | 'ice' | 'coast' | 'rivers' | 'graticule' | 'borders' | 'labels' | 'seaLabels' | 'accent' | 'paper' | 'box';
 export const COLOUR_NAMES: [ColourKey, string][] = [
   ['ocean', 'Sea'],
   ['deep', 'Deep sea'],
   ['land', 'Land'],
+  ['high', 'High land'],
+  ['ice', 'Ice'],
   ['coast', 'Coast'],
   ['rivers', 'Rivers'],
   ['graticule', 'Graticule'],
@@ -30,7 +32,10 @@ export const COLOUR_NAMES: [ColourKey, string][] = [
   ['seaLabels', 'Sea names'],
   ['accent', 'Accent'],
   ['paper', 'Background'],
+  ['box', 'Title box'],
 ];
+/** The colours of what only a picture for export has: the depths of the sea, the heights of the land, ice, the rivers and the names. */
+export const PRINT_COLOURS: readonly ColourKey[] = ['deep', 'high', 'ice', 'rivers', 'labels', 'seaLabels', 'box'];
 export type Overrides = Partial<Record<ColourKey, string>>;
 
 /** A school atlas: a pale blue sea, cream land, and countries in clear pastels, with brown borders. */
@@ -75,7 +80,8 @@ const BLUEPRINT: Palette = {
   rivers: '#8fc7ee',
   deep: '#0a2740',
   labels: '#ffffff',
-  seaLabels: '#a8c8e4',
+  seaLabels: '#a8c8e4',  high: '#9fc4e4',
+  ice: '#dcecf8',
 };
 
 /** For paper: a white sea and page, land a shade off white, black coasts, and one red accent. Its countries are in pale tints, which print as light greys. */
@@ -105,7 +111,8 @@ const PRINT: Palette = {
   rivers: '#777777',
   deep: '#cfcfcf',
   labels: '#111111',
-  seaLabels: '#555555',
+  seaLabels: '#555555',  high: '#8c8c8c',
+  ice: '#ffffff',
 };
 
 /**
@@ -160,7 +167,8 @@ const PARCHMENT: Palette = {
   rivers: '#5f8c93',
   deep: '#7fa09c',
   labels: '#2e241a',
-  seaLabels: '#35555a',
+  seaLabels: '#35555a',  high: '#a47f52',
+  ice: '#fbf6e8',
 };
 
 /** Cool and grey: a slate-blue sea and stone land on a grey page, with countries in muted sand, sage, clay and lavender. */
@@ -189,7 +197,8 @@ const SLATE: Palette = {
   rivers: '#55728a',
   deep: '#607a90',
   labels: '#1c262d',
-  seaLabels: '#1f4258',
+  seaLabels: '#1f4258',  high: '#8d8a76',
+  ice: '#f4f6f3',
 };
 
 /** Green and earthy: a soft teal sea and olive land on a lichen page, with countries in straw, leaf, clay and heather. */
@@ -218,7 +227,8 @@ const MOSS: Palette = {
   rivers: '#4f8590',
   deep: '#62898e',
   labels: '#222a1e',
-  seaLabels: '#254f55',
+  seaLabels: '#254f55',  high: '#8f8757',
+  ice: '#f3f4ea',
 };
 
 const FIXED: Record<Exclude<ThemeId, 'auto'>, { palette: Palette; chrome: Scheme }> = {

@@ -1,6 +1,6 @@
 import { geoArea } from 'd3-geo';
 import { describe, expect, test } from 'vitest';
-import { DEPTHS, lakeEdgesOf, loadWater, waterNow } from '../src/data/water';
+import { DEPTHS, loadWater, RIVER_WEIGHTS, waterNow } from '../src/data/water';
 
 const SCALES = ['110m', '50m', '10m'] as const;
 // Each file as its text, to weigh it.
@@ -18,8 +18,10 @@ describe('the water of Natural Earth', () => {
 
   test.each(SCALES)('at %s the rivers are lines and the lakes polygons, each lake wound as the cut reads it', async (scale) => {
     const rivers = await loadWater('rivers', scale);
-    expect(rivers.type).toBe('MultiLineString');
-    expect(rivers.coordinates.length).toBeGreaterThan(10);
+    // A class for each weight a river is drawn at, the lightest first.
+    expect(rivers).toHaveLength(RIVER_WEIGHTS.length);
+    for (const stretches of rivers) expect(stretches.type).toBe('MultiLineString');
+    expect(rivers.reduce((n, stretches) => n + stretches.coordinates.length, 0)).toBeGreaterThan(10);
     const lakes = await loadWater('lakes', scale);
     expect(lakes.type).toBe('MultiPolygon');
     expect(lakes.coordinates.length).toBeGreaterThan(10);
@@ -27,12 +29,16 @@ describe('the water of Natural Earth', () => {
     for (const lake of lakes.coordinates) expect(areaOf(lake)).toBeLessThan(0.1);
   });
 
-  test('the edges of the lakes are their rings as lines, the same object for the same lakes', async () => {
-    const lakes = await loadWater('lakes', '110m');
-    const edges = lakeEdgesOf(lakes);
-    expect(edges.type).toBe('MultiLineString');
-    expect(edges.coordinates).toHaveLength(lakes.coordinates.reduce((sum, lake) => sum + lake.length, 0));
-    expect(lakeEdgesOf(lakes)).toBe(edges);
+  test('at the finer scales a river grows from source to mouth: most of its stretches are light, and few are heavy', async () => {
+    for (const scale of ['50m', '10m'] as const) {
+      const counts = (await loadWater('rivers', scale)).map((stretches) => stretches.coordinates.length);
+      for (const count of counts) expect(count, scale).toBeGreaterThan(20);
+      expect(counts[0]!, scale).toBeGreaterThan(4 * counts[3]!);
+    }
+    // At the coarsest there are only the great rivers, whole, at the weight a river used to have.
+    expect((await loadWater('rivers', '110m')).map((stretches) => stretches.coordinates.length > 0)).toEqual([false, false, true, false]);
+    expect(RIVER_WEIGHTS[2]).toBe(1);
+    expect([...RIVER_WEIGHTS]).toEqual([...RIVER_WEIGHTS].sort((a, b) => a - b));
   });
 
   test.each(['110m', '50m'] as const)('the depths at %s are four steps, each within the last and wound as the cut reads it', async (scale) => {

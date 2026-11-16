@@ -61,25 +61,61 @@ function signedArea(piece: ScenePiece, t: number): number {
 }
 
 /**
- * Fills each piece on its own, so that pieces cannot cancel each other out under the
- * non-zero rule where they overlap mid-morph. `outline`, if given, is a stroke in the same colour.
+ * Fills each piece on its own, so that two that overlap are both seen: for a fill that is see-through, as a drawn shape's is.
  */
-function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, outline: number | null, skipOut = false): void {
+function fillPieces(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string): void {
   ctx.fillStyle = colour;
-  ctx.strokeStyle = colour;
   ctx.globalAlpha = 1;
   for (const piece of pieces) {
-    if (piece.behind !== behind || !piece.closed || (skipOut && piece.out) || !shows(piece)) continue;
+    if (piece.behind !== behind || !piece.closed || !shows(piece)) continue;
     ctx.beginPath();
     trace(ctx, piece, t);
     ctx.fill();
-    // Folded onto an edge the fill has no area, but its outline would still trace the edge.
-    const width = outline === null ? 0 : widthAt(piece, t, outline);
-    if (width > 0) {
-      ctx.lineWidth = width;
-      ctx.stroke();
-    }
   }
+}
+
+/** Whether a piece is the same at both ends: it is of a map at rest, and not of a morph. */
+const still = (piece: ScenePiece): boolean => piece.src === piece.dst;
+
+/**
+ * Fills pieces that lie edge to edge as one path, with no outline. Pieces that meet, as where a seam cuts a continent in two, are
+ * then one shape with no hairline between them, and the shape is exactly its outline: nothing is added round it, so a lake or an
+ * island is no larger than it is, however closely it is looked at.
+ *
+ * In a morph pieces fold over one another, and under the non-zero rule two that are wound opposite ways would cancel where they
+ * overlap. So a piece that comes out wound the other way on screen is traced backwards, as a folded cell is: every piece winds the
+ * same way and their windings add up. A map at rest has no folds, and its pieces are traced as they are.
+ */
+function fillWhole(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number, colour: string, skipOut = false): void {
+  ctx.fillStyle = colour;
+  ctx.globalAlpha = 1;
+  let any = false;
+  for (const piece of pieces) {
+    if (piece.behind !== behind || !piece.closed || (skipOut && piece.out) || !shows(piece)) continue;
+    if (!any) ctx.beginPath();
+    any = true;
+    trace(ctx, piece, t, !still(piece) && signedArea(piece, t) < 0);
+  }
+  if (any) ctx.fill();
+}
+
+/**
+ * Clips to the closed pieces of a layer, wound as `fillWhole` winds them, and says whether there were any: if so the context was
+ * saved first, and is to be restored.
+ */
+function clipWithin(ctx: CanvasRenderingContext2D, pieces: ScenePiece[], behind: boolean, t: number): boolean {
+  let any = false;
+  for (const piece of pieces) {
+    if (piece.behind !== behind || !piece.closed || !shows(piece)) continue;
+    if (!any) {
+      ctx.save();
+      ctx.beginPath();
+    }
+    any = true;
+    trace(ctx, piece, t, !still(piece) && signedArea(piece, t) < 0);
+  }
+  if (any) ctx.clip();
+  return any;
 }
 
 /**
@@ -225,17 +261,34 @@ function clipToOutline(ctx: CanvasRenderingContext2D, scene: Scene, frame: Frame
 }
 
 /** What a frame works out once and uses in both groups: the outline, where the canvas has paths to keep. Dashes are `dashScale` times as long as on screen. */
-type Frame = { t: number; dashScale: number; outline?: Path2D };
+type Frame = { t: number; dashScale: number; quick: boolean; outline?: Path2D };
 
 function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean, frame: Frame, style: Style, base: DOMMatrix): void {
   const { t } = frame;
   // What a map cannot show folds over in a morph, so where its ocean comes as cells it is filled from those.
   const cells = scene.layers.capOcean;
   if (cells) fillCells(ctx, cells, behind, t, style.ocean);
-  for (const { layer, fill, seam, stroke, width, dash, taper } of DRAW_ORDER) {
-    const pieces = scene.layers[layer];
-    if (!pieces) continue;
-    if (fill) fillPieces(ctx, pieces, behind, t, fill(style), seam ? style.seamWidth : null, layer === 'ocean' && cells !== undefined);
+  // The layer that what is being painted is kept within, by a clip that is on until something is painted that is not.
+  let inside: string | null = null;
+  const leave = () => {
+    if (inside !== null) ctx.restore();
+    inside = null;
+  };
+  for (const { layer, from, fill, seam, rest, within, stroke, width, dash, taper } of DRAW_ORDER) {
+    const pieces = from ? from.flatMap((name) => scene.layers[name] ?? []) : scene.layers[layer];
+    if (!pieces || pieces.length === 0) continue;
+    if ((within ?? null) !== inside) {
+      leave();
+      // With none of what it is kept within, there is none of it.
+      if (within && !clipWithin(ctx, scene.layers[within] ?? [], behind, t)) continue;
+      inside = within ?? null;
+    }
+    if (fill) {
+      if (rest && (frame.quick || !pieces.every(still))) continue;
+      // Pieces that lie edge to edge are one shape, and filled as one.
+      if (seam) fillWhole(ctx, pieces, behind, t, fill(style), layer === 'ocean' && cells !== undefined);
+      else fillPieces(ctx, pieces, behind, t, fill(style));
+    }
     if (stroke && width) {
       // A context without dashes, as a test's may be, draws the line whole.
       if (dash) ctx.setLineDash?.(frame.dashScale === 1 ? dash : dash.map((v) => v * frame.dashScale));
@@ -243,6 +296,7 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
       if (dash) ctx.setLineDash?.([]);
     }
   }
+  leave();
   // An ellipse is cut by the map's edge like the coast: the part past the outline is not drawn, at rest or in a morph.
   const shown = scene.indicatrices.filter((m) => m.behind === behind && indicatrixAlpha(m, t) > 0);
   if (shown.length > 0) {
@@ -256,8 +310,8 @@ function drawGroup(ctx: CanvasRenderingContext2D, scene: Scene, behind: boolean,
 /** The widths of a style, each `by` times as wide. */
 function widened(style: Style, by: number): Style {
   if (by === 1) return style;
-  const { seamWidth, graticuleWidth, coastWidth, drawingWidth, bordersWidth, standardWidth, referenceWidth, riversWidth, lakeEdgeWidth } = style;
-  return { ...style, seamWidth: seamWidth * by, graticuleWidth: graticuleWidth * by, coastWidth: coastWidth * by, drawingWidth: drawingWidth * by, bordersWidth: bordersWidth * by, standardWidth: standardWidth * by, referenceWidth: referenceWidth * by, riversWidth: riversWidth * by, lakeEdgeWidth: lakeEdgeWidth * by };
+  // Every width of the style, which are its numbers.
+  return Object.fromEntries(Object.entries(style).map(([key, value]) => [key, typeof value === 'number' ? value * by : value])) as Style;
 }
 
 /**
@@ -267,20 +321,24 @@ function widened(style: Style, by: number): Style {
  *
  * For a picture larger than the screen, `lineScale` is how many times as wide every line is, and its dashes as long, so that they
  * look as they do on screen. A `background` of null leaves the canvas clear behind the map, where the style's own is the default.
+ * With `over`, the canvas is left as it is and the scene painted on what it has. With `quick`, what is only worth painting for a
+ * map that is still is left out: the map is on its way somewhere, and the frame after this one will paint over it.
  */
-export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene, t: number, style: Style, { lineScale = 1, background }: { lineScale?: number; background?: string | null } = {}): void {
+export function drawScene(ctx: CanvasRenderingContext2D, scene: Scene, t: number, style: Style, { lineScale = 1, background, over = false, quick = false }: { lineScale?: number; background?: string | null; over?: boolean; quick?: boolean } = {}): void {
   const base = ctx.getTransform();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.globalAlpha = 1;
-  if (background === null) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  else {
-    ctx.fillStyle = background ?? style.background;
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  if (!over) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (background === null) ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    else {
+      ctx.fillStyle = background ?? style.background;
+      ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    }
+    ctx.setTransform(base);
   }
-  ctx.setTransform(base);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  const frame: Frame = { t, dashScale: lineScale };
+  const frame: Frame = { t, dashScale: lineScale, quick };
   const widths = widened(style, lineScale);
   drawGroup(ctx, scene, true, frame, widths, base);
   drawGroup(ctx, scene, false, frame, widths, base);

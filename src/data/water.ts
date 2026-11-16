@@ -5,13 +5,20 @@ export type Sea = { name: string; rank: number; ocean: boolean; geometry: GeoJSO
 
 /** The water that is not the sea's own outline: rivers, lakes, the sea by depth, and the seas by name. */
 export interface Water {
-  rivers: GeoJSON.MultiLineString;
+  /** By how heavy they are drawn, the lightest first: see `RIVER_WEIGHTS`. A river comes in stretches, each heavier than the one upstream of it. */
+  rivers: GeoJSON.MultiLineString[];
   lakes: GeoJSON.MultiPolygon;
   /** All that is deeper than each of `DEPTHS`, the shallowest first: each lies within the one before it. */
   depth: GeoJSON.MultiPolygon[];
   seas: Sea[];
 }
 export type WaterKind = keyof Water;
+
+/**
+ * How wide each class of river is drawn, of the width the rivers have: headwaters are hairlines, and only the lower reaches of the
+ * great rivers are heavier than a river used to be. The classes are Natural Earth's own weights, sorted by scripts/natural-earth.mjs.
+ */
+export const RIVER_WEIGHTS = [0.35, 0.6, 1, 1.7] as const;
 
 /** The depths the sea is shaded by, in metres. */
 export const DEPTHS = [200, 2000, 4000, 6000] as const;
@@ -55,16 +62,4 @@ export function loadWater<K extends WaterKind>(kind: K, level: Detail): Promise<
 /** What has been fetched already, or null. */
 export function waterNow<K extends WaterKind>(kind: K, level: Detail): Water[K] | null {
   return (arrived.get(fileOf(kind, level)) as Water[K] | undefined) ?? null;
-}
-
-const edges = new WeakMap<GeoJSON.MultiPolygon, GeoJSON.MultiLineString>();
-
-/** The shores of some lakes as lines, which are stroked where the lakes themselves are filled. The same object for the same lakes. */
-export function lakeEdgesOf(lakes: GeoJSON.MultiPolygon): GeoJSON.MultiLineString {
-  let lines = edges.get(lakes);
-  if (!lines) {
-    lines = { type: 'MultiLineString', coordinates: lakes.coordinates.flat() };
-    edges.set(lakes, lines);
-  }
-  return lines;
 }

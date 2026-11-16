@@ -4,11 +4,11 @@ import { describe, expect, test } from 'vitest';
 import { COAST, GRATICULE, LAND } from '../src/data/land';
 import { BORDERS, colourIndex, POLITICAL, politicalOf } from '../src/data/countries';
 import { loadDetail } from '../src/data/detail';
-import { lakeEdgesOf, loadWater } from '../src/data/water';
+import { loadWater, RIVER_WEIGHTS } from '../src/data/water';
 import { COARSE } from '../src/layers/layers';
 import { loadWaterFor, withWater } from '../src/layers/mapData';
 import politicalColours from '../src/data/politicalColours.json';
-import { DEFAULT_LAYERS, DRAW_ORDER, sceneLayers, type LayerState } from '../src/layers/layers';
+import { DEFAULT_LAYERS, DEFAULT_MAP_LAYERS, DEFAULT_PRINT, DRAW_ORDER, sceneLayers, type LayerState } from '../src/layers/layers';
 import { hasStandardLines, standardLines } from '../src/layers/standardLines';
 import type { Scene, ScenePiece } from '../src/morph/scene';
 import { compile, stateForStop } from '../src/projections/compile';
@@ -116,12 +116,16 @@ describe('the layers of a scene', () => {
   test('by default: sea, land, graticule, coast and drawings', () => {
     const layers = sceneLayers(DEFAULT_LAYERS, [mollweide], NONE);
     expect(Object.keys(layers).sort()).toEqual(['coast', 'drawings', 'graticule', 'land', 'ocean']);
+
     expect(layers.land).toBe(LAND);
     expect(layers.coast).toBe(COAST);
     expect(layers.drawings).toBe(NONE);
-    expect(DEFAULT_LAYERS.on).toEqual({ land: true, coast: true, graticule: true, borders: false, political: false, rivers: false, lakes: false, depth: false, tissot: false, standard: false, reference: false, drawings: true, countryNames: false, seaNames: false, degrees: false, frame: false, titleBox: false });
+    expect(DEFAULT_MAP_LAYERS.on).toEqual({ land: true, coast: true, graticule: true, borders: false, political: false, tissot: false, standard: false, reference: false, drawings: true });
+    // Of what only a picture has, nothing is on but the legend, which has nothing to say until something else is.
+    expect(Object.entries(DEFAULT_PRINT.on).filter(([, on]) => on)).toEqual([['legend', true]]);
+    expect(DEFAULT_LAYERS.on).toEqual({ ...DEFAULT_MAP_LAYERS.on, ...DEFAULT_PRINT.on });
     expect(DEFAULT_LAYERS.graticuleStep).toBe(10);
-    expect(DEFAULT_LAYERS).toMatchObject({ graticuleUnder: false, smallestName: 4, title: 'The World', subtitle: '', corner: 'tr' });
+    expect(DEFAULT_LAYERS).toMatchObject({ graticuleUnder: false, cover: 'none', smallestName: 4, title: 'The World', subtitle: '', corner: 'tr', legendCorner: 'bl' });
   });
 
   test('a layer turned off is not there, and the same layers give the very same objects, for the cuts to keep what they have prepared', () => {
@@ -167,14 +171,13 @@ describe('the layers of a scene', () => {
     expect(withWater(COARSE, '110m')).toBe(data);
     expect(data.land).toBe(LAND);
     const layers = sceneLayers(on, [mollweide], NONE, data);
-    expect(layers.rivers).toBe(await loadWater('rivers', '110m'));
+    expect([layers.rivers0, layers.rivers1, layers.rivers2, layers.rivers3]).toEqual(await loadWater('rivers', '110m'));
     expect(layers.lakes).toBe(await loadWater('lakes', '110m'));
-    expect(layers.lakeEdges).toBe(lakeEdgesOf(await loadWater('lakes', '110m')));
     const depth = await loadWater('depth', '110m');
     expect([layers.depth0, layers.depth1, layers.depth2, layers.depth3]).toEqual(depth);
     // Off, they are not there though the data is.
     expect(Object.keys(sceneLayers(DEFAULT_LAYERS, [mollweide], NONE, data)).sort()).toEqual(['coast', 'drawings', 'graticule', 'land', 'ocean']);
-    expect(Object.keys(sceneLayers(with_({ lakes: true }), [mollweide], NONE, data)).sort()).toEqual(['coast', 'drawings', 'graticule', 'lakeEdges', 'lakes', 'land', 'ocean']);
+    expect(Object.keys(sceneLayers(with_({ lakes: true }), [mollweide], NONE, data)).sort()).toEqual(['coast', 'drawings', 'graticule', 'lakes', 'land', 'ocean']);
   });
 
   test('the graticule can lie under the land, as a layer of another name', () => {
@@ -224,19 +227,46 @@ describe('drawing the layers', () => {
     return { ctx: ctx as CanvasRenderingContext2D, ops };
   }
   const piece = (closed: boolean): ScenePiece => ({ closed, src: new Float32Array([0, 0, 10, 0, 10, 10]), dst: new Float32Array([0, 0, 10, 0, 10, 10]), ringStarts: new Uint32Array([0]), alphaSrc: 1, alphaDst: 1, behind: false, out: false });
-  const sceneOf = (names: string[]): Scene => ({ layers: Object.fromEntries(names.map((name) => [name, [piece(!/graticule|reference|borders|coast|standard|rivers|lakeEdges/.test(name))]])), indicatrices: [] });
+  const sceneOf = (names: string[]): Scene => ({ layers: Object.fromEntries(names.map((name) => [name, [piece(!/graticule|reference|borders|coast|standard|rivers/.test(name))]])), indicatrices: [] });
+  /** The same scene as a map at rest has it: each piece the same at both ends. */
+  const atRest = (scene: Scene): Scene => ({ ...scene, layers: Object.fromEntries(Object.entries(scene.layers).map(([name, pieces]) => [name, pieces.map((p) => ({ ...p, dst: p.src }))])) });
 
-  test('the sea deepens in its four colours under the land, rivers run under the lakes, and a lake is the sea\'s colour with a shore', () => {
+  test('the sea deepens in its four colours under the land, rivers run under the lakes from hairlines to their full weight, and a lake is the sea\'s colour with no shore', () => {
     const { ctx, ops } = recording();
-    drawScene(ctx, sceneOf(['ocean', 'depth0', 'depth1', 'depth2', 'depth3', 'graticuleUnder', 'land', 'rivers', 'lakes', 'lakeEdges', 'coast']), 1, style);
+    drawScene(ctx, atRest(sceneOf(['ocean', 'depth0', 'depth1', 'depth2', 'depth3', 'graticuleUnder', 'land', 'rivers0', 'rivers1', 'rivers2', 'rivers3', 'lakes', 'coast'])), 0, style);
     const colours = ops.map((o) => o.style).filter((s, i, all) => s !== all[i - 1]);
-    expect(colours).toEqual([style.ocean, ...style.depth, style.graticule, style.land, style.rivers, style.ocean, style.rivers, style.coast]);
+    expect(colours).toEqual([style.ocean, ...style.depth, style.graticule, style.land, style.rivers, style.ocean, style.coast]);
     const strokes = ops.filter((o) => o.op === 'stroke' && o.style === style.rivers).map((o) => o.width);
-    expect(strokes).toEqual([style.riversWidth, style.lakeEdgeWidth]);
+    expect(strokes).toEqual(RIVER_WEIGHTS.map((weight) => weight * style.riversWidth));
+    expect(strokes[0]!).toBeLessThan(style.riversWidth / 2);
+  });
+
+  test('a map at rest is filled exactly: each layer as one shape with no line round it, so nothing is larger than its outline', () => {
+    const names = ['ocean', 'depth0', 'land', 'political1', 'lakes'];
+    const drawn = (scene: Scene, t: number) => {
+      const { ctx, ops } = recording();
+      drawScene(ctx, scene, t, style);
+      return ops.filter((o) => o.op === 'fill' || o.op === 'stroke').map((o) => `${o.op} ${o.style}`);
+    };
+    // The countries are first filled together in the land's colour, so that where two of them meet it is land that shows between.
+    expect(drawn(atRest(sceneOf(names)), 0)).toEqual([style.ocean, style.depth[0], style.land, style.land, style.political[1], style.ocean].map((colour) => `fill ${colour}`));
+    // A map on its way somewhere has no such ground, which is not worth its cost in a frame that the next will paint over.
+    const quick = recording();
+    drawScene(quick.ctx, atRest(sceneOf(names)), 0, style, { quick: true });
+    expect(quick.ops.filter((o) => o.op === 'fill').map((o) => o.style)).toEqual([style.ocean, style.depth[0], style.land, style.political[1], style.ocean]);
+    // Nor has a morph, which is otherwise filled the same.
+    expect(drawn(sceneOf(names), 0.5)).toEqual([style.ocean, style.depth[0], style.land, style.political[1], style.ocean].map((colour) => `fill ${colour}`));
   });
 
   test('bottom to top: sea, land or the political colours, graticule, reference circles, borders, coast, standard lines, drawings', () => {
-    expect(DRAW_ORDER.map((entry) => entry.layer)).toEqual(['ocean', 'depth0', 'depth1', 'depth2', 'depth3', 'graticuleUnder', 'land', 'political0', 'political1', 'political2', 'political3', 'political4', 'rivers', 'lakes', 'lakeEdges', 'graticule', 'reference', 'borders', 'coast', 'standardOut', 'standardIn', 'standard', 'drawings']);
+    const numbered = (name: string, count: number) => Array.from({ length: count }, (_, i) => `${name}${i}`);
+    expect(DRAW_ORDER.map((entry) => entry.layer)).toEqual([
+      'ocean', ...numbered('depth', 4), 'graticuleUnder', 'land', 'countries', ...numbered('political', 5),
+      // What colours the land in place of the countries, and the ice over it all.
+      ...numbered('height', 6), ...numbered('biomes', 14), ...numbered('climate', 13), 'ice',
+      ...numbered('rivers', 4), 'lakes', 'graticule', 'zonesOdd', 'zonesPart', 'zoneLines', 'reference', 'dateLine', 'provinces', 'borders', 'coast', 'plates',
+      'standardOut', 'standardIn', 'standard', 'drawings',
+    ]);
     const { ctx, ops } = recording();
     drawScene(ctx, sceneOf(['ocean', 'political0', 'political3', 'graticule', 'reference', 'borders', 'coast', 'standard', 'drawings']), 1, style);
     const colours = ops.map((o) => o.style).filter((s, i, all) => s !== all[i - 1]);
@@ -258,6 +288,22 @@ describe('drawing the layers', () => {
     // At the ends only one of them is drawn at all.
     expect(widths(0)).toEqual([style.standardWidth]);
     expect(widths(1)).toEqual([style.standardWidth]);
+  });
+});
+
+describe('the land, at the finest scale', () => {
+  test('no piece of land covers more than half the world, at any scale', async () => {
+    for (const level of ['110m', '50m', '10m'] as const) {
+      const { land } = await loadDetail(level);
+      let pieces = 0;
+      for (const feature of (land as GeoJSON.FeatureCollection).features) {
+        for (const polygon of (feature.geometry as GeoJSON.MultiPolygon).coordinates) {
+          pieces++;
+          expect(geoArea({ type: 'Polygon', coordinates: polygon }), level).toBeLessThan(2 * Math.PI);
+        }
+      }
+      expect(pieces, level).toBeGreaterThan(100);
+    }
   });
 });
 

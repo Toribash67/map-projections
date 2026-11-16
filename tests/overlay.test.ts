@@ -2,9 +2,9 @@ import { describe, expect, test } from 'vitest';
 import { LAND } from '../src/data/land';
 import { DEFAULT_LAYERS, type LayerState } from '../src/layers/layers';
 import { buildLetters, buildOverlay, buildPlateOnly, drawOverlay, lettersWanted, overlayOf, overlayWanted, type Overlay, type OverlayInput } from '../src/overlay/overlay';
-import { pictureRect } from '../src/plate/plate';
+import type { Rect } from '../src/plate/plate';
+import { mapSize } from '../src/screen/screen';
 import { mapStyle } from '../src/render/style';
-import { FIT } from '../src/screen/view';
 import { stopOf } from './stopOf';
 import { member, VIEW } from './sceneSupport';
 
@@ -12,7 +12,10 @@ const style = mapStyle('light');
 const measure = { label: (text: string) => 0.62 * text.length, plate: (text: string) => 0.6 * text.length };
 const layers = (on: Partial<LayerState['on']>, rest: Partial<LayerState> = {}): LayerState => ({ ...DEFAULT_LAYERS, ...rest, on: { ...DEFAULT_LAYERS.on, ...on } });
 const mercator = member('mercator');
-const input = (state: LayerState): OverlayInput => ({ member: mercator, state: mercator.compiled.state, named: stopOf('mercator'), layers: state, picture: pictureRect(mercator.compiled, VIEW, FIT, 16), scale: 1 });
+// The map and its margin, in the middle of the window.
+const fitted = mapSize(mercator.compiled, VIEW, 16);
+const PICTURE: Rect = { x: (VIEW.width - fitted.width - 32) / 2, y: (VIEW.height - fitted.height - 32) / 2, width: fitted.width + 32, height: fitted.height + 32 };
+const input = (state: LayerState): OverlayInput => ({ member: mercator, state: mercator.compiled.state, named: stopOf('mercator'), layers: state, picture: PICTURE, scale: 1 });
 const built = (state: LayerState): Overlay => buildOverlay(input(state), measure, null, LAND);
 
 type Op = { op: string; args: (string | number)[]; fill: string; stroke: string; font: string; width: number; at: number[] };
@@ -46,7 +49,8 @@ describe('what is over a map', () => {
     for (const id of ['countryNames', 'seaNames', 'degrees'] as const) expect([overlayWanted(layers({ [id]: true })), lettersWanted(layers({ [id]: true }))]).toEqual([true, true]);
     // The degrees are the graticule's: with no graticule there are none.
     expect(overlayWanted(layers({ degrees: true, graticule: false }))).toBe(false);
-    expect(built(DEFAULT_LAYERS)).toEqual({ labels: [], plate: expect.objectContaining({ frame: null, box: null }) });
+    // Nor has a legend anything to say of a plain map, though it is on.
+    expect(built(DEFAULT_LAYERS)).toEqual({ labels: [], marks: [], plate: expect.objectContaining({ frame: null, box: null, legend: null, credit: null }) });
   });
 
   test('each kind of lettering is there when it is on', () => {
@@ -68,7 +72,7 @@ describe('what is over a map', () => {
     const { labels, plate } = built(state);
     const box = plate.box!;
     for (const label of labels) for (const [x, y] of label.discs) expect(x > box.x && x < box.x + box.width && y > box.y && y < box.y + box.height, label.text).toBe(false);
-    expect(buildPlateOnly(input(state), measure)).toEqual({ labels: [], plate });
+    expect(buildPlateOnly(input(state), measure)).toEqual({ labels: [], marks: [], plate });
   });
 });
 
@@ -91,12 +95,13 @@ describe('the lettering apart from the plate', () => {
 describe('drawing what is over a map', () => {
   test('each letter of a name is drawn at its place and turn, in the colour of its kind', () => {
     const overlay: Overlay = {
+      marks: [],
       labels: [
         { kind: 'country', text: 'AB', size: 12, glyphs: [{ ch: 'A', x: 10, y: 20, angle: 0 }, { ch: 'B', x: 30, y: 25, angle: 0.5 }], discs: [] },
         { kind: 'sea', text: 'c', size: 9, glyphs: [{ ch: 'c', x: 50, y: 60, angle: 0 }], discs: [] },
         { kind: 'degree', text: '0°', size: 9, glyphs: [{ ch: '0', x: 70, y: 80, angle: 0 }], discs: [] },
       ],
-      plate: { frame: null, frameWidth: 1, hairline: 1, box: null },
+      plate: { frame: null, frameWidth: 1, hairline: 1, box: null, legend: null, credit: null },
     };
     const { ctx, ops } = recording();
     drawOverlay(ctx, overlay, style);
@@ -112,7 +117,7 @@ describe('drawing what is over a map', () => {
   test('the frame is a line in the page\'s ink, and the box is the page\'s colour with its lines lettered about its middle', () => {
     const { plate } = built(layers({ frame: true, titleBox: true }));
     const { ctx, ops } = recording();
-    drawOverlay(ctx, { labels: [], plate }, style);
+    drawOverlay(ctx, { labels: [], marks: [], plate }, style);
     const [frame, fill, edge] = ops;
     expect(frame).toMatchObject({ op: 'strokeRect', stroke: style.ink, width: plate.frameWidth, args: [plate.frame!.x, plate.frame!.y, plate.frame!.width, plate.frame!.height] });
     expect(fill).toMatchObject({ op: 'fillRect', fill: style.background, args: [plate.box!.x, plate.box!.y, plate.box!.width, plate.box!.height] });

@@ -98,8 +98,8 @@ function indicatrices(scene: Scene): string[] {
  * order the canvas paints them (`DRAW_ORDER`), and the indicatrices last, cut by the map's outline. Coordinates are to two decimals.
  * `background` null leaves the page clear. Every line is `lineScale` times as wide as on screen, and its dashes as long.
  *
- * It follows `drawScene` at the start of a morph, which is rest: fills of a solid colour are one path to a layer, with a hairline
- * round it in its own colour where the canvas has one, to hide the seams; fills that are see-through are a path each, so that two
+ * It follows `drawScene` for a map at rest: fills of a solid colour are one path to a layer, with no line round it, so that pieces
+ * that meet at a seam are one shape and the shape is exactly its outline; fills that are see-through are a path each, so that two
  * that overlap are both seen, as on the canvas.
  *
  * `over` is what goes on top of it all, already written: the names, the degrees, the frame and the title box. See `overlayToSvg`.
@@ -113,19 +113,38 @@ export function sceneToSvg(scene: Scene, style: Style, size: Viewport, opts: { b
   // The far side of a globe is painted first on the canvas. At rest it is not shown, and what is shown of it would come first here too.
   const piecesOf = (layer: string) => (scene.layers[layer] ?? []).filter(shown).sort((a, b) => Number(b.behind) - Number(a.behind));
 
-  for (const { layer, fill, seam, stroke, width: lineWidth, dash, taper } of DRAW_ORDER) {
+  // The layers whose shapes are used again: painted under themselves by another entry, or what another is drawn within. Their paths
+  // are written once and used by name, so they take their colour from their group and have none of their own.
+  const borrowed = new Set(DRAW_ORDER.flatMap((entry) => [...(entry.from ?? []), ...(entry.within ? [entry.within] : [])]));
+  const clips = new Set<string>();
+
+  for (const { layer, from, fill, within, stroke, width: lineWidth, dash, taper } of DRAW_ORDER) {
     // A line on its way in has no width yet.
     if (taper === 'in') continue;
+    if (from) {
+      // The shapes of other layers, as they are written there.
+      const lent = from.filter((name) => piecesOf(name).some((p) => p.closed));
+      if (fill && lent.length > 0) out.push(`<g id="${layer}" ${paint('fill', fill(style))}>`, ...lent.map((name) => `<use href="#${name}-shape"/>`), '</g>');
+      continue;
+    }
     const pieces = piecesOf(layer);
     const [fills, lines] = [fill ? pieces.filter((p) => p.closed) : [], stroke && lineWidth ? pieces.filter((p) => !p.closed) : []];
     if (fills.length === 0 && lines.length === 0) continue;
-    out.push(`<g id="${layer}">`);
-    if (fill && fills.length > 0) {
-      const colour = fill(style);
-      const hairline = seam ? ` ${paint('stroke', colour)} stroke-width="${n(style.seamWidth * k)}"` : '';
-      const attributes = `fill-rule="nonzero" ${paint('fill', colour)}${hairline}`;
-      if (isOpaque(colour)) out.push(`<path ${attributes} d="${fills.map((p) => pathOf(p)).join('')}"/>`);
-      else for (const p of fills) out.push(`<path ${attributes} d="${pathOf(p)}"/>`);
+    const colour = fill?.(style);
+    // What is drawn within another layer is clipped to that layer's own shape; with none of that, there is none of it.
+    let clip = '';
+    if (within) {
+      if (!piecesOf(within).some((p) => p.closed)) continue;
+      if (!clips.has(within)) out.push(`<clipPath id="within-${within}"><use href="#${within}-shape"/></clipPath>`);
+      clips.add(within);
+      clip = ` clip-path="url(#within-${within})"`;
+    }
+    // A fill is exactly its outline: no line is drawn round it.
+    out.push(borrowed.has(layer) && colour ? `<g id="${layer}" ${paint('fill', colour)}>` : `<g id="${layer}"${clip}>`);
+    if (colour && fills.length > 0) {
+      if (borrowed.has(layer)) out.push(`<path id="${layer}-shape" fill-rule="nonzero" d="${fills.map((p) => pathOf(p)).join('')}"/>`);
+      else if (isOpaque(colour)) out.push(`<path fill-rule="nonzero" ${paint('fill', colour)} d="${fills.map((p) => pathOf(p)).join('')}"/>`);
+      else for (const p of fills) out.push(`<path fill-rule="nonzero" ${paint('fill', colour)} d="${pathOf(p)}"/>`);
     }
     if (stroke && lineWidth && lines.length > 0) {
       const dashes = dash ? ` stroke-dasharray="${dash.map((v) => n(v * k)).join(' ')}"` : '';

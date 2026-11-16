@@ -683,14 +683,120 @@ h1 {
   margin-right: 28px;
 }
 
-.layers-panel > .reset-all {
+.colours > .reset-all {
   margin-top: 8px;
 }
 
-/* The Export panel. */
-.export-panel {
-  width: 316px;
-  max-width: calc(100vw - 2 * var(--inset));
+/*
+ * The export view: the picture over the map, and beside it, where the sidebar is while the map is explored, everything that can be
+ * chosen about it. What is chosen scrolls; the file it is saved as stays in view under it.
+ */
+#preview {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  /* The table the sheet lies on: the page's colour, a shade towards its ink. */
+  background: color-mix(in srgb, var(--ink) 14%, var(--paper));
+}
+
+.preview-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  outline: none;
+}
+
+.preview-canvas:active {
+  cursor: grabbing;
+}
+
+#preview .zoom-control {
+  position: absolute;
+  bottom: var(--inset);
+  left: var(--inset);
+}
+
+.preview-status {
+  position: absolute;
+  top: var(--inset);
+  left: 50%;
+  margin: 0;
+  padding: 3px 10px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 5px var(--shadow);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+/* The side takes the sidebar's place. */
+#app.exporting > #sidebar {
+  display: none;
+}
+
+#export-side {
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.export-side {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.export-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 10px;
+}
+
+.back {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 8px 2px 3px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.back:hover {
+  border-color: var(--muted);
+}
+
+.export-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 14px 4px;
+}
+
+.group {
+  padding: 6px 0 0;
+  border-top: 1px solid var(--line);
+}
+
+.group > summary {
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.group .colours {
+  margin-bottom: 10px;
+}
+
+.export-file {
+  flex: none;
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -3px 8px -4px var(--shadow);
 }
 
 .export-row {
@@ -703,7 +809,7 @@ h1 {
 
 .export-label {
   flex: none;
-  width: 76px;
+  width: 70px;
   color: var(--muted);
 }
 
@@ -769,11 +875,22 @@ h1 {
     grid-row: 1;
   }
 
-  #sidebar {
+  #sidebar,
+  #export-side {
     grid-row: 2;
     border-right: 0;
     border-top: 1px solid var(--line);
     overflow-y: auto;
+  }
+
+  /* One scroll for the whole side, the file with the rest. */
+  .export-side {
+    height: auto;
+  }
+
+  .export-body {
+    flex: none;
+    overflow: visible;
   }
 
   /* One scroll for the whole sidebar, with the parameters first, where a thumb reaches them. */

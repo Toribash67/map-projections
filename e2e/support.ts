@@ -28,6 +28,14 @@ export const isSliding = (page: Page): Promise<boolean> => page.evaluate(() => (
 export const state = (page: Page): Promise<ProjectionState> => page.evaluate(() => JSON.parse(JSON.stringify((window as any).__app.state)));
 export const isCurrent = (page: Page, selector: string) => page.locator(selector).getAttribute('aria-current').then((v) => v === 'true');
 
+/** Opens the export view on the map at rest, and waits for its picture. */
+export async function openExport(page: Page) {
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await pictured(page);
+}
+/** Waits for the picture in the export view to be the one asked for. */
+export const pictured = (page: Page) => page.waitForFunction(() => (window as any).__export.settled);
+
 /** Clicks a named projection in the list. */
 export const pick = (page: Page, id: string) => stopButton(page, id).click();
 

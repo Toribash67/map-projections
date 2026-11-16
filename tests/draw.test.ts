@@ -80,7 +80,9 @@ test('draw: a piece that either end shows is drawn at full strength at every mom
     drawScene(ctx, { layers: { ...emptyLayers(), land: [leaving, gone, arriving, partly] }, indicatrices: [] }, t, LIGHT_STYLE);
     const land = painted(ops).filter((o) => o.op === 'fill' && o.style === LIGHT_STYLE.land);
     // Nothing fades: what a map cannot show is folded onto its edge, where it has no area.
-    expect(land.map((o) => [o.path[0]![0], o.alpha]), `t ${t}`).toEqual([[0, 1], [100, 1], [150, 1]]);
+    // The pieces of a layer are one shape, filled as one: the three that are shown, each from its first corner.
+    expect(land.map((o) => o.alpha), `t ${t}`).toEqual([1]);
+    expect(land[0]!.path.filter((_, i) => i % 4 === 0).map((p) => p[0]), `t ${t}`).toEqual([0, 100, 150]);
     expect(ctx.globalAlpha).toBe(1);
   }
 });
@@ -373,8 +375,9 @@ test('draw: for a picture larger than the screen every line is as many times as 
     drawScene(ctx, { layers, indicatrices: [] }, 0, LIGHT_STYLE, lineScale === undefined ? undefined : { lineScale });
     return ops.filter((o) => o.op === 'stroke').map((o) => [o.width, o.path[0]]);
   };
-  expect(widths()).toEqual([[LIGHT_STYLE.seamWidth, [0, 0]], [LIGHT_STYLE.coastWidth, [0, 0]], [LIGHT_STYLE.drawingWidth, [20, 0]]]);
-  expect(widths(3)).toEqual([[3 * LIGHT_STYLE.seamWidth, [0, 0]], [3 * LIGHT_STYLE.coastWidth, [0, 0]], [3 * LIGHT_STYLE.drawingWidth, [20, 0]]]);
+  // The land is filled and has no line round it.
+  expect(widths()).toEqual([[LIGHT_STYLE.coastWidth, [0, 0]], [LIGHT_STYLE.drawingWidth, [20, 0]]]);
+  expect(widths(3)).toEqual([[3 * LIGHT_STYLE.coastWidth, [0, 0]], [3 * LIGHT_STYLE.drawingWidth, [20, 0]]]);
 });
 
 test('draw: with no background the canvas is cleared and nothing is painted behind the map', () => {

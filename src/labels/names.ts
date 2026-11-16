@@ -1,16 +1,18 @@
 import { geoArea } from 'd3-geo';
 import { COUNTRY_SHAPES } from '../data/countryShapes';
 import type { Sea } from '../data/water';
+import type { Region } from '../data/world';
 import { buildScene } from '../morph/scene';
 import type { Member } from '../tissot/indicatrix';
-import { clipToRect, contains, COUNTRY_FIT, fitLabel, polygonArea, SEA_FIT, shrink, type Fit, type FitOptions, type Pair } from './fit';
+import { clipToRect, contains, COUNTRY_FIT, fitLabel, polygonArea, REGION_FIT, SEA_FIT, shrink, type Fit, type FitOptions, type Pair } from './fit';
 import { advanceOf, setAlong, touches, type Label, type Measure } from './place';
 
 /**
- * Which names a map has: the countries', the seas', the smallest lettering a name may have (pixels of the screen), and by how much
- * the picture is larger than the screen, so that an export has the names the screen has, as much larger as the rest.
+ * Which names a map has: the countries', the seas', those of the regions of the land, the smallest lettering a name may have (pixels
+ * of the screen), and by how much the picture is larger than the screen, so that an export has the names the screen has, as much
+ * larger as the rest.
  */
-export type NameOptions = { countries: boolean; seas: boolean; smallest: number; scale: number };
+export type NameOptions = { countries: boolean; seas: boolean; regions?: boolean; smallest: number; scale: number };
 
 // A name that touches another is made this much smaller, this many times, before it is given up.
 const SMALLER = 0.8;
@@ -82,9 +84,12 @@ function candidate(member: Member, window: Window, geometry: GeoJSON.GeoJsonObje
  * would be under the smallest size is left out; and a sea's name with land under it is left out. So how many countries are named
  * follows from the map's size and the smallest lettering allowed.
  *
- * `window` is the picture: a country is named within what the picture shows of it. `seas` is null until they have been fetched, and there are no sea names until then. `land` is what counts as land under a sea's name.
+ * The regions of the land, its ranges and deserts, are named the same way after the countries and the seas, each where it touches
+ * none of their names: a desert gives way to the country it lies in.
+ *
+ * `window` is the picture: a country is named within what the picture shows of it. `seas` and `regions` are null until they have been fetched, and there are none of their names until then. `land` is what counts as land under a sea's name.
  */
-export function buildNames(member: Member, window: Window, opts: NameOptions, measure: Measure, seas: Sea[] | null, land: GeoJSON.GeoJsonObject): Label[] {
+export function buildNames(member: Member, window: Window, opts: NameOptions, measure: Measure, seas: Sea[] | null, land: GeoJSON.GeoJsonObject, regions: Region[] | null = null): Label[] {
   const { scale } = opts;
   const least = opts.smallest * scale;
   const candidates: Candidate[] = [];
@@ -102,8 +107,16 @@ export function buildNames(member: Member, window: Window, opts: NameOptions, me
       if (found) candidates.push(found);
     }
   }
-  // The largest first, and of two the same size the more important.
-  candidates.sort((a, b) => b.fit.size - a.fit.size || a.rank - b.rank);
+  if (opts.regions && regions) {
+    const fitting = { ...REGION_FIT, maxSize: REGION_FIT.maxSize * scale };
+    for (const region of regions) {
+      const found = candidate(member, window, region.geometry, region.name, 'region', fitting, measure, region.rank, least);
+      if (found) candidates.push(found);
+    }
+  }
+  // The regions after the rest; then the largest first, and of two the same size the more important.
+  const last = (one: Candidate) => Number(one.kind === 'region');
+  candidates.sort((a, b) => last(a) - last(b) || b.fit.size - a.fit.size || a.rank - b.rank);
 
   // The land as the map shows it, to see whether a sea's name lies on any of it.
   const shore = candidates.some((one) => one.kind === 'sea') ? piecesOf(member, land) : [];

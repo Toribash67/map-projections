@@ -18,8 +18,12 @@ const FACES: Face[] = [
   { weight: 700, style: 'normal', url: bold },
 ];
 
-/** The weight and slope of a kind of label: countries and degrees upright and medium, seas in italic. */
-export const faceOf = (kind: Label['kind']): { weight: 400 | 500; style: 'normal' | 'italic' } => (kind === 'sea' ? { weight: 400, style: 'italic' } : { weight: 500, style: 'normal' });
+/**
+ * The weight and slope of a kind of label: countries, capitals, degrees and hours upright and medium; cities upright and light; and
+ * what is of the Earth and not of people, the seas, the regions of the land and its peaks, in italic.
+ */
+export const faceOf = (kind: Label['kind']): { weight: 400 | 500; style: 'normal' | 'italic' } =>
+  kind === 'sea' || kind === 'region' || kind === 'peak' ? { weight: 400, style: 'italic' } : kind === 'city' ? { weight: 400, style: 'normal' } : { weight: 500, style: 'normal' };
 
 /** A canvas font for a weight and slope at a size in pixels. */
 export const fontOf = (weight: number, style: 'normal' | 'italic', size: number): string => `${style === 'italic' ? 'italic ' : ''}${weight} ${size}px ${FONT_FAMILY}, ${FALLBACK}`;

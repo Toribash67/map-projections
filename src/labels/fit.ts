@@ -11,6 +11,8 @@ export type FitOptions = { thin: number; fill: number; minGap: number; maxGap: n
 export const COUNTRY_FIT: FitOptions = { thin: 0.5, fill: 0.42, minGap: 0.12, maxGap: 1.1, spread: 0.72, maxSize: 30 };
 /** A sea: smaller in its room, and spaced wider. */
 export const SEA_FIT: FitOptions = { thin: 0.45, fill: 0.2, minGap: 0.3, maxGap: 2.2, spread: 0.6, maxSize: 26 };
+/** A region of the land, as a range or a desert: like a sea, and smaller, as it shares the land with the countries' names. */
+export const REGION_FIT: FitOptions = { thin: 0.45, fill: 0.16, minGap: 0.3, maxGap: 1.8, spread: 0.6, maxSize: 12 };
 
 /**
  * A name fitted to a shape: how tall its letters are, the space between them in letter heights, and the curve its middle line runs

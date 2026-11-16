@@ -4,7 +4,7 @@ import type { DrawingModel } from './drawing/model';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
 import { createLocator } from './locator/locator';
 import { createDrawingToolbar } from './ui/drawingToolbar';
-import { createExportPanel } from './ui/exportPanel';
+import { createExportView, type ExportView } from './ui/exportView';
 import { createSidebar } from './ui/sidebar';
 import { createLayersPanel } from './ui/layersPanel';
 import { createZoomControl } from './ui/zoomControl';
@@ -13,6 +13,7 @@ declare global {
   interface Window {
     __app: App;
     __drawing: DrawingModel;
+    __export: ExportView;
   }
 }
 
@@ -34,7 +35,10 @@ const tools = createDrawingToolbar(app, canvas, find('#notice'), prefs.drawMode,
 });
 find('#tools').append(tools.el);
 createLayersPanel(app, find('#actions'));
-createExportPanel(app, find('#actions'));
+const exportView = createExportView(app, { app: find('#app'), side: find('#export-side'), preview: find('#preview'), actions: find('#actions') }, prefs.print, (print) => {
+  prefs.print = print;
+  savePrefs(prefs);
+});
 find('#zoom').append(createZoomControl(app));
 createLocator(find('#locator'), app, prefs.locator, (locator) => {
   prefs.locator = locator;
@@ -44,3 +48,4 @@ createSidebar(app, find('#sidebar'));
 // For tests.
 window.__app = app;
 window.__drawing = tools.model;
+window.__export = exportView;

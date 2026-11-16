@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { ExportTooLarge, exportBlob, exportName, exportScene, SIZE_PRESETS, type ExportOptions, type Snapshot } from '../src/export/render';
+import { DETAIL_LINES, ExportTooLarge, exportBlob, exportName, exportScene, lineScaleOf, SIZE_PRESETS, type ExportOptions, type Snapshot } from '../src/export/render';
 import { DEFAULT_LAYERS, sceneLayers } from '../src/layers/layers';
 import { buildScene, type ScenePiece } from '../src/morph/scene';
 import { compile, stateForStop } from '../src/projections/compile';
@@ -141,6 +141,29 @@ describe('a picture the browser cannot make', () => {
     expect(text).toContain('width="2000"');
     expect(text).not.toContain('<rect');
   });
+
+  test('the finer the coast a picture is drawn from, the finer its lines', async () => {
+    const snap = snapshotOf('mollweide');
+    const placed = { size: VIEWPORT, lineScale: 4, member: null as never, zoom: 1 };
+    const scaleAt = (detail: ExportOptions['detail'], lineWeight = 1) => lineScaleOf({ ...snap, layers: { ...snap.layers, lineWeight } }, { ...OPTIONS, detail }, placed);
+    // From the map's own coast the lines are the map's own, as much larger as the picture is.
+    expect(scaleAt('110m')).toBe(4);
+    expect(scaleAt('50m')).toBeLessThan(scaleAt('110m'));
+    expect(scaleAt('10m')).toBeLessThan(scaleAt('50m'));
+    expect(scaleAt('10m', 2)).toBe(2 * scaleAt('10m'));
+    expect(Object.keys(DETAIL_LINES)).toEqual(['110m', '50m', '10m']);
+  });
+
+  test('the lines of a picture are as heavy as was chosen for it, over what they are on the map', async () => {
+    const graticule = async (lineWeight: number) => {
+      const snap = snapshotOf('mollweide');
+      const text = await (await exportBlob({ ...snap, layers: { ...snap.layers, lineWeight } }, { ...OPTIONS, format: 'svg' })).text();
+      return Number(text.match(/<g id="graticule">\s*<path[^>]* stroke-width="([\d.]+)"/)![1]);
+    };
+    const [usual, light, heavy] = [await graticule(1), await graticule(0.5), await graticule(2)];
+    expect(light).toBeCloseTo(usual / 2, 1);
+    expect(heavy).toBeCloseTo(usual * 2, 1);
+  });
 });
 
 describe('what is over an exported map', () => {
@@ -180,6 +203,6 @@ describe('what is over an exported map', () => {
 
   test('with nothing over the map there is nothing over the export', async () => {
     const snap = snapshotOf('mercator');
-    expect(exportOverlay(snap, await exportScene(snap, OPTIONS), measure, null, LAND)).toEqual({ labels: [], plate: expect.objectContaining({ frame: null, box: null }) });
+    expect(exportOverlay(snap, await exportScene(snap, OPTIONS), measure, null, LAND)).toEqual({ labels: [], marks: [], plate: expect.objectContaining({ frame: null, box: null }) });
   });
 });

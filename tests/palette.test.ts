@@ -47,8 +47,8 @@ describe('the palette', () => {
   test('light mode has the colours it had before there was a dark mode, and a darker red for text', () => {
     // The indicatrix's own fill came with its losing its outline.
     // And the layers that came later have colours of their own.
-    const { accentText, indicatrix, borders, standard, reference, political, rivers, deep, labels, seaLabels, ...rest } = LIGHT;
-    expect([borders, standard, reference, rivers, deep, labels, seaLabels].every((c) => typeof c === 'string')).toBe(true);
+    const { accentText, indicatrix, borders, standard, reference, political, rivers, deep, labels, seaLabels, high, ice, ...rest } = LIGHT;
+    expect([borders, standard, reference, rivers, deep, labels, seaLabels, high, ice].every((c) => typeof c === 'string')).toBe(true);
     expect(political).toHaveLength(5);
     expect(indicatrix).toBe('rgba(217, 71, 43, 0.34)');
     expect(rest).toEqual(LIGHT_BEFORE);
@@ -67,7 +67,7 @@ describe('the palette', () => {
       expect([style.background, style.ocean, style.land, style.graticule, style.coast, style.accent, style.accentFill]).toEqual([palette.paper, palette.ocean, palette.land, palette.graticule, palette.coast, palette.accent, palette.accentFill]);
     }
     const [light, dark] = [mapStyle('light'), mapStyle('dark')];
-    expect([light.seamWidth, light.graticuleWidth, light.coastWidth, light.drawingWidth]).toEqual([dark.seamWidth, dark.graticuleWidth, dark.coastWidth, dark.drawingWidth]);
+    expect([light.graticuleWidth, light.coastWidth, light.drawingWidth]).toEqual([dark.graticuleWidth, dark.coastWidth, dark.drawingWidth]);
     expect(mapStyle('dark')).toBe(mapStyle('dark'));
   });
 

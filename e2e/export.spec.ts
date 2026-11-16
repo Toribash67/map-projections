@@ -1,20 +1,22 @@
 import { expect, test, type Download, type Page } from '@playwright/test';
-import { isMorphing, open, pick, settle } from './support';
+import { isMorphing, open, pick, pictured, settle } from './support';
 
-const panel = (page: Page) => page.locator('#export-panel');
-const exportButton = (page: Page) => page.getByRole('button', { name: 'Export', exact: true }).first();
+const panel = (page: Page) => page.locator('#export-side');
+const exportButton = (page: Page) => page.locator('#actions').getByRole('button', { name: 'Export', exact: true });
 const go = (page: Page) => panel(page).locator('.export-go');
 
-type Choices = { format?: 'PNG' | 'SVG'; extent?: 'Whole map' | 'Current view'; size?: string; width?: number; detail?: '110m' | '50m' | '10m'; background?: 'As on screen' | 'Transparent' };
+type Choices = { format?: 'PNG' | 'SVG'; extent?: 'Whole map' | 'Zoomed view'; size?: string; width?: number; detail?: '110m' | '50m' | '10m'; background?: 'Filled' | 'Transparent' };
 
-/** Opens the panel, if it is not open, and makes the choices given. The coarse coast is the one on screen, and is the default here. */
+/** Opens the export view, if it is not open, and makes the choices given. The coarse coast is the one on the map, and is the default here. */
 async function choose(page: Page, { format, extent, size, width, detail = '110m', background }: Choices) {
   if (await panel(page).isHidden()) await exportButton(page).click();
   for (const name of [format, extent, background]) if (name) await panel(page).getByRole('radio', { name, exact: true }).check();
   if (size) await panel(page).getByRole('combobox', { name: 'Size' }).selectOption({ label: size });
   if (width) await panel(page).getByRole('spinbutton', { name: 'Width in pixels' }).fill(String(width));
   await panel(page).getByRole('combobox', { name: 'Detail' }).selectOption(detail);
+  await pictured(page);
 }
+const back = (page: Page) => panel(page).getByRole('button', { name: 'Back to the map' }).click();
 
 /** Exports with the choices given, and gives the file that comes of it: the download, and what is in it, which the page is asked to keep as it hands it over. */
 async function exported(page: Page, choices: Choices): Promise<{ download: Download; url: string }> {
@@ -103,6 +105,7 @@ test('borders, the political map, indicatrices and a drawing are in both formats
   await show(page, 'mollweide');
   const plain = await read(page, (await exported(page, { format: 'PNG', size: 'Screen' })).url);
   expect(plain.reddish).toBe(0);
+  await back(page);
   await page.evaluate(() => {
     const app = (window as any).__app;
     for (const layer of ['borders', 'political', 'tissot']) app.setLayer(layer, true);
@@ -116,7 +119,7 @@ test('borders, the political map, indicatrices and a drawing are in both formats
   await settle(page);
   await expect(page.locator('#locator canvas')).toBeVisible();
   for (const format of ['PNG', 'SVG'] as const) {
-    const picture = await read(page, (await exported(page, format === 'PNG' ? { format, extent: 'Current view', size: 'Screen' } : { format, extent: 'Current view' })).url);
+    const picture = await read(page, (await exported(page, format === 'PNG' ? { format, extent: 'Zoomed view', size: 'Screen' } : { format, extent: 'Zoomed view' })).url);
     expect([picture.width, picture.height], format).toEqual([1000, 600]);
     // The drawing and the indicatrices are there, and the whole is the canvas, on which the corner globe is not.
     expect(picture.reddish, format).toBeGreaterThan(500);
@@ -146,22 +149,25 @@ test('a 4K picture from the finer coast is made within twenty seconds', async ({
 test('the view can only be exported zoomed in, and the map only at rest', async ({ page }) => {
   await show(page, 'mollweide');
   await choose(page, {});
-  await expect(panel(page).getByRole('radio', { name: 'Current view' })).toBeDisabled();
+  // At the fit there is one extent, and no choice of it.
+  await expect(panel(page).getByRole('radiogroup', { name: 'Extent' })).toBeHidden();
   await expect(go(page)).toHaveAttribute('aria-disabled', 'false');
-  expect(await page.evaluate(() => (window as any).__app.snapshot() !== null)).toBe(true);
+  await back(page);
 
   await pick(page, 'mercator');
   expect(await isMorphing(page)).toBe(true);
   expect(await page.evaluate(() => (window as any).__app.snapshot())).toBeNull();
-  // The press on the list closed the panel.
-  await exportButton(page).click();
-  await expect(go(page)).toHaveAttribute('aria-disabled', 'true');
-  expect(await go(page).getAttribute('aria-description')).toContain('at rest');
+  await expect(exportButton(page)).toHaveAttribute('aria-disabled', 'true');
+  expect(await exportButton(page).getAttribute('aria-description')).toContain('at rest');
+  // It says it is not to be pressed, and a press does nothing.
+  await exportButton(page).click({ force: true });
+  await expect(panel(page)).toBeHidden();
   await settle(page);
-  await expect(go(page)).toHaveAttribute('aria-disabled', 'false');
+  await expect(exportButton(page)).toHaveAttribute('aria-disabled', 'false');
 
   await page.evaluate(() => (window as any).__app.setView({ zoom: 2, panX: 0, panY: 0 }));
-  await expect(panel(page).getByRole('radio', { name: 'Current view' })).toBeEnabled();
+  await choose(page, {});
+  await expect(panel(page).getByRole('radio', { name: 'Zoomed view' })).toBeEnabled();
 });
 
 test('a picture the browser cannot make gives a notice, and no file', async ({ page }) => {

@@ -2,12 +2,22 @@ import { along, textLength, type Fit, type Pair } from './fit';
 
 /** A letter where it stands: the left end of its baseline, and how it is turned (radians, clockwise on screen). */
 export type Glyph = { ch: string; x: number; y: number; angle: number };
+/** What is marked at a place: a city or a capital by a dot, a peak or a volcano by a triangle, an earthquake by a ring. Where, and how large. */
+export type Mark = { kind: 'capital' | 'city' | 'peak' | 'volcano' | 'quake'; x: number; y: number; r: number };
 /**
- * Lettering as it is drawn: a country's name or a sea's along its curve, or a graticule line's degrees set level. Each letter has its
- * place, so the canvas and an exported drawing set it the same. `discs` are circles (x, y, radius) that cover it, by which two
- * names are found to touch.
+ * Lettering as it is drawn: a country's name, a sea's or a region's along its curve, or set level, a graticule line's degrees, a
+ * time zone's hours, or the name of a city or a peak beside its mark. Each letter has its place, so the canvas and an exported
+ * drawing set it the same. `discs` are circles (x, y, radius) that cover it and its mark, by which two names are found to touch.
  */
-export type Label = { kind: 'country' | 'sea' | 'degree'; text: string; size: number; glyphs: Glyph[]; discs: [number, number, number][] };
+export type Label = {
+  kind: 'country' | 'sea' | 'region' | 'degree' | 'zone' | 'capital' | 'city' | 'peak';
+  text: string;
+  size: number;
+  glyphs: Glyph[];
+  discs: [number, number, number][];
+  /** What the name is the name of, where that is a place with a mark. The mark stays where the place is, wherever the name is moved to. */
+  mark?: Mark;
+};
 /** The width of some text at a letter height of one, in the typeface of its kind. */
 export type Measure = (text: string, kind: Label['kind']) => number;
 

@@ -1,4 +1,5 @@
 import { feature, mesh } from 'topojson-client';
+import { withoutSlivers } from '../geo/slivers';
 
 /** How fine the coastlines and countries are: Natural Earth at 1:110m, 1:50m or 1:10m. */
 export type Detail = '110m' | '50m' | '10m';
@@ -18,6 +19,15 @@ const files: Record<Detail, () => Promise<[{ default: unknown }, { default: unkn
   '10m': () => Promise.all([import('world-atlas/land-10m.json'), import('world-atlas/countries-10m.json')]),
 };
 
+/** The land of a topology as polygons to fill, without the islets that are squeezed to slivers, which would fill the world. */
+function landOf(topology: any): GeoJSON.GeoJsonObject {
+  const land = feature(topology, topology.objects.land) as unknown as GeoJSON.FeatureCollection;
+  for (const { geometry } of land.features) {
+    if (geometry.type === 'MultiPolygon') geometry.coordinates = withoutSlivers(geometry.coordinates);
+  }
+  return land;
+}
+
 const loaded = new Map<Detail, Promise<DetailData>>();
 
 /** The land, coast and countries at a level of detail. Each level is fetched once, and gives the same objects every time, as the cuts keep what they prepare by object. */
@@ -27,7 +37,7 @@ export function loadDetail(level: Detail): Promise<DetailData> {
     data = files[level]().then(([landModule, countriesModule]) => {
       const [land, countries] = [landModule.default as any, countriesModule.default as any];
       return {
-        land: feature(land, land.objects.land) as unknown as GeoJSON.GeoJsonObject,
+        land: landOf(land),
         coast: mesh(land, land.objects.land) as GeoJSON.GeoJsonObject,
         countries: feature(countries, countries.objects.countries) as unknown as GeoJSON.FeatureCollection,
         topology: countries,

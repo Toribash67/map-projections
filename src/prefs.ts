@@ -1,11 +1,13 @@
-import { CORNERS, DEFAULT_LAYERS, SMALLEST_NAME, TITLE_LENGTH, type Corner, type GraticuleStep, type LayerId, type LayerState } from './layers/layers';
+import { CORNERS, COVERS, DEFAULT_MAP_LAYERS, DEFAULT_PRINT, LINE_WEIGHT, SMALLEST_NAME, TITLE_LENGTH, type Corner, type Cover, type GraticuleStep, type MapLayers, type PrintLayers } from './layers/layers';
 import { COLOUR_NAMES, THEME_NAMES, type ColourKey, type Overrides, type ThemeId } from './theme/themes';
 
 /** What is remembered between visits: how the map looks and what it shows, not which map it is. */
 export interface Prefs {
   theme: ThemeId;
   overrides: Overrides;
-  layers: LayerState;
+  /** The layers of the map as it is explored, and what a picture for export has over them. */
+  layers: MapLayers;
+  print: PrintLayers;
   /** The corner globe: whether it shows the surface the map is projected onto, and whether it is folded away. */
   locator: { surface: boolean; collapsed: boolean };
   /** Whether shapes drawn on a flat map follow the map or the globe. */
@@ -15,7 +17,8 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   theme: 'auto',
   overrides: {},
-  layers: DEFAULT_LAYERS,
+  layers: DEFAULT_MAP_LAYERS,
+  print: DEFAULT_PRINT,
   locator: { surface: true, collapsed: false },
   drawMode: 'map',
 };
@@ -29,6 +32,11 @@ const flag = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean'
 /** A title as it was typed, no longer than a title may be. */
 const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? v.slice(0, TITLE_LENGTH) : fallback);
 
+/** A number that was kept, within its limits. */
+const within = (v: unknown, limits: { min: number; max: number }, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? Math.min(limits.max, Math.max(limits.min, v)) : fallback);
+
+const corner = (v: unknown, fallback: Corner): Corner => ((CORNERS as readonly unknown[]).includes(v) ? (v as Corner) : fallback);
+
 function readOverrides(v: unknown): Overrides {
   const out: Overrides = {};
   if (!isRecord(v)) return out;
@@ -39,18 +47,32 @@ function readOverrides(v: unknown): Overrides {
   return out;
 }
 
-function readLayers(v: unknown): LayerState {
+/** The flags that were kept of those there are, each as it is by default where it was not kept. */
+const readOn = <K extends string>(v: unknown, defaults: Record<K, boolean>): Record<K, boolean> => {
+  const on = isRecord(v) ? v : {};
+  return Object.fromEntries((Object.keys(defaults) as K[]).map((id) => [id, flag(on[id], defaults[id])])) as Record<K, boolean>;
+};
+
+function readLayers(v: unknown): MapLayers {
   const kept = isRecord(v) ? v : {};
-  const on = isRecord(kept.on) ? kept.on : {};
-  const ids = Object.keys(DEFAULT_LAYERS.on) as LayerId[];
   return {
-    on: Object.fromEntries(ids.map((id) => [id, flag(on[id], DEFAULT_LAYERS.on[id])])) as Record<LayerId, boolean>,
-    graticuleStep: ([10, 15, 30] as unknown[]).includes(kept.graticuleStep) ? (kept.graticuleStep as GraticuleStep) : DEFAULT_LAYERS.graticuleStep,
-    graticuleUnder: flag(kept.graticuleUnder, DEFAULT_LAYERS.graticuleUnder),
-    smallestName: typeof kept.smallestName === 'number' && Number.isFinite(kept.smallestName) ? Math.min(SMALLEST_NAME.max, Math.max(SMALLEST_NAME.min, kept.smallestName)) : DEFAULT_LAYERS.smallestName,
-    title: text(kept.title, DEFAULT_LAYERS.title),
-    subtitle: text(kept.subtitle, DEFAULT_LAYERS.subtitle),
-    corner: (CORNERS as readonly unknown[]).includes(kept.corner) ? (kept.corner as Corner) : DEFAULT_LAYERS.corner,
+    on: readOn(kept.on, DEFAULT_MAP_LAYERS.on),
+    graticuleStep: ([10, 15, 30] as unknown[]).includes(kept.graticuleStep) ? (kept.graticuleStep as GraticuleStep) : DEFAULT_MAP_LAYERS.graticuleStep,
+    graticuleUnder: flag(kept.graticuleUnder, DEFAULT_MAP_LAYERS.graticuleUnder),
+  };
+}
+
+function readPrint(v: unknown): PrintLayers {
+  const kept = isRecord(v) ? v : {};
+  return {
+    on: readOn(kept.on, DEFAULT_PRINT.on),
+    cover: (COVERS as readonly unknown[]).includes(kept.cover) ? (kept.cover as Cover) : DEFAULT_PRINT.cover,
+    lineWeight: within(kept.lineWeight, LINE_WEIGHT, DEFAULT_PRINT.lineWeight),
+    smallestName: within(kept.smallestName, SMALLEST_NAME, DEFAULT_PRINT.smallestName),
+    title: text(kept.title, DEFAULT_PRINT.title),
+    subtitle: text(kept.subtitle, DEFAULT_PRINT.subtitle),
+    corner: corner(kept.corner, DEFAULT_PRINT.corner),
+    legendCorner: corner(kept.legendCorner, DEFAULT_PRINT.legendCorner),
   };
 }
 
@@ -80,6 +102,8 @@ export function loadPrefs(storage: Pick<Storage, 'getItem'> | null = browserStor
     theme: typeof v.theme === 'string' && Object.hasOwn(THEME_NAMES, v.theme) ? (v.theme as ThemeId) : DEFAULT_PREFS.theme,
     overrides: readOverrides(v.overrides),
     layers: readLayers(v.layers),
+    // Before the picture had layers of its own they were kept with the map's, and are read from there.
+    print: readPrint(v.print ?? v.layers),
     locator: { surface: flag(locator.surface, DEFAULT_PREFS.locator.surface), collapsed: flag(locator.collapsed, DEFAULT_PREFS.locator.collapsed) },
     drawMode: v.drawMode === 'map' || v.drawMode === 'globe' ? v.drawMode : DEFAULT_PREFS.drawMode,
   };

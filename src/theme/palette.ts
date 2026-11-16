@@ -37,6 +37,11 @@ export type Palette = {
   deep: string;
   labels: string;
   seaLabels: string;
+  // The land at its highest (the steps between are mixed from the land's own colour to this), and ice.
+  high: string;
+  ice: string;
+  // The title box and the legend, where they are not the page's own colour.
+  box?: string;
 };
 export type Scheme = 'light' | 'dark';
 
@@ -67,6 +72,8 @@ export const LIGHT: Palette = {
   deep: '#9db9c9',
   labels: '#2b3a44',
   seaLabels: '#4f7389',
+  high: '#a9825c',
+  ice: '#ffffff',
 };
 
 /**
@@ -101,6 +108,8 @@ export const DARK: Palette = {
   deep: '#0a121a',
   labels: '#eef2f4',
   seaLabels: '#8fb3cc',
+  high: '#b3a182',
+  ice: '#d5e1e8',
 };
 
 export const SCHEMES: readonly Scheme[] = ['light', 'dark'];

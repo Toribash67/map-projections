@@ -102,6 +102,20 @@ describe('a map at rest as SVG', () => {
     expect(groupOf(svg, 'tissot')!.match(/<path /g)).toHaveLength(cut.length);
   });
 
+  test('a fill is exactly its outline: no line is drawn round it, and the countries lie on their own shape in the land\'s colour', () => {
+    // No path that is filled is stroked as well.
+    expect(svg).not.toMatch(/<path[^>]* fill="(?!none)[^"]*"[^>]* stroke=/);
+    expect(groupOf(svg, 'ocean')).not.toContain('stroke');
+    // The countries' shapes are written once, and used again under themselves as one ground.
+    const uses = [0, 1, 2, 3, 4].map((i) => `<use href="#political${i}-shape"/>`).join('\n');
+    expect(svg).toContain(`<g id="countries" fill="${STYLE.land}">\n${uses}\n</g>\n<g id="political0" fill="${STYLE.political[0]}">\n<path id="political0-shape" fill-rule="nonzero" d="M`);
+    expect(svg.indexOf('<g id="countries"')).toBeLessThan(svg.indexOf('<g id="political0"'));
+    // With the plain land there is no such ground, and the land has its colour itself.
+    const plain = sceneToSvg(sceneOf('mollweide', DEFAULT_LAYERS.on), STYLE, VIEW, { background: null, lineScale: 1 });
+    expect(plain).not.toContain('<use');
+    expect(plain).toMatch(new RegExp(`<g id="land" fill="${STYLE.land}">\\s*<path id="land-shape" fill-rule="nonzero" d="M`));
+  });
+
   test('lines are as wide as on screen times the line scale, dashes with them', () => {
     const doubled = sceneToSvg(scene, STYLE, VIEW, { background: null, lineScale: 2 });
     expect(svg).toMatch(new RegExp(`<g id="coast">\\s*<path[^>]* stroke-width="${STYLE.coastWidth}"`));
@@ -130,7 +144,7 @@ describe('what is over a map, as SVG', () => {
   const text = parts.join('\n');
 
   test('with nothing over the map there is nothing, and a drawing without it is as it always was', () => {
-    expect(overlayToSvg({ labels: [], plate: { frame: null, frameWidth: 1, hairline: 1, box: null } }, STYLE, 'x')).toEqual([]);
+    expect(overlayToSvg({ labels: [], marks: [], plate: { frame: null, frameWidth: 1, hairline: 1, box: null, legend: null, credit: null } }, STYLE, 'x')).toEqual([]);
     expect(sceneToSvg(scene, STYLE, VIEW, { background: STYLE.background, lineScale: 1 }, [])).toBe(svg);
   });
 

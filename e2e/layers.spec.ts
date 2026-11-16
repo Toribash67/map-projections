@@ -54,12 +54,12 @@ test('the Layers button opens a panel with every layer, as it is on the map', as
   await layersButton(page).click();
   const names = await page.locator('#layers-panel').getByRole('checkbox').evaluateAll((els) => els.map((el) => [(el as HTMLInputElement).labels![0]!.textContent!.trim(), (el as HTMLInputElement).checked]));
   expect(names).toEqual([
-    ['Land', true], ['Coastline', true], ['Graticule', true], ['Degrees', false], ['Under the land', false], ['Country borders', false], ['Political colours', false],
-    ['Rivers', false], ['Lakes', false], ['Sea depth', false],
+    ['Land', true], ['Coastline', true], ['Graticule', true], ['Under the land', false], ['Country borders', false], ['Political colours', false],
     ['Tissot indicatrices', false], ['Standard lines', false], ['Reference circles', false], ['Drawings', true],
-    // And what is written and drawn over the map.
-    ['Country names', false], ['Sea names', false], ['Frame', false], ['Title box', false],
   ]);
+  // The colours are those of what the map shows: the rivers' and the names' are with the picture for export.
+  const colours = await page.locator('#layers-panel .colour').allTextContents();
+  expect(colours).toEqual(['Sea', 'Land', 'Coast', 'Graticule', 'Borders', 'Accent', 'Background']);
   // Each says what it is in a tip.
   for (const box of await page.locator('#layers-panel label.layer').all()) expect(await box.getAttribute('aria-description')).toBeTruthy();
   await page.keyboard.press('Escape');
@@ -191,7 +191,7 @@ test('a theme is chosen from the panel, and repaints the map and the page', asyn
 
 test('a colour is set by hand in the panel, kept over a reload, and reset to the theme\'s', async ({ page }) => {
   await onMap(page, 'mollweide');
-  const sea = page.locator('#colour-ocean');
+  const sea = page.locator('#layers-panel [id^="colour-ocean-"]');
   await expect(sea).toHaveValue(LIGHT.ocean);
   await expect(page.getByRole('button', { name: 'Reset sea' })).toHaveCount(0);
   await sea.fill('#ff0000');
@@ -204,14 +204,14 @@ test('a colour is set by hand in the panel, kept over a reload, and reset to the
   await frames(page);
   expect(await countOf(page, [255, 0, 0], 6)).toBeGreaterThan(50_000);
   await layersButton(page).click();
-  await expect(page.locator('#colour-ocean')).toHaveValue('#ff0000');
+  await expect(page.locator('#layers-panel [id^="colour-ocean-"]')).toHaveValue('#ff0000');
   await page.getByRole('button', { name: 'Reset sea' }).click();
   await frames(page);
   expect(await countOf(page, [255, 0, 0], 6)).toBe(0);
-  await expect(page.locator('#colour-ocean')).toHaveValue(LIGHT.ocean);
+  await expect(page.locator('#layers-panel [id^="colour-ocean-"]')).toHaveValue(LIGHT.ocean);
   // Reset colours takes off all of them at once.
-  await page.locator('#colour-land').fill('#00ff00');
-  await page.locator('#colour-accent').fill('#0000ff');
+  await page.locator('#layers-panel [id^="colour-land-"]').fill('#00ff00');
+  await page.locator('#layers-panel [id^="colour-accent-"]').fill('#0000ff');
   expect(await page.evaluate(() => (window as any).__app.overrides)).toEqual({ land: '#00ff00', accent: '#0000ff' });
   await page.getByRole('button', { name: 'Reset colours' }).click();
   expect(await page.evaluate(() => (window as any).__app.overrides)).toEqual({});

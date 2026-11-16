@@ -125,7 +125,7 @@ test('every icon is a 16 pixel drawing in the colour of its text', async ({ page
       return { name, tag: svg.tagName, size: [svg.getAttribute('width'), svg.getAttribute('height')], hidden: svg.getAttribute('aria-hidden'), marks: svg.children.length, colour: svg.outerHTML.includes('currentColor') };
     });
   });
-  expect(result.map((r) => r.name).sort()).toEqual(['circle', 'clear', 'collapse', 'export', 'finish', 'fit', 'follow-globe', 'follow-map', 'layers', 'line', 'polygon', 'reset', 'surface', 'undo', 'zoom-in', 'zoom-out']);
+  expect(result.map((r) => r.name).sort()).toEqual(['back', 'circle', 'clear', 'collapse', 'export', 'finish', 'fit', 'follow-globe', 'follow-map', 'layers', 'line', 'polygon', 'reset', 'surface', 'undo', 'zoom-in', 'zoom-out']);
   for (const r of result) {
     expect(r, r.name).toMatchObject({ tag: 'svg', size: ['16', '16'], hidden: 'true', colour: true });
     expect(r.marks, r.name).toBeGreaterThan(0);

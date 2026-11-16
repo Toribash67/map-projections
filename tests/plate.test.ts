@@ -1,9 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { DEFAULT_LAYERS, type Corner, type LayerState } from '../src/layers/layers';
-import { buildPlate, FRAME_MARGIN, paddingFor, pictureRect, settingsLine, type Plate, type Rect } from '../src/plate/plate';
+import { DEFAULT_LAYERS, DEFAULT_MAP_LAYERS, type Corner, type LayerState } from '../src/layers/layers';
+import { buildPlate, FRAME_MARGIN, paddingFor, settingsLine, type Plate, type Rect } from '../src/plate/plate';
 import { compile, stateForStop } from '../src/projections/compile';
 import { computeScreen, mapSize, PADDING } from '../src/screen/screen';
-import { FIT } from '../src/screen/view';
 import { stopOf } from './stopOf';
 import { VIEW } from './sceneSupport';
 
@@ -15,10 +14,12 @@ const inside = (inner: Rect, outer: Rect) => inner.x >= outer.x && inner.y >= ou
 const plate = (on: Partial<LayerState['on']>, rest: Partial<LayerState> = {}, picture = PICTURE): Plate => buildPlate(bonne, stopOf('bonne'), layers(on, rest), picture, measure);
 const widthOf = (line: { text: string; size: number; gap: number }) => line.size * measure(line.text) + line.gap * (line.text.length - 1);
 
-describe('the margin and the picture', () => {
+describe('the margin', () => {
   test('a frame has more margin round the map, and the fit can be given any margin', () => {
     expect(paddingFor(DEFAULT_LAYERS)).toBe(PADDING);
     expect(paddingFor(layers({ frame: true }))).toBe(PADDING + FRAME_MARGIN);
+    // The map as it is explored has no frame.
+    expect(paddingFor(DEFAULT_MAP_LAYERS)).toBe(PADDING);
     const c = compile(stateForStop(stopOf('equirectangular')));
     expect(computeScreen(c, VIEW)).toEqual(computeScreen(c, VIEW, PADDING));
     const [plain, wide] = [mapSize(c, VIEW), mapSize(c, VIEW, 40)];
@@ -26,16 +27,6 @@ describe('the margin and the picture', () => {
     expect(wide.width).toBeCloseTo(VIEW.width - 80, 6);
     // Twice as wide as tall, but for a sliver at each pole.
     expect(wide.height).toBeCloseTo(wide.width / 2, -1);
-  });
-
-  test('the picture is the map and its margin at the fit, in the middle of the window, and the window when zoomed in', () => {
-    const c = compile(stateForStop(stopOf('equirectangular')));
-    const picture = pictureRect(c, VIEW, FIT, 40);
-    expect(picture.width).toBeCloseTo(VIEW.width, 6);
-    expect(picture.height).toBeCloseTo(mapSize(c, VIEW, 40).height + 80, 6);
-    expect(picture.x).toBeCloseTo(0, 6);
-    expect(picture.y).toBeCloseTo((VIEW.height - picture.height) / 2, 6);
-    expect(pictureRect(c, VIEW, { zoom: 3, panX: 10, panY: 0 }, 40)).toEqual({ x: 0, y: 0, ...VIEW });
   });
 });
 

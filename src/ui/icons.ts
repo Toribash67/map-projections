@@ -17,6 +17,7 @@ const DRAWINGS = {
   fit: '<path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/>',
   surface: '<ellipse cx="8" cy="4" rx="5" ry="1.75"/><path d="M3 4v8c0 1 2.2 1.75 5 1.75s5-.75 5-1.75V4"/>',
   collapse: '<path d="M4 6l4 4 4-4"/>',
+  back: '<path d="M9.5 3.5 5 8l4.5 4.5"/>',
   reset: '<path d="M3 8a5 5 0 1 0 1.6-3.7"/><path d="M3 2.5v3h3"/>',
 } as const;
 
